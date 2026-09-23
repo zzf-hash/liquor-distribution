@@ -1,0 +1,13 @@
+{
+  "name": "liquor-distribution",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:admin": "pnpm --filter @liquor/admin dev",
+    "build:admin": "pnpm --filter @liquor/admin build"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
