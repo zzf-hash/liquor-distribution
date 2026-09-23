@@ -4,7 +4,7 @@
 
 - apps/admin   内勤后台 Web（React + Ant Design Pro 组件集）—— P0-01b（task 7bb5e0eb, frontend 32c4186f）
 - apps/api     服务端 NestJS + Prisma —— P0-01（backend, 进行中）
-- apps/miniapp 移动端 Taro（预留）—— 待 P0-01 落地后开工
+- apps/miniapp 移动端 Taro（Taro 4.2.1 + React + TS + Vite compiler）—— P0-01b同链 d0974541（frontend 32c4186f）骨架已落：四端复用开关+客户首页三入口壳（语音/拍照/文字），weapp+h5 双编译
 - packages/shared 共享类型/校验规则（预留）
 
 ## 状态

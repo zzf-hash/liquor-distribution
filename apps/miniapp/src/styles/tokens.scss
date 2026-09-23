@@ -1,0 +1,26 @@
+/**
+ * 全局设计令牌（task d0974541, 计划书§2.1易用性红线）
+ *
+ * 触控规范：designWidth=750，样式里写 px（等于设计稿值）。
+ * 44px 物理触控 = 88px（本工程计量），全部按钮/可点卡片必须 ≥ $touch-min。
+ * 颜色/字号仅此一处定义，页面一律引用变量，禁止散落魔法值。
+ */
+
+// —— 触控与间距（红线：触控 ≥ 88px 计量值 = 44px 物理） ——
+$touch-min: 88px;          // 任何可点元素最小高度
+$gap-base: 24px;
+$gap-lg: 32px;
+$radius-base: 16px;
+
+// —— 主色（酒类深红） ——
+$color-primary: #8b1e24;
+$color-primary-pressed: #6f1418;
+$color-bg: #f7f5f2;
+$color-card: #ffffff;
+$color-text: #2b2422;
+$color-text-sub: #8a7f7a;
+
+// —— 字号（≥30px 计量 = 15px 物理，老年可读下限） ——
+$font-title: 40px;
+$font-body: 32px;
+$font-sub: 28px;

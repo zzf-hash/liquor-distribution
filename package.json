@@ -5,7 +5,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev:admin": "pnpm --filter @liquor/admin dev",
-    "build:admin": "pnpm --filter @liquor/admin build"
+    "build:admin": "pnpm --filter @liquor/admin build",
+    "dev:miniapp": "pnpm --filter @liquor/miniapp dev:weapp",
+    "build:miniapp": "pnpm --filter @liquor/miniapp build:weapp && pnpm --filter @liquor/miniapp build:h5"
   },
   "engines": {
     "node": ">=20"

@@ -3,3 +3,6 @@ dist/
 *.local
 .DS_Store
 *.log
+
+dist-h5/
+.swc/
