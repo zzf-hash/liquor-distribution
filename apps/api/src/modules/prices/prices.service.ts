@@ -266,8 +266,8 @@ export class PricesService {
     throw new NotFoundException('无生效价：该客户×商品×计价单位下未配置任何生效价格');
   }
 
-  /** 失效日不得早于生效日；同时转 Date */
-  private parseRange(dto: CreateProductPriceDto): { validFrom: Date; validTo?: Date } {
+  /** 失效日不得早于生效日；同时转 Date（商品价/客户专属价共用） */
+  private parseRange(dto: { validFrom: string; validTo?: string }): { validFrom: Date; validTo?: Date } {
     const validFrom = new Date(dto.validFrom);
     const validTo = dto.validTo ? new Date(dto.validTo) : undefined;
     if (Number.isNaN(validFrom.getTime())) throw new BadRequestException('生效日格式错误');
