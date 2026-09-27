@@ -1,0 +1,51 @@
+# 酒类分销订货商城 — 轻量云部署(43.134.86.167 / liquor-sg)
+#
+# 用法(在本机项目根目录):
+#   ./deploy/deploy.sh            # 构建并推送镜像、服务器上起栈
+#   ./deploy/deploy.sh logs       # 看日志
+#   ./deploy/deploy.sh restart    # 重启栈
+#   ./deploy/deploy.sh down       # 停栈
+#
+# 架构: nginx(80, 静态admin + /api反代) -> api(NestJS) -> postgres(5432仅内部)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: liquor
+      POSTGRES_USER: liquor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在.env设置}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U liquor -d liquor"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 400m
+
+  api:
+    image: liquor/api:${TAG:-latest}
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://liquor:${POSTGRES_PASSWORD}@postgres:5432/liquor
+      NODE_ENV: production
+      PORT: 3000
+      JWT_SECRET: ${JWT_SECRET:?请在.env设置}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 700m
+
+  web:
+    image: liquor/web:${TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    mem_limit: 150m
+
+volumes:
+  pgdata:
