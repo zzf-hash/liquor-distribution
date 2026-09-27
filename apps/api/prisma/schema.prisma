@@ -1,0 +1,709 @@
+// 酒类分销订货商城 — Prisma Schema (P0)
+// 安全基线: docs/M0/安全评审-01.md 阻断项 B1~B5 全部落表
+//   B1 账号禁用即时生效  → User.token_version (JWT 携带, 校验比对, 禁用/改密/改角色即 bump)
+//   B2 审计 append-only  → AuditLog.prev_row_hash/row_hash 哈希链 (仅 INSERT+SELECT, Prisma 层禁 update/delete)
+//   B3 订单明细不可改    → OrderLine 金额/单价一次写入, 禁 UPDATE (改单只走红字冲销行 reversalOfId)
+//   B4 余额禁直改        → 库存/应收余额均为流水投影 (InventoryLedger/ReceivableLedger append-only, 无可直接改的余额列)
+//   B5 租户第一天进表    → 全部业务表 tenant_id NOT NULL + 复合索引首列
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────── 基础: 租户 / 用户 / 权限 ─────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  code      String   @unique
+  createdAt DateTime @default(now())
+
+  users        User[]
+  products     Product[]
+  customers    Customer[]
+  orders       SalesOrder[]
+  receivables  Receivable[]
+  payments     Payment[]
+  auditLogs    AuditLog[]
+}
+
+enum Role {
+  OWNER    // 企业主
+  REP      // 业务员
+  CLERK    // 内勤出纳
+  WAREHOUSE // 仓配
+  CUSTOMER // 客户(外部身份, P1-1 信道分离)
+}
+
+enum DataScope {
+  ALL           // 老板/内勤: 全租户
+  SELF          // 业务员: 自己相关
+  OWN_CUSTOMERS // 业务员: 自己客户
+  SELF_ORDER    // 客户: 自己订单
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+model User {
+  id           String     @id @default(cuid())
+  tenantId     String
+  username     String
+  passwordHash String? // 客户(微信)P0 无口令; 员工账密必填
+  name         String
+  role         Role
+  dataScope    DataScope
+  tokenVersion Int        @default(0) // B1: JWT 携带版本, 不符即 401
+  status       UserStatus @default(ACTIVE)
+  phone        String?
+  customerId   String? // role=CUSTOMER 时绑定的客户档案
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  tenant           Tenant         @relation(fields: [tenantId], references: [id])
+  customer         Customer?      @relation("CustomerLoginUser", fields: [customerId], references: [id])
+  salesOf          Customer[]     @relation("CustomerSalesperson")
+  ordersCreated    SalesOrder[]   @relation("OrderCreator")
+  paymentsReported Payment[]      @relation("PaymentReporter")
+  paymentsEntered  Payment[]      @relation("PaymentClerk")
+  auditLogs        AuditLog[]
+
+  @@unique([tenantId, username])
+  @@index([tenantId, role])
+}
+
+// ───────────────────────── P0-T10 商品档案 ─────────────────────────
+
+enum ProductCategory {
+  BAIJIU  // 白酒
+  PIJIU   // 啤酒
+  HONGJIU // 红酒
+  YANGJIU // 洋酒
+  YINLIAO // 饮料
+  QITA    // 其他
+}
+
+enum ProductStatus {
+  ON_SALE
+  OFF_SALE
+}
+
+model Product {
+  id          String          @id @default(cuid())
+  tenantId    String
+  skuCode     String // 商户现用编码沿用 (§3 商品编码口径)
+  name        String
+  category    ProductCategory
+  brand       String?
+  baseUnit    String // 主单位(箱)
+  minUnit     String @default("瓶") // 最小单位
+  packSize    Int // 整散换算: 1 主单位 = packSize 最小单位
+  barcode     String?
+  abv         Float? // 度数
+  origin      String?
+  supplier    String?
+  specText    String? // 规格描述 500ml×6
+  highValue   Boolean         @default(false) // 高值品→防盗调包标记
+  status      ProductStatus   @default(ON_SALE)
+  pinyinFirst String? // 首字搜索
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  tenant        Tenant          @relation(fields: [tenantId], references: [id])
+  prices        Price[]
+  customerPrice CustomerPrice[]
+  batches       BatchStock[]
+  ledger        InventoryLedger[]
+  orderLines    OrderLine[]
+
+  @@unique([tenantId, skuCode])
+  @@index([tenantId, name])
+  @@index([tenantId, category])
+}
+
+// ───────────────────────── P0-T11 五级价 + 一客一价 ─────────────────────────
+
+// 五级价链 (R1): 成本→一批→二批→终端供货→零售指导 (全局价, 按商品×计价单位)
+enum PriceLevelType {
+  COST     // 成本价(内部, 仅老板/财务可见)
+  TIER1    // 一批价
+  TIER2    // 二批价
+  TERMINAL // 终端供货价(默认对外)
+  RETAIL   // 零售指导价
+}
+
+enum PriceUnit {
+  BASE // 主单位价(箱价)
+  MIN  // 最小单位价(瓶价)
+}
+
+model Price {
+  id          String         @id @default(cuid())
+  tenantId    String
+  productId   String
+  unit        PriceUnit
+  levelType   PriceLevelType
+  price       Decimal        @db.Decimal(12, 2)
+  validFrom   DateTime @default(now()) // 版本化: 只新增不覆盖 (D08)
+  validTo     DateTime?
+  approvalRef String? // 调价审批单号
+  note        String?
+  createdBy   String
+  createdAt   DateTime       @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([tenantId, productId, unit, levelType, validFrom])
+  @@index([tenantId, productId, validFrom])
+}
+
+model CustomerPrice {
+  id          String    @id @default(cuid())
+  tenantId    String
+  customerId  String
+  productId   String
+  unit        PriceUnit
+  price       Decimal   @db.Decimal(12, 2)
+  validFrom   DateTime  @default(now())
+  validTo     DateTime?
+  approvalRef String? // 专属价必须带审批单号(§3)
+  note        String?
+  createdBy   String
+  createdAt   DateTime  @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  product  Product  @relation(fields: [productId], references: [id])
+
+  @@unique([tenantId, customerId, productId, unit, validFrom])
+  @@index([tenantId, customerId, productId])
+}
+
+// ───────────────────────── P0-T12 客户档案 + 开户四步 ─────────────────────────
+
+enum CustomerType {
+  YANJIUDIAN // 烟酒店
+  CHAOSHI    // 超市
+  CANYIN     // 餐饮
+  PIFA       // 批发
+  YECHANG    // 夜场
+  QIYE       // 企事业单位
+  QITA       // 其他
+}
+
+enum SettlementType {
+  CASH    // 现结(额度0 款到发货)
+  MONTHLY // 月结
+}
+
+enum SignMode {
+  E_SIGN // 网签
+  PAPER  // 纸单(打印送货单+回录)
+}
+
+enum OnboardingStatus {
+  REP_DRAFT      // ①业务员录入
+  CLERK_CONFIRMED // ②内勤确认
+  PENDING_OWNER  // ③待老板终审
+  ACTIVE         // ④终审通过(可自主下单)
+  REJECTED
+}
+
+enum LicenseStatus {
+  OK
+  PENDING // 待补证(15天宽限, 超期冻结自主下单)
+}
+
+enum CustomerStatus {
+  ACTIVE
+  DISABLED // 禁用: 禁自主下单, 不禁纸单回录 (D12)
+}
+
+model Customer {
+  id             String           @id @default(cuid())
+  tenantId       String
+  code           String // 客户编码, 唯一键
+  name           String
+  type           CustomerType
+  contact        String?
+  phone          String
+  region         String?
+  address        String
+  abcLevel       String? // A/B/C
+  settlement     SettlementType  @default(MONTHLY)
+  termsDays      Int              @default(30) // 账期天数
+  creditLimit    Decimal          @default(0) @db.Decimal(12, 2)
+  minOrderAmount Decimal          @default(0) @db.Decimal(12, 2) // 起送量
+  receivingWindow String? // 收货时段
+  signMode       SignMode         @default(E_SIGN)
+  printerModel   String?
+  salespersonId  String? // 归属业务员(绩效锚 D5)
+  bossPhone      String?
+  licenseNo      String?
+  licenseStatus  LicenseStatus    @default(PENDING)
+  onboarding     OnboardingStatus @default(REP_DRAFT)
+  status         CustomerStatus   @default(ACTIVE)
+  note           String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  tenant        Tenant           @relation(fields: [tenantId], references: [id])
+  salesperson   User?            @relation("CustomerSalesperson", fields: [salespersonId], references: [id])
+  loginUsers    User[]           @relation("CustomerLoginUser")
+  prices        CustomerPrice[]
+  orders        SalesOrder[]
+  receivables   Receivable[]
+  payments      Payment[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, name])
+  @@index([tenantId, salespersonId])
+}
+
+// ───────────────────────── P0-T22 库存: 批次 + 不可变流水 (B4) ─────────────────────────
+
+model BatchStock {
+  id           String    @id @default(cuid())
+  tenantId     String
+  productId    String
+  batchNo      String // 非批次商品 = "期初"(模板口径)
+  produceDate  DateTime?
+  expiryDate   DateTime? // 啤酒/效期品必填, 已过期拒入(§3)
+  location     String? // 库位(高值品锁定区)
+  unitCost     Decimal   @db.Decimal(12, 4) // 成本单价(移动加权 R7 的输入)
+  snapshotDate DateTime? // 期初盘点基准日(全批唯一硬校验)
+  isInitial    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  product   Product            @relation(fields: [productId], references: [id])
+  ledger    InventoryLedger[]
+  outbound  OutboundLine[]
+
+  @@unique([tenantId, productId, batchNo])
+  @@index([tenantId, productId])
+}
+
+enum LedgerDirection {
+  IN
+  OUT
+}
+
+enum InventoryRefType {
+  INITIAL_IMPORT // 期初导入
+  OUTBOUND       // 出库
+  REJECT_RETURN  // 拒收回冲
+  REVERSAL_IN    // 红字冲销回冲
+  ADJUST         // 盘差调账(P1-07 前仅出库修正)
+}
+
+// append-only 库存流水: 任意时点库存 = SUM(IN) - SUM(OUT) 可重放重建 (B4)
+model InventoryLedger {
+  id        String           @id @default(cuid())
+  tenantId  String
+  productId String
+  batchId   String
+  direction LedgerDirection
+  qty       Decimal          @db.Decimal(14, 3) // 最小单位数量
+  refType   InventoryRefType
+  refNo     String? // 关联单据号(订单号/批次号)
+  note      String?
+  createdBy String
+  createdAt DateTime         @default(now())
+
+  product Product    @relation(fields: [productId], references: [id])
+  batch   BatchStock @relation(fields: [batchId], references: [id])
+
+  @@index([tenantId, productId, createdAt])
+  @@index([tenantId, refType, refNo])
+}
+
+// ───────────────────────── P0-T20~T25 订单主线 ─────────────────────────
+
+enum OrderSource {
+  CLERK   // 内勤开单
+  REP     // 业务员代下
+  CUSTOMER // 客户商城(文字)
+}
+
+// P0-C 统一状态机 (转换白名单见 src/statemachine/order-state.ts)
+// 待确认→已确认→出库→配送→签收→销账 / 取消 / 拒收
+enum OrderStatus {
+  PENDING_CONFIRM
+  CONFIRMED
+  OUTBOUND
+  DELIVERING
+  SIGNED
+  SETTLED
+  CANCELLED
+  REJECTED
+}
+
+model SalesOrder {
+  id               String       @id @default(cuid())
+  tenantId         String
+  orderNo          String
+  customerId       String
+  customerName     String // 快照
+  salespersonId    String? // 归属业务员快照(D5, 下单时点固化)
+  source           OrderSource
+  signMode         SignMode
+  status           OrderStatus
+  totalAmount      Decimal      @default(0) @db.Decimal(12, 2) // 含红字行后的净额(仅由服务端重算)
+  addressSnapshot  String
+  deliveryDate     DateTime? // 指定配送时段(D1 特单信号③)
+  precheck         Json? // 审单预检四要素结果留痕(P0-T21)
+  specialApproved  Boolean      @default(false) // 特批放行
+  cancelReason     String?
+  createdById      String
+  confirmedAt      DateTime?
+  outboundAt       DateTime?
+  signedAt         DateTime?
+  settledAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id])
+  customer   Customer          @relation(fields: [customerId], references: [id])
+  createdBy  User              @relation("OrderCreator", fields: [createdById], references: [id])
+  lines      OrderLine[]
+  outbounds  Outbound[]
+  signature  SignatureRecord?
+  receivables Receivable[]
+
+  @@unique([tenantId, orderNo])
+  @@unique([tenantId, id])
+  @@index([tenantId, status])
+  @@index([tenantId, customerId])
+}
+
+// B3: 已落单行禁 UPDATE(金额/单价) — 改单唯一合法路径 = 红字冲销行(负数量, reversalOfId 关联原行) + 新行
+enum OrderPriceType {
+  CUSTOMER_EXCLUSIVE // 客户专属价
+  TIER1
+  TIER2
+  TERMINAL
+  RETAIL
+  SPECIAL // 特批价(需审批)
+  MANUAL  // 内勤手工价(留痕)
+}
+
+model OrderLine {
+  id             String         @id @default(cuid())
+  tenantId       String
+  orderId        String
+  productId      String
+  productName    String // 商品快照(P0-T11 价格快照物理脱钩)
+  specText       String?
+  unit           PriceUnit
+  conversionRate Int // 换算率快照(1主=N最小)
+  qty            Decimal        @db.Decimal(14, 3)
+  unitPrice      Decimal        @db.Decimal(12, 2) // 成交价快照
+  amount         Decimal        @db.Decimal(12, 2) // = qty*unitPrice (服务端算)
+  priceType      OrderPriceType
+  priceVersion   String // 价格行 id+validFrom 指纹(快照溯源)
+  promoNote      String?
+  isGift         Boolean        @default(false) // 赠品行 0 单价参与库存扣减(D02 四不口径)
+  reversalOfId   String? // 红字冲销: 指向被冲销的原行
+  createdById    String
+  createdAt      DateTime       @default(now())
+
+  order      SalesOrder   @relation(fields: [orderId], references: [id])
+  product    Product      @relation(fields: [productId], references: [id])
+  reversalOf OrderLine?   @relation("OrderLineReversal", fields: [reversalOfId], references: [id])
+  reversedBy OrderLine[]  @relation("OrderLineReversal")
+  outboundLines OutboundLine[]
+
+  @@index([tenantId, orderId])
+  @@index([reversalOfId])
+}
+
+// 特批留痕 (D01: ≤2000 内勤, >2000/低于成本 老板; 信用放行 R2)
+enum ApprovalType {
+  CREDIT_RELEASE // 信用超额放行
+  PRICE_SPECIAL  // 低于可用价/成本价
+  ORDER_SPECIAL  // 特单(地址/时段/宴席/超账期回款)
+}
+
+enum ApprovalResult {
+  APPROVED
+  REJECTED
+}
+
+model ApprovalRecord {
+  id         String        @id @default(cuid())
+  tenantId   String
+  orderId    String
+  type       ApprovalType
+  amount     Decimal?      @db.Decimal(12, 2)
+  reason     String
+  approverId String
+  result     ApprovalResult
+  createdAt  DateTime      @default(now())
+
+  @@index([tenantId, orderId])
+}
+
+// ───────────────────────── P0-T22 出库单 ─────────────────────────
+
+enum OutboundStatus {
+  PICKING  // 拣货中(FIFO 建议批次)
+  CONFIRMED // 复核出库(生成库存流水)
+}
+
+model Outbound {
+  id          String         @id @default(cuid())
+  tenantId    String
+  outboundNo  String
+  orderId     String
+  status      OutboundStatus @default(PICKING)
+  pickerId    String?
+  checkerId   String? // 复核人
+  note        String?
+  confirmedAt DateTime?
+  createdAt   DateTime       @default(now())
+
+  order SalesOrder     @relation(fields: [orderId], references: [id])
+  lines OutboundLine[]
+
+  @@unique([tenantId, outboundNo])
+  @@index([tenantId, orderId])
+}
+
+model OutboundLine {
+  id          String  @id @default(cuid())
+  tenantId    String
+  outboundId  String
+  orderLineId String
+  batchId     String
+  qty         Decimal @db.Decimal(14, 3) // 最小单位
+
+  outbound  Outbound   @relation(fields: [outboundId], references: [id])
+  orderLine OrderLine  @relation(fields: [orderLineId], references: [id])
+  batch     BatchStock @relation(fields: [batchId], references: [id])
+
+  @@index([tenantId, outboundId])
+}
+
+// ───────────────────────── P0-T23 签收(append-only 凭证, P1-6) ─────────────────────────
+
+enum SignatureType {
+  E_SIGN // 电子网签
+  PHOTO  // 拍照签收
+  PAPER  // 纸单回录(P0-T24)
+}
+
+model SignatureRecord {
+  id             String        @id @default(cuid())
+  tenantId       String
+  orderId        String
+  type           SignatureType
+  signerName     String?
+  signedAt       DateTime      @default(now())
+  photoUrl       String? // 凭证存对象存储
+  signatureData  String?
+  deviceInfo     String?
+  recordedById   String // 回录人(D+1 时限)
+  returnPackages Json? // 回包装回填 [{category, qty}] P0 仅记录
+  createdAt      DateTime      @default(now())
+
+  order SalesOrder @relation(fields: [tenantId, orderId], references: [tenantId, id])
+
+  @@unique([tenantId, orderId])
+}
+
+// ───────────────────────── P0-T30~T31 应收/收款/销账 (B4 流水投影) ─────────────────────────
+
+enum ReceivableSourceType {
+  ORDER   // 签收生成(起算=签收完成时刻 D4)
+  INITIAL // 期初历史挂账(不进 SalesOrder)
+}
+
+model Receivable {
+  id           String               @id @default(cuid())
+  tenantId     String
+  sourceType   ReceivableSourceType
+  sourceDocNo  String // 订单号 / 原始单据号
+  customerId   String
+  total        Decimal              @db.Decimal(12, 2) // 不可变(B3 同原则, 差异走红字)
+  dueDate      DateTime // 生成日+账期天数; 现结=生成即到期
+  generatedAt  DateTime @default(now())
+  disputeFlag  Boolean              @default(false) // 争议/死账: 不进账龄分档与提醒(D11)
+  note         String?
+  createdAt    DateTime             @default(now())
+
+  tenant   Tenant             @relation(fields: [tenantId], references: [id])
+  customer Customer           @relation(fields: [customerId], references: [id])
+  order    SalesOrder?        @relation(fields: [tenantId, sourceDocNo], references: [tenantId, orderNo])
+  ledger   ReceivableLedger[]
+
+  @@unique([tenantId, sourceType, sourceDocNo])
+  @@index([tenantId, customerId, dueDate])
+}
+
+enum PaymentStatus {
+  REPORTED // 业务员上报(F9 ①)
+  CONFIRMED // 内勤录入确认(F9 ②→销账)
+  CANCELLED // 冲正=红字, 禁改原单
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  tenantId      String
+  paymentNo     String
+  customerId    String
+  amount        Decimal       @db.Decimal(12, 2)
+  method        String? // 现金/转账/返利抵扣(D02)
+  voucher       String? // 凭证
+  reportedById  String? // 业务员上报
+  enteredById   String? // 内勤录入
+  status        PaymentStatus @default(REPORTED)
+  idemKey       String? // Idempotency-Key (P0-03 幂等)
+  note          String?
+  confirmedAt   DateTime?
+  createdAt     DateTime      @default(now())
+
+  tenant     Tenant            @relation(fields: [tenantId], references: [id])
+  customer   Customer          @relation(fields: [customerId], references: [id])
+  reportedBy User?             @relation("PaymentReporter", fields: [reportedById], references: [id])
+  enteredBy  User?             @relation("PaymentClerk", fields: [enteredById], references: [id])
+  ledger     ReceivableLedger[]
+
+  @@unique([tenantId, paymentNo])
+  @@unique([tenantId, idemKey])
+  @@index([tenantId, customerId])
+}
+
+enum ArLedgerDirection {
+  CHARGE        // 应收发生(签收/期初)
+  SETTLE        // 收款核销(FIFO)
+  REBATE_OFFSET // 返利抵扣(c 直接冲应收)
+  REVERSAL      // 红字冲正
+}
+
+// append-only 应收流水: 余额 = total - SUM(SETTLE+REBATE_OFFSET) 可重放 (B4)
+model ReceivableLedger {
+  id            String            @id @default(cuid())
+  tenantId      String
+  receivableId  String
+  paymentId     String?
+  direction     ArLedgerDirection
+  amount        Decimal           @db.Decimal(12, 2)
+  note          String?
+  createdBy     String
+  createdAt     DateTime          @default(now())
+
+  receivable Receivable @relation(fields: [receivableId], references: [id])
+  payment    Payment?   @relation(fields: [paymentId], references: [id])
+
+  @@index([tenantId, receivableId, createdAt])
+}
+
+// ───────────────────────── P0-T03 审计日志 (B2 哈希链) ─────────────────────────
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  tenantId     String
+  userId       String?
+  username     String
+  role         String
+  action       String // 枚举见 AuditAction 常量(改价/信用放行/销账/抹零/出库/签收/拒收/改单/导入/特批/期初迁移…)
+  entityType   String
+  entityId     String?
+  before       Json? // 动作前值
+  after        Json? // 动作后值
+  ip           String?
+  channel      String   @default("web")
+  prevRowHash  String // 哈希链: sha256(prevRowHash + 本行内容)
+  rowHash      String
+  createdAt    DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, userId, createdAt])
+}
+
+// ───────────────────────── P0-T13 导入批次 + 幂等 ─────────────────────────
+
+enum ImportKind {
+  PRODUCT
+  CUSTOMER
+  PRICE
+  INVENTORY
+  RECEIVABLE
+}
+
+enum ImportStatus {
+  UPLOADED
+  PREVIEWED
+  COMMITTED
+  ROLLED_BACK
+}
+
+enum ImportRowLevel {
+  REJECT_BATCH // R-拒批: 整批不写入
+  REJECT_ROW // R-拒行: 该行进差异报告
+  WARN // R-警告: 待商户批注后放行
+}
+
+model ImportBatch {
+  id            String       @id @default(cuid())
+  tenantId      String
+  batchNo       String
+  kind          ImportKind
+  fileName      String
+  status        ImportStatus @default(UPLOADED)
+  totalRows     Int          @default(0)
+  passedRows    Int          @default(0)
+  rejectedRows  Int          @default(0)
+  warnedRows    Int          @default(0)
+  snapshotDate  DateTime? // 期初库存盘点基准日(全批唯一)
+  report        Json? // 差异报告汇总
+  createdBy     String
+  committedAt   DateTime?
+  rolledBackAt  DateTime?
+  createdAt     DateTime     @default(now())
+
+  rowErrors ImportRowError[]
+
+  @@unique([tenantId, batchNo])
+  @@index([tenantId, kind, status])
+}
+
+model ImportRowError {
+  id         String          @id @default(cuid())
+  tenantId   String
+  batchId    String
+  rowNo      Int
+  rowKey     String? // 商品编码/客户编码/原始单据号…
+  level      ImportRowLevel
+  reasonCode String // DUP_KEY / REF_MISS / ENUM_INVALID / DATE_FMT / AMOUNT_NEG / DATE_ORDER / RECEIVED_GT_TOTAL / OPEN_NEQ / REQUIRED…
+  message    String
+  raw        Json?
+
+  batch ImportBatch @relation(fields: [batchId], references: [id])
+
+  @@index([tenantId, batchId])
+}
+
+// P0-03 幂等键: 资金/库存写接口必带, 服务端唯一索引兜底, 重试不双写
+model IdempotencyRecord {
+  id              String   @id @default(cuid())
+  tenantId        String
+  key             String
+  endpoint        String
+  requestHash     String
+  responseSummary Json?
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  @@unique([tenantId, key])
+}
