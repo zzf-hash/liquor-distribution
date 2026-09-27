@@ -38,11 +38,11 @@ export default function LoginPage(): JSX.Element {
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="当前为 mock 登录（P0-02 接口就绪后切换）"
-            description="账户: admin / clerk / cashier / warehouse / boss，密码均为 123456"
+            message="当前为 mock 登录（VITE_USE_MOCK=false 切真接口）"
+            description="账户: owner / rep / clerk / warehouse / customer，密码均为 123456"
           />
         )}
-        <Form onFinish={onFinish} initialValues={{ username: 'admin', password: '123456' }}>
+        <Form onFinish={onFinish} initialValues={{ username: 'clerk', password: '123456' }}>
           <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]}>
             <Input prefix={<UserOutlined />} placeholder="账号" size="large" />
           </Form.Item>

@@ -9,7 +9,10 @@ import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
 import LoginPage from './pages/LoginPage';
 import PagePlaceholder from './pages/PagePlaceholder';
-import { ADMIN_ROUTES, MENU_ROLES } from './constants/roles';
+import OrdersPage from './pages/orders/OrdersPage';
+import MasterDataPage from './pages/master-data/MasterDataPage';
+import ReceivablesPage from './pages/receivables/ReceivablesPage';
+import { ADMIN_ROUTES, MENU_ROLES, ROLE_LABELS } from './constants/roles';
 import { getAuth, clearAuth } from './services/auth';
 import type { Role } from './constants/roles';
 import { RequireAuth } from './components/RequireAuth';
@@ -22,11 +25,18 @@ const ICONS: Record<string, ReactNode> = {
   SettingOutlined: <SettingOutlined />,
 };
 
+// 业务页面已实施的模块；/reports 与 /settings 仍为路由占位
+const PAGE_BY_PATH: Record<string, JSX.Element> = {
+  '/orders': <OrdersPage />,
+  '/master-data': <MasterDataPage />,
+  '/receivables': <ReceivablesPage />,
+};
+
 function Shell(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const auth = getAuth();
-  const role: Role = auth?.role ?? 'admin';
+  const role: Role = auth?.role ?? 'owner';
 
   // 菜单按角色显隐（§2.1 各岗位只看自己的一屏）
   const visibleRoutes = ADMIN_ROUTES.filter((r) => (MENU_ROLES[r.path] ?? []).includes(role));
@@ -48,7 +58,7 @@ function Shell(): JSX.Element {
         item.path ? <Link to={item.path}>{dom}</Link> : dom
       }
       avatarProps={{
-        title: `${auth?.name ?? ''}（${role}）`,
+        title: `${auth?.name ?? ''}（${ROLE_LABELS[role] ?? role}）`,
         size: 'small',
         render: (_props, dom) => (
           <Button
@@ -70,7 +80,7 @@ function Shell(): JSX.Element {
           <Route
             key={r.path}
             path={`${r.path}/*`}
-            element={<PagePlaceholder title={r.name} taskId={r.taskId} />}
+            element={PAGE_BY_PATH[r.path] ?? <PagePlaceholder title={r.name} taskId={r.taskId} />}
           />
         ))}
         <Route
