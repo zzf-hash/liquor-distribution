@@ -1,0 +1,127 @@
+import { useState } from 'react'
+import { Button, Text, View } from '@tarojs/components'
+import Taro, { useDidShow } from '@tarojs/taro'
+import {
+  UNIT_LABELS,
+  cartQty,
+  fmtMoney,
+  getToken,
+  labelOf,
+  loadCart,
+  ordersApi,
+  saveCart,
+  toNum,
+} from '../../../services/api'
+import type { CartItem } from '../../../services/api'
+import './index.scss'
+
+/**
+ * 购物车（P0-T50）：本地购物车结算确认 → POST /orders {source:'CUSTOMER', lines}。
+ * customerId 不传（P1-5 服务端强制 token 身份）；下单带幂等键，重试不双写。
+ */
+export default function CustomerCartPage() {
+  const [cart, setCart] = useState<CartItem[]>([])
+  const [submitting, setSubmitting] = useState(false)
+
+  useDidShow(() => {
+    if (!getToken()) {
+      Taro.reLaunch({ url: '/pages/customer/login/index' })
+      return
+    }
+    setCart(loadCart())
+  })
+
+  const total = cart.reduce((s, it) => s + toNum(it.price) * it.qty, 0)
+
+  function changeQty(idx: number, delta: number) {
+    const next = cart.map((c) => ({ ...c }))
+    const q = next[idx].qty + delta
+    if (q <= 0) next.splice(idx, 1)
+    else next[idx].qty = q
+    setCart(next)
+    saveCart(next)
+  }
+
+  async function checkout() {
+    if (submitting || cart.length === 0) return
+    const confirm = await Taro.showModal({
+      title: '确认提交订单',
+      content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。提交后商家会尽快确认安排送货。`,
+      confirmText: '提交订单',
+      cancelText: '再看看',
+    })
+    if (!confirm.confirm) return
+    setSubmitting(true)
+    try {
+      const res = await ordersApi.create(
+        cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty })),
+      )
+      saveCart([])
+      setCart([])
+      await Taro.showModal({
+        title: '下单成功',
+        content: `订单号 ${res.orderNo}\n合计 ${fmtMoney(res.totalAmount)}\n商家确认后会安排送货，可在「我的订单」查看进度`,
+        showCancel: false,
+        confirmText: '查看订单',
+      })
+      Taro.switchTab({ url: '/pages/customer/orders/index' })
+    } catch (e) {
+      // 审单预检拦截（起送量/价格等）直接展示后端 message
+      Taro.showModal({
+        title: '下单未成功',
+        content: e instanceof Error ? e.message : '请稍后重试',
+        showCancel: false,
+      })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (cart.length === 0) {
+    return (
+      <View className='state'>
+        <Text className='state__txt'>购物车是空的</Text>
+        <Button className='btn-primary' onClick={() => Taro.switchTab({ url: '/pages/customer/products/index' })}>
+          去选酒
+        </Button>
+      </View>
+    )
+  }
+
+  return (
+    <View className='cart'>
+      <View className='cart__list'>
+        {cart.map((it, idx) => (
+          <View key={`${it.productId}-${it.unit}`} className='crow'>
+            <View className='crow__info'>
+              <Text className='crow__name'>{it.name}</Text>
+              <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
+              <Text className='crow__line'>{fmtMoney(it.price)} × {it.qty} ＝ {fmtMoney(toNum(it.price) * it.qty)}</Text>
+            </View>
+            <View className='stepper'>
+              <Button className='stepper__btn' onClick={() => changeQty(idx, -1)}>−</Button>
+              <Text className='stepper__num'>{it.qty}</Text>
+              <Button className='stepper__btn stepper__btn--plus' onClick={() => changeQty(idx, 1)}>＋</Button>
+            </View>
+          </View>
+        ))}
+        <Text className='cart__tip'>减到 0 即移除该商品；金额为参考，成交价以商家核算为准</Text>
+      </View>
+
+      <View className='cartbar'>
+        <View className='cartbar__sum'>
+          <Text className='cartbar__label'>合计约</Text>
+          <Text className='cartbar__amount'>{fmtMoney(total)}</Text>
+        </View>
+        <Button
+          className='cartbar__btn'
+          loading={submitting}
+          disabled={submitting}
+          onClick={() => { void checkout() }}
+        >
+          去结算
+        </Button>
+      </View>
+    </View>
+  )
+}

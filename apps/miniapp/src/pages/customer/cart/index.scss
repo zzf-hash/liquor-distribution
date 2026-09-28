@@ -1,0 +1,195 @@
+@use '../../../styles/tokens' as *;
+
+.cart {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  padding-bottom: 220px; // 给底部结算栏留位
+  box-sizing: border-box;
+}
+
+.cart__list {
+  display: flex;
+  flex-direction: column;
+  gap: $gap-base;
+}
+
+.crow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.crow__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.crow__name {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.crow__spec {
+  margin-top: 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.crow__line {
+  margin-top: 12px;
+  font-size: $font-sub;
+  color: $color-primary;
+}
+
+.cart__tip {
+  display: block;
+  padding: 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+}
+
+// 步进器（与商品页同款：按钮 88px 见方触控红线）
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: $gap-base;
+}
+
+.stepper__btn {
+  width: $touch-min;
+  height: $touch-min;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-title;
+  line-height: 1;
+  color: $color-text;
+  background: $color-bg;
+  border: none;
+  border-radius: $radius-base;
+  padding: 0;
+
+  &::after {
+    border: none;
+  }
+}
+
+.stepper__btn--plus {
+  color: #fff;
+  background: $color-primary;
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}
+
+.stepper__num {
+  min-width: 56px;
+  text-align: center;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+// 底部结算栏：合计 + 大按钮（≥$touch-min）
+.cartbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  padding: $gap-base;
+  background: $color-card;
+  box-shadow: 0 -4px 16px rgba(43, 36, 34, 0.08);
+}
+
+.cartbar__sum {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.cartbar__label {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.cartbar__amount {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.cartbar__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 280px;
+  min-height: $touch-min;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+  padding: 0 32px;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}
+
+// 空态
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $gap-base;
+  padding: 160px $gap-base;
+  background: $color-bg;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.state__txt {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}

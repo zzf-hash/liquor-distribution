@@ -1,0 +1,124 @@
+@use '../../../styles/tokens' as *;
+
+.olist {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+.olist__body {
+  display: flex;
+  flex-direction: column;
+  gap: $gap-base;
+}
+
+.olist__tip {
+  display: block;
+  padding: 16px 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+}
+
+.ocard {
+  padding: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.ocard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+
+  & + & {
+    margin-top: 12px;
+  }
+}
+
+.ocard__no {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.ocard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.ocard__amount {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+// 状态角标（配色只走令牌色系）
+.tag {
+  padding: 4px 16px;
+  border-radius: 999px;
+  font-size: $font-sub;
+  line-height: 1.4;
+}
+
+.tag--info {
+  color: $color-primary;
+  background: rgba(139, 30, 36, 0.08);
+}
+
+.tag--warn {
+  color: #8a5a00;
+  background: rgba(138, 90, 0, 0.1);
+}
+
+.tag--ok {
+  color: #2e6b34;
+  background: rgba(46, 107, 52, 0.1);
+}
+
+.tag--danger {
+  color: #a02228;
+  background: rgba(160, 34, 40, 0.1);
+}
+
+.tag--muted {
+  color: $color-text-sub;
+  background: rgba(138, 127, 122, 0.12);
+}
+
+// 空态/错误态
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $gap-base;
+  padding: 160px $gap-base;
+}
+
+.state__txt {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}

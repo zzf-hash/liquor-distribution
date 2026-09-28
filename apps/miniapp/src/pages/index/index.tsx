@@ -1,6 +1,7 @@
 import { View, Text, Button } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { APP_TITLE } from '../../config/app-role'
+import { getToken } from '../../services/api'
 import './index.scss'
 
 /**
@@ -9,7 +10,7 @@ import './index.scss'
  * §2.1 原文约束：客户订货主路径=语音/拍照/文字三入口，首次下单≤3分钟。
  * 本壳只做入口路由，不做业务逻辑：
  *   语音 → P0-02+ 接 ASR；拍照 → P0-02+ 接拍照识单；
- *   文字 → P0-02+ 进商品搜索/快速下单单。
+ *   文字 → P0-T50/T51 已开通：进商品浏览/购物车下单通道。
  * 每个入口整卡可点（≥88px 计量 = 44px 物理），适配老年用户。
  */
 
@@ -26,9 +27,15 @@ const ENTRIES: Array<{
   { kind: 'text', icon: '📝', title: '文字下单', desc: '搜索或输入品名快速下单' },
 ]
 
-function goPlaceholder(kind: EntryKind) {
-  // 占位路由：P0-02 起替换为真实页面（pages/order/{voice|photo|text}）
-  Taro.showToast({ title: `${kind}通道待P0-02开通`, icon: 'none' })
+function goEntry(kind: EntryKind) {
+  if (kind === 'text') {
+    // 文字下单（P0-T50/T51）：直达选酒页；未登录先走登录页
+    if (getToken()) Taro.switchTab({ url: '/pages/customer/products/index' })
+    else Taro.navigateTo({ url: '/pages/customer/login/index' })
+    return
+  }
+  // 语音/拍照通道待 P0-02 接 ASR / 拍照识单
+  Taro.showToast({ title: kind === 'voice' ? '语音通道建设中' : '拍照通道建设中', icon: 'none' })
 }
 
 export default function Index() {
@@ -44,7 +51,7 @@ export default function Index() {
           <Button
             key={it.kind}
             className='entry'
-            onClick={() => goPlaceholder(it.kind)}
+            onClick={() => goEntry(it.kind)}
           >
             <Text className='entry__icon'>{it.icon}</Text>
             <View className='entry__body'>

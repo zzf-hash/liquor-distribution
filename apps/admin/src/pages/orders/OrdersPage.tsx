@@ -39,6 +39,13 @@ type ReasonAction = 'cancel' | 'reject' | 'approveSpecial';
 
 const NEG = '#cf1322'; // 红字冲销/负数
 
+/** 送货单自商家确认起可打印（P0-T24：随出库/配送/签收流转继续可打） */
+const PRINTABLE_STATUSES = ['CONFIRMED', 'OUTBOUND', 'DELIVERING', 'SIGNED', 'SETTLED'];
+
+function openDeliveryNote(id: string): void {
+  window.open(`/orders/${id}/print`, '_blank');
+}
+
 export default function OrdersPage(): JSX.Element {
   const { message, modal } = AntApp.useApp();
   const role: Role = getAuth()?.role ?? 'owner';
@@ -79,21 +86,25 @@ export default function OrdersPage(): JSX.Element {
     { title: '行数', dataIndex: 'lineCount', width: 70, align: 'right' },
     { title: '下单时间', dataIndex: 'createdAt', width: 150, render: (_, r) => fmtDateTime(r.createdAt) },
     {
-      title: '操作', valueType: 'option', width: 190,
+      title: '操作', valueType: 'option', width: 250,
       render: (_, r) => {
-        if (!canOperate) return '-';
         const btns: ReactNode[] = [];
-        if (r.status === 'PENDING_CONFIRM') {
-          btns.push(
-            <a key="confirm" onClick={() => confirmOrder(r)}>确认</a>,
-            role === 'owner' ? <a key="special" onClick={() => setReasonState({ type: 'approveSpecial', order: r })}>特批</a> : null,
-          );
+        if (canOperate) {
+          if (r.status === 'PENDING_CONFIRM') {
+            btns.push(
+              <a key="confirm" onClick={() => confirmOrder(r)}>确认</a>,
+              role === 'owner' ? <a key="special" onClick={() => setReasonState({ type: 'approveSpecial', order: r })}>特批</a> : null,
+            );
+          }
+          if (r.status === 'PENDING_CONFIRM' || r.status === 'CONFIRMED') {
+            btns.push(<a key="cancel" onClick={() => setReasonState({ type: 'cancel', order: r })}>取消</a>);
+          }
+          if (r.status === 'OUTBOUND' || r.status === 'DELIVERING') {
+            btns.push(<a key="reject" onClick={() => setReasonState({ type: 'reject', order: r })}>拒收</a>);
+          }
         }
-        if (r.status === 'PENDING_CONFIRM' || r.status === 'CONFIRMED') {
-          btns.push(<a key="cancel" onClick={() => setReasonState({ type: 'cancel', order: r })}>取消</a>);
-        }
-        if (r.status === 'OUTBOUND' || r.status === 'DELIVERING') {
-          btns.push(<a key="reject" onClick={() => setReasonState({ type: 'reject', order: r })}>拒收</a>);
+        if (PRINTABLE_STATUSES.includes(r.status)) {
+          btns.push(<a key="print" onClick={() => openDeliveryNote(r.id)}>打印送货单</a>);
         }
         return btns.length ? <Space size={4}>{btns}</Space> : '-';
       },
@@ -219,7 +230,11 @@ function OrderDetailCard({ order }: { order: OrderDTO }): JSX.Element {
   ];
 
   return (
-    <Card size="small" title={`明细行（${lines.length} 行）`}>
+    <Card
+      size="small"
+      title={`明细行（${lines.length} 行）`}
+      extra={<Button size="small" onClick={() => openDeliveryNote(order.id)}>打印送货单</Button>}
+    >
       <Table<OrderLineDTO>
         size="small"
         rowKey="id"

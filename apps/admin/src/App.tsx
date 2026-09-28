@@ -10,8 +10,10 @@ import type { ReactNode } from 'react';
 import LoginPage from './pages/LoginPage';
 import PagePlaceholder from './pages/PagePlaceholder';
 import OrdersPage from './pages/orders/OrdersPage';
+import DeliveryNotePrint from './pages/orders/DeliveryNotePrint';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
+import FourQuestionsPage from './pages/reports/FourQuestionsPage';
 import { ADMIN_ROUTES, MENU_ROLES, ROLE_LABELS } from './constants/roles';
 import { getAuth, clearAuth } from './services/auth';
 import type { Role } from './constants/roles';
@@ -25,11 +27,12 @@ const ICONS: Record<string, ReactNode> = {
   SettingOutlined: <SettingOutlined />,
 };
 
-// 业务页面已实施的模块；/reports 与 /settings 仍为路由占位
+// 业务页面已实施的模块；/settings 仍为路由占位
 const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/orders': <OrdersPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,
+  '/reports': <FourQuestionsPage />,
 };
 
 function Shell(): JSX.Element {
@@ -96,6 +99,15 @@ export default function App(): JSX.Element {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      {/* 送货单套打页（P0-T24）：独立于 ProLayout 外的 A4 纸面，新窗口打开 */}
+      <Route
+        path="/orders/:id/print"
+        element={
+          <RequireAuth>
+            <DeliveryNotePrint />
+          </RequireAuth>
+        }
+      />
       <Route
         path="/*"
         element={

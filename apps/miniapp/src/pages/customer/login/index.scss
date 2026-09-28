@@ -1,0 +1,73 @@
+@use '../../../styles/tokens' as *;
+
+.login {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-lg $gap-base;
+  box-sizing: border-box;
+}
+
+.login__hd {
+  padding: 96px 8px 64px;
+  text-align: center;
+}
+
+.login__title {
+  display: block;
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.login__sub {
+  display: block;
+  margin-top: 12px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.login__form {
+  display: flex;
+  flex-direction: column;
+  gap: $gap-base;
+}
+
+// 输入框：≥$touch-min(88px 计量 = 44px 物理) 触控红线
+.ipt {
+  min-height: $touch-min;
+  padding: 0 32px;
+  font-size: $font-body;
+  color: $color-text;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+// 主操作大按钮：同一触控红线，主色按下态
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  margin-top: 16px;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none; // 去微信按钮原生边框
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}
+
+.login__tip {
+  margin-top: 8px;
+  text-align: center;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
