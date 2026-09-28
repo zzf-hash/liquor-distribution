@@ -44,13 +44,15 @@ export class ApprovalsService {
       },
     });
     await this.audit.log({ user, action: 'APPROVAL_CREATE', entityType: input.entityType, entityId: input.entityId, after: { approvalId: record.id, line: input.line, amount: input.amount } });
-    void this.notify.send('审批待办', [
-      `单据: ${input.title}`,
-      input.amount !== undefined ? `金额: ¥${input.amount}` : '金额: —',
-      `线别: ${input.line}`,
-      `申请人: ${user.name}`,
-      '请到后台「审批中心」处理',
-    ]);
+    const fields: Array<[string, string]> = [
+      ['单据', input.title],
+      ['金额', input.amount !== undefined ? `¥${input.amount}` : '—'],
+      ['线别', input.line],
+      ['申请人', user.name],
+    ];
+    let cardSent = false;
+    try { cardSent = await this.notify.sendApprovalCard(input.title, fields, '点击进入后台「审批中心」处理'); } catch { cardSent = false; }
+    if (!cardSent) void this.notify.send('审批待办', [...fields.map(([k, v]) => `${k}: ${v}`), '请到后台「审批中心」处理']);
     return { id: record.id };
   }
 
