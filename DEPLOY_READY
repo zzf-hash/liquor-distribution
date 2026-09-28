@@ -1,2 +1,2 @@
-commit: 81663e61450d1f9d3c4c35527f5eac420e48fde3
-build: 三端tsc/build全绿+部署链路已验证(81663e6修复五连,seed落库+owner登录通过); P0全量+P1十二任务(T01~T11,T13)完成, 仅T12语音转单待做; 冒烟五套
+commit: 8132c0b8d506a7642d764d42dd52a863dc337936
+build: 三端tsc/build全绿; P0全量+P1全量(T01~T13含T12语音转单, qwen引擎实测4/4)完成; 冒烟六套; 可全量交付客户测试
