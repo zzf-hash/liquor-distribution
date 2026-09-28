@@ -22,6 +22,9 @@ import { ReturnsModule } from './modules/returns/returns.controller';
 import { PriceChangesModule } from './modules/price-changes/price-changes.controller';
 import { PackagesModule } from './modules/packages/packages.controller';
 import { PurchasesModule } from './modules/purchases/purchases.controller';
+import { StocktakesModule } from './modules/stocktakes/stocktakes.controller';
+import { RebatesModule } from './modules/rebates/rebates.controller';
+import { PerformanceModule } from './modules/performance/performance.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
@@ -42,6 +45,9 @@ import { ShopModule } from './modules/shop/shop.controller';
     PriceChangesModule,
     PackagesModule,
     PurchasesModule,
+    StocktakesModule,
+    RebatesModule,
+    PerformanceModule,
     ImportsModule,
     UsersModule,
     HealthModule,

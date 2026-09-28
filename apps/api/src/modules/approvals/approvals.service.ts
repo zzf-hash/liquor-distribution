@@ -28,7 +28,7 @@ export class ApprovalsService {
 
   /** 发起审批(内部 API): 金额路由落 approverHint, 超时由 expire 扫描处理 */
   async create(user: AuthUser, input: {
-    line: 'CREDIT_RELEASE' | 'PRICE_SPECIAL' | 'PRICE_CHANGE' | 'PURCHASE' | 'EXPENSE' | 'RETURN';
+    line: 'CREDIT_RELEASE' | 'PRICE_SPECIAL' | 'PRICE_CHANGE' | 'PURCHASE' | 'EXPENSE' | 'RETURN' | 'STOCKTAKE';
     entityType: string; entityId: string; title: string;
     amount?: number; reason: string; payload?: Record<string, unknown>;
   }): Promise<{ id: string }> {
@@ -118,7 +118,7 @@ export class ApprovalsService {
   }
 
   /** 线内联动副作用: 审批结果回写业务单据 */
-  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder'>, user: AuthUser, record: { line: string; entityType: string; entityId: string }, approved: boolean): Promise<void> {
+  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake'>, user: AuthUser, record: { line: string; entityType: string; entityId: string }, approved: boolean): Promise<void> {
     if (record.entityType === 'SPECIAL_ORDER') {
       await tx.specialOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
     } else if (record.entityType === 'RETURN') {
@@ -129,6 +129,9 @@ export class ApprovalsService {
       await tx.priceChangeRequest.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
     } else if (record.entityType === 'PURCHASE') {
       await tx.purchaseOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+    } else if (record.entityType === 'STOCKTAKE') {
+      // 盘点差异: 批准→RECONCILED(可调账); 驳回→COUNTED(重盘)
+      await tx.stocktake.update({ where: { id: record.entityId }, data: { status: approved ? 'RECONCILED' : 'COUNTED' } });
     }
     void user;
   }

@@ -65,7 +65,11 @@ const extendedClient = new PrismaClient().$extends({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
-        return query(applyGuards({ model, action: operation, args: args ?? {} }, tenantContext.getStore()));
+        // Prisma6: applyGuards 原地改 args 后把 args 原样传回 query()。
+        // 不能把 {model,action,args} 整个回传——model/action 会被当作未知参数报
+        // PrismaClientValidationError (Unknown argument `model`)
+        applyGuards({ model, action: operation, args: args ?? {} }, tenantContext.getStore());
+        return query(args as never);
       },
     },
   },

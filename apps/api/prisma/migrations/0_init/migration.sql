@@ -56,7 +56,7 @@ CREATE TYPE "OrderStatus" AS ENUM ('PENDING_CONFIRM', 'CONFIRMED', 'OUTBOUND', '
 CREATE TYPE "OrderPriceType" AS ENUM ('CUSTOMER_EXCLUSIVE', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL', 'SPECIAL', 'MANUAL');
 
 -- CreateEnum
-CREATE TYPE "ApprovalLine" AS ENUM ('CREDIT_RELEASE', 'PRICE_SPECIAL', 'PRICE_CHANGE', 'PURCHASE', 'EXPENSE', 'RETURN');
+CREATE TYPE "ApprovalLine" AS ENUM ('CREDIT_RELEASE', 'PRICE_SPECIAL', 'PRICE_CHANGE', 'PURCHASE', 'EXPENSE', 'RETURN', 'STOCKTAKE');
 
 -- CreateEnum
 CREATE TYPE "ApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED_24H');
@@ -96,6 +96,18 @@ CREATE TYPE "PurchaseType" AS ENUM ('PREPAID', 'POSTPAID');
 
 -- CreateEnum
 CREATE TYPE "PurchaseStatus" AS ENUM ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'RECEIVED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "StocktakeType" AS ENUM ('SPOT', 'FULL');
+
+-- CreateEnum
+CREATE TYPE "StocktakeStatus" AS ENUM ('DRAFT', 'COUNTED', 'RECONCILED', 'PENDING_APPROVAL', 'ADJUSTED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "RebateType" AS ENUM ('B', 'C');
+
+-- CreateEnum
+CREATE TYPE "RebateSettleType" AS ENUM ('GOODS', 'INVOICE');
 
 -- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
@@ -584,6 +596,91 @@ CREATE TABLE "PurchaseLine" (
 );
 
 -- CreateTable
+CREATE TABLE "Stocktake" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "takeNo" TEXT NOT NULL,
+    "type" "StocktakeType" NOT NULL,
+    "status" "StocktakeStatus" NOT NULL DEFAULT 'DRAFT',
+    "countedById" TEXT NOT NULL,
+    "reconciledById" TEXT,
+    "thresholdOver" BOOLEAN NOT NULL DEFAULT false,
+    "diffAmount" DECIMAL(12,2),
+    "note" TEXT,
+    "countedAt" TIMESTAMP(3),
+    "reconciledAt" TIMESTAMP(3),
+    "adjustedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Stocktake_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "StocktakeLine" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "stocktakeId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "batchId" TEXT NOT NULL,
+    "systemQty" DECIMAL(14,3) NOT NULL,
+    "countedQty" DECIMAL(14,3) NOT NULL,
+    "unitCost" DECIMAL(12,4) NOT NULL,
+
+    CONSTRAINT "StocktakeLine_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RebateScheme" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "type" "RebateType" NOT NULL,
+    "rate" DECIMAL(5,4) NOT NULL,
+    "note" TEXT,
+    "validFrom" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "validTo" TIMESTAMP(3),
+    "closedAt" TIMESTAMP(3),
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RebateScheme_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "RebateSettlement" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "schemeId" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "baseAmount" DECIMAL(12,2) NOT NULL,
+    "rebateAmount" DECIMAL(12,2) NOT NULL,
+    "settleType" "RebateSettleType" NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "confirmedAt" TIMESTAMP(3),
+    "note" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "RebateSettlement_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Payroll" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "month" TEXT NOT NULL,
+    "items" JSONB NOT NULL,
+    "totalAmount" DECIMAL(12,2) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "confirmedAt" TIMESTAMP(3),
+    "generatedBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Payroll_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
@@ -810,6 +907,27 @@ CREATE UNIQUE INDEX "PurchaseOrder_tenantId_purNo_key" ON "PurchaseOrder"("tenan
 CREATE INDEX "PurchaseLine_tenantId_purchaseId_idx" ON "PurchaseLine"("tenantId", "purchaseId");
 
 -- CreateIndex
+CREATE INDEX "Stocktake_tenantId_status_idx" ON "Stocktake"("tenantId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Stocktake_tenantId_takeNo_key" ON "Stocktake"("tenantId", "takeNo");
+
+-- CreateIndex
+CREATE INDEX "StocktakeLine_tenantId_stocktakeId_idx" ON "StocktakeLine"("tenantId", "stocktakeId");
+
+-- CreateIndex
+CREATE INDEX "RebateScheme_tenantId_customerId_validFrom_idx" ON "RebateScheme"("tenantId", "customerId", "validFrom");
+
+-- CreateIndex
+CREATE INDEX "RebateSettlement_tenantId_period_idx" ON "RebateSettlement"("tenantId", "period");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "RebateSettlement_tenantId_customerId_period_key" ON "RebateSettlement"("tenantId", "customerId", "period");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Payroll_tenantId_month_key" ON "Payroll"("tenantId", "month");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 
 -- CreateIndex
@@ -942,6 +1060,9 @@ ALTER TABLE "ReturnOrder" ADD CONSTRAINT "ReturnOrder_customerId_fkey" FOREIGN K
 ALTER TABLE "ReturnLine" ADD CONSTRAINT "ReturnLine_returnOrderId_fkey" FOREIGN KEY ("returnOrderId") REFERENCES "ReturnOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ReturnLine" ADD CONSTRAINT "ReturnLine_orderLineId_fkey" FOREIGN KEY ("orderLineId") REFERENCES "OrderLine"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "PriceChangeRequest" ADD CONSTRAINT "PriceChangeRequest_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -952,6 +1073,18 @@ ALTER TABLE "PurchaseLine" ADD CONSTRAINT "PurchaseLine_purchaseId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "PurchaseLine" ADD CONSTRAINT "PurchaseLine_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StocktakeLine" ADD CONSTRAINT "StocktakeLine_stocktakeId_fkey" FOREIGN KEY ("stocktakeId") REFERENCES "Stocktake"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "StocktakeLine" ADD CONSTRAINT "StocktakeLine_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "BatchStock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RebateScheme" ADD CONSTRAINT "RebateScheme_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "RebateSettlement" ADD CONSTRAINT "RebateSettlement_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -972,6 +1105,7 @@ REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "SignatureRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "PackageRecord" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "StocktakeLine" FROM PUBLIC;
 
 DO $$
 DECLARE t text;
@@ -980,7 +1114,8 @@ BEGIN
     'InventoryLedger','SalesOrder','OrderLine','Outbound','OutboundLine','SignatureRecord',
     'Receivable','Payment','ReceivableLedger','AuditLog','ApprovalRecord','ImportBatch',
     'ImportRowError','IdempotencyRecord','SystemConfig','SpecialOrder','SpecialOrderLine',
-    'ReturnOrder','ReturnLine','PriceChangeRequest','PackageRecord','PurchaseOrder','PurchaseLine']
+    'ReturnOrder','ReturnLine','PriceChangeRequest','PackageRecord','PurchaseOrder','PurchaseLine',
+    'Stocktake','StocktakeLine','RebateScheme','RebateSettlement','Payroll']
   LOOP
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;
