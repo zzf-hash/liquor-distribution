@@ -120,6 +120,57 @@ export const IMPORT_LEVEL_META: Record<string, { label: string; color: string }>
   WARN: { label: '警告', color: 'warning' },
 };
 
+/** P1-T01 审批线（后端 ApprovalLine 枚举，五条线+信用放行） */
+export const APPROVAL_LINE_LABELS: Record<string, string> = {
+  CREDIT_RELEASE: '信用放行',
+  PRICE_SPECIAL: '特单价格',
+  PRICE_CHANGE: '调价',
+  PURCHASE: '采购',
+  EXPENSE: '运营费',
+  RETURN: '退货',
+};
+
+export const APPROVAL_STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING: { label: '待审批', color: 'warning' },
+  APPROVED: { label: '已通过', color: 'success' },
+  REJECTED: { label: '已驳回', color: 'error' },
+  EXPIRED_24H: { label: '超时退回', color: 'default' },
+};
+
+/** P1-T02 特单状态（草稿灰/待审批橙/通过绿/已转单蓝/驳回红） */
+export const SPECIAL_ORDER_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '草稿', color: 'default' },
+  PENDING_PRICE: { label: '待定价审批', color: 'warning' },
+  APPROVED: { label: '审批通过', color: 'success' },
+  CONVERTED: { label: '已转单', color: 'processing' },
+  REJECTED: { label: '已驳回', color: 'error' },
+};
+
+export const SPECIAL_ORDER_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'DRAFT', label: '草稿' },
+  { key: 'PENDING_PRICE', label: '待定价审批' },
+  { key: 'APPROVED', label: '审批通过' },
+  { key: 'CONVERTED', label: '已转单' },
+  { key: 'REJECTED', label: '已驳回' },
+];
+
+/** P1-T03 退货状态（待审批橙→已审批绿→已收货蓝/已取消灰） */
+export const RETURN_STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING_REVIEW: { label: '待审批', color: 'warning' },
+  APPROVED: { label: '已审批', color: 'success' },
+  RECEIVED: { label: '已收货', color: 'processing' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
+export const RETURN_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'PENDING_REVIEW', label: '待审批' },
+  { key: 'APPROVED', label: '已审批' },
+  { key: 'RECEIVED', label: '已收货' },
+  { key: 'CANCELLED', label: '已取消' },
+];
+
 export function labelOf(map: Record<string, string>, key?: string | null, fallback = '-'): string {
   return (key && map[key]) || fallback;
 }

@@ -73,5 +73,5 @@ export class ImportsController {
   }
 }
 
-@Module({ controllers: [ImportsController] })
+@Module({ controllers: [ImportsController], providers: [ImportsService] })
 export class ImportsModule {}

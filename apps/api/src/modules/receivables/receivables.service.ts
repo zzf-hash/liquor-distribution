@@ -33,17 +33,18 @@ export class ReceivablesService {
   }
 
   /** B4 统一开账口径: settled = Σ(SETTLE+REBATE) − Σ(带 paymentId 的 REVERSAL);
-   *  open = max(0, total − settled − WAIVE(抹零) − WRITEOFF(坏账) − Σ(无 paymentId 的 REVERSAL=导入冲正)) */
+   *  open = max(0, total − settled − WAIVE − WRITEOFF − RETURN_CREDIT(退货) − Σ(无 paymentId 的 REVERSAL)) */
   private arOpen(r: { total: unknown; ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }> }): { settled: number; open: number } {
-    let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0;
+    let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
     for (const l of r.ledger) {
       const amt = Number(l.amount);
       if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
       else if (l.direction === 'WAIVE') waived += amt;
       else if (l.direction === 'WRITEOFF') writtenOff += amt;
+      else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
       else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else reversalNoPay += amt; }
     }
-    return { settled, open: Math.max(0, Number(r.total) - settled - waived - writtenOff - reversalNoPay) };
+    return { settled, open: Math.max(0, Number(r.total) - settled - waived - writtenOff - returnCredit - reversalNoPay) };
   }
 
   /** SystemConfig 读取(带默认值): 数值型商户签字可否决(业务适配清单§0) */

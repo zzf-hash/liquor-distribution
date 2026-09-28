@@ -237,8 +237,10 @@ export class OrdersService {
     if (specialApproved) {
       await this.prisma.approvalRecord.create({
         data: {
-          tenantId: user.tenantId, orderId: order.id, type: 'CREDIT_RELEASE',
-          amount: new Prisma.Decimal(totalAmount), reason: dto.specialReason!, approverId: user.id, result: 'APPROVED',
+          tenantId: user.tenantId, line: 'CREDIT_RELEASE', entityType: 'ORDER', entityId: order.id,
+          title: `信用放行 ${orderNo} ¥${totalAmount}`, amount: new Prisma.Decimal(totalAmount),
+          reason: dto.specialReason!, applicantId: user.id, approverId: user.id,
+          status: 'APPROVED', decidedAt: new Date(),
         },
       });
       await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalAmount, reason: dto.specialReason } , ip });
@@ -328,9 +330,12 @@ export class OrdersService {
     if (!order) throw new NotFoundException('订单不存在');
     await this.prisma.approvalRecord.create({
       data: {
-        tenantId: user.tenantId, orderId, type: body.type,
+        tenantId: user.tenantId, line: body.type === 'ORDER_SPECIAL' ? 'PRICE_SPECIAL' : 'CREDIT_RELEASE',
+        entityType: 'ORDER', entityId: orderId,
+        title: `特批 ${order.orderNo} ${body.type}`, 
         amount: body.amount !== undefined ? new Prisma.Decimal(body.amount) : undefined,
-        reason: body.reason, approverId: user.id, result: 'APPROVED',
+        reason: body.reason, applicantId: user.id, approverId: user.id,
+        status: 'APPROVED', decidedAt: new Date(),
       },
     });
     await this.audit.log({ user, action: AuditAction.SPECIAL_APPROVE, entityType: 'Order', entityId: orderId, after: { type: body.type, reason: body.reason }, ip });

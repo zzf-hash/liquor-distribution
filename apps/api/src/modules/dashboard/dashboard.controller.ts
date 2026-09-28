@@ -44,15 +44,16 @@ export class DashboardController {
     const debtor = new Map<string, { customerId: string; name: string; open: number }>();
     let debtTotal = 0;
     for (const ar of ars) {
-      let settled = 0; let waived = 0; let writtenOff = 0; let revNoPay = 0;
+      let settled = 0; let waived = 0; let writtenOff = 0; let revNoPay = 0; let returnCredit = 0;
       for (const l of ar.ledger) {
         const amt = Number(l.amount);
         if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
         else if (l.direction === 'WAIVE') waived += amt;
         else if (l.direction === 'WRITEOFF') writtenOff += amt;
+        else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
         else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
       }
-      const open = Number(ar.total) - settled - waived - writtenOff - revNoPay;
+      const open = Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay;
       if (open <= 0.0001) continue;
       debtTotal += open;
       const days = ar.disputeFlag ? -1 : dayjs().startOf('day').diff(dayjs(ar.dueDate).startOf('day'), 'day');

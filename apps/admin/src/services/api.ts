@@ -499,3 +499,185 @@ export const usersApi = {
     }
   },
 };
+
+// ───────────────────────── 审批中心（P1-T01，五条线统一 D01） ─────────────────────────
+
+export type ApprovalLineDTO =
+  | 'CREDIT_RELEASE'
+  | 'PRICE_SPECIAL'
+  | 'PRICE_CHANGE'
+  | 'PURCHASE'
+  | 'EXPENSE'
+  | 'RETURN';
+export type ApprovalStatusDTO = 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED_24H';
+
+export interface ApprovalRecordDTO {
+  id: string;
+  line: ApprovalLineDTO;
+  entityType: string;
+  entityId: string;
+  title: string;
+  amount?: Decimalish | null;
+  reason: string;
+  /** 线内扩展（调价差异清单/特单字段快照等），详情展开渲染 */
+  payload?: Record<string, unknown> | null;
+  applicant: { id: string; name: string };
+  status: ApprovalStatusDTO;
+  createdAt: string;
+  /** 已决附带 */
+  approver?: { id: string; name: string } | null;
+  opinion?: string | null;
+  decidedAt?: string | null;
+}
+
+export const approvalsApi = {
+  /** status 逗号多值（已决 tab：APPROVED,REJECTED,EXPIRED_24H） */
+  list: (params: { status?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<ApprovalRecordDTO>>(`/approvals${qs(params)}`),
+  /** 审批人金额路由（≤2000 内勤 / >2000 或低于成本老板）由后端强制，前端只提示 */
+  decide: (id: string, action: 'approve' | 'reject', opinion: string) =>
+    request<ApprovalRecordDTO>(`/approvals/${id}/decide`, { method: 'POST', body: { action, opinion } }),
+};
+
+// ───────────────────────── 特单（P1-T02，F8 全员下单+婚宴宴席） ─────────────────────────
+
+export type SpecialOrderStatusDTO = 'DRAFT' | 'PENDING_PRICE' | 'APPROVED' | 'CONVERTED' | 'REJECTED';
+
+export interface SpecialOrderLineDTO {
+  id: string;
+  productId?: string | null;
+  productName: string;
+  specText?: string | null;
+  unit: string;
+  qty: Decimalish;
+  price: Decimalish;
+  note?: string | null;
+}
+
+export interface SpecialOrderDTO {
+  id: string;
+  specialNo: string;
+  title: string;
+  customerId?: string | null;
+  customerName: string;
+  isBanquet: boolean;
+  eventDate?: string | null;
+  venue?: string | null;
+  contactName: string;
+  contactPhone: string;
+  address: string;
+  deliveryDate?: string | null;
+  payeeName?: string | null;
+  payDueDate?: string | null;
+  note?: string | null;
+  status: SpecialOrderStatusDTO;
+  convertedOrderId?: string | null;
+  createdAt: string;
+  /** 详情接口附带 */
+  lines?: SpecialOrderLineDTO[];
+  /** 转单后正式订单号（CONVERTED 附带） */
+  orderNo?: string | null;
+  lineCount?: number;
+}
+
+export interface SpecialOrderInput {
+  title: string;
+  customerId?: string;
+  customerName: string;
+  isBanquet?: boolean;
+  eventDate?: string;
+  venue?: string;
+  contactName: string;
+  contactPhone: string;
+  address: string;
+  deliveryDate?: string;
+  payeeName?: string;
+  payDueDate?: string;
+  note?: string;
+  lines: Array<{ productId?: string; productName: string; unit: string; qty: number; price: number }>;
+}
+
+/** 转单结果：orderNo 优先展示，旧后端只有 convertedOrderId 时降级 */
+export interface SpecialOrderConvertResultDTO {
+  id: string;
+  specialNo: string;
+  status: SpecialOrderStatusDTO;
+  convertedOrderId?: string | null;
+  orderNo?: string | null;
+  [key: string]: unknown;
+}
+
+export const specialOrdersApi = {
+  list: (params: { status?: string; q?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<SpecialOrderDTO>>(`/special-orders${qs(params)}`),
+  detail: (id: string) => request<SpecialOrderDTO>(`/special-orders/${id}`),
+  /** 创建为 DRAFT；定价审批通过（APPROVED）前不可出货（红线） */
+  create: (input: SpecialOrderInput) =>
+    request<SpecialOrderDTO>('/special-orders', { method: 'POST', body: input }),
+  /** DRAFT → PENDING_PRICE，并在审批中心生成待办（PRICE_SPECIAL 线） */
+  submit: (id: string) =>
+    request<SpecialOrderDTO>(`/special-orders/${id}/submit`, { method: 'POST', body: {} }),
+  /** APPROVED → CONVERTED，生成正式订单 */
+  convert: (id: string) =>
+    request<SpecialOrderConvertResultDTO>(`/special-orders/${id}/convert`, {
+      method: 'POST',
+      body: {},
+      idemKey: genIdemKey(),
+    }),
+};
+
+// ───────────────────────── 退货（P1-T03，F10 + R4 只多不少） ─────────────────────────
+
+export type ReturnStatusDTO = 'PENDING_REVIEW' | 'APPROVED' | 'RECEIVED' | 'CANCELLED';
+
+export interface ReturnLineDTO {
+  id: string;
+  orderLineId: string;
+  productId: string;
+  productName?: string | null;
+  qty: Decimalish;
+  note?: string | null;
+}
+
+export interface ReturnOrderDTO {
+  id: string;
+  returnNo: string;
+  sourceOrderId: string;
+  /** 列表附带：原订单号 */
+  orderNo?: string | null;
+  customerId: string;
+  customerName?: string | null;
+  reason: string;
+  status: ReturnStatusDTO;
+  receivedAt?: string | null;
+  createdAt: string;
+  lineCount?: number;
+  qtySum?: Decimalish;
+  /** 详情接口附带 */
+  lines?: ReturnLineDTO[];
+}
+
+export interface ReturnInput {
+  sourceOrderId: string;
+  reason: string;
+  lines: Array<{ orderLineId: string; qty: number }>;
+}
+
+/** 收货预览：批次回冲 + 应收冲减摘要（可选能力，未就绪时降级直接确认） */
+export interface ReturnReceivePreviewDTO {
+  batches: Array<{ batchNo?: string | null; productId?: string; productName?: string | null; qty: Decimalish }>;
+  arCredit: Decimalish;
+}
+
+export const returnsApi = {
+  list: (params: { status?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<ReturnOrderDTO>>(`/returns${qs(params)}`),
+  detail: (id: string) => request<ReturnOrderDTO>(`/returns/${id}`),
+  create: (input: ReturnInput) =>
+    request<ReturnOrderDTO>('/returns', { method: 'POST', body: input, idemKey: genIdemKey() }),
+  /** 收货预览（回冲批次/应收冲减）；接口 404/未实现时调用方直接走确认 */
+  previewReceive: (id: string) => request<ReturnReceivePreviewDTO>(`/returns/${id}/preview-receive`),
+  /** 仓库收货确认：批次回冲 + 应收重算（幂等键防重放双写） */
+  receive: (id: string) =>
+    request<ReturnOrderDTO>(`/returns/${id}/receive`, { method: 'POST', body: {}, idemKey: genIdemKey() }),
+};

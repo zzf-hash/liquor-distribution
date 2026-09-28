@@ -44,7 +44,7 @@ CREATE TYPE "CustomerStatus" AS ENUM ('ACTIVE', 'DISABLED');
 CREATE TYPE "LedgerDirection" AS ENUM ('IN', 'OUT');
 
 -- CreateEnum
-CREATE TYPE "InventoryRefType" AS ENUM ('INITIAL_IMPORT', 'OUTBOUND', 'REJECT_RETURN', 'REVERSAL_IN', 'ADJUST');
+CREATE TYPE "InventoryRefType" AS ENUM ('INITIAL_IMPORT', 'OUTBOUND', 'REJECT_RETURN', 'RETURN_IN', 'REVERSAL_IN', 'ADJUST');
 
 -- CreateEnum
 CREATE TYPE "OrderSource" AS ENUM ('CLERK', 'REP', 'CUSTOMER');
@@ -56,10 +56,10 @@ CREATE TYPE "OrderStatus" AS ENUM ('PENDING_CONFIRM', 'CONFIRMED', 'OUTBOUND', '
 CREATE TYPE "OrderPriceType" AS ENUM ('CUSTOMER_EXCLUSIVE', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL', 'SPECIAL', 'MANUAL');
 
 -- CreateEnum
-CREATE TYPE "ApprovalType" AS ENUM ('CREDIT_RELEASE', 'PRICE_SPECIAL', 'ORDER_SPECIAL');
+CREATE TYPE "ApprovalLine" AS ENUM ('CREDIT_RELEASE', 'PRICE_SPECIAL', 'PRICE_CHANGE', 'PURCHASE', 'EXPENSE', 'RETURN');
 
 -- CreateEnum
-CREATE TYPE "ApprovalResult" AS ENUM ('APPROVED', 'REJECTED');
+CREATE TYPE "ApprovalStatus" AS ENUM ('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED_24H');
 
 -- CreateEnum
 CREATE TYPE "OutboundStatus" AS ENUM ('PICKING', 'CONFIRMED');
@@ -74,10 +74,16 @@ CREATE TYPE "ReceivableSourceType" AS ENUM ('ORDER', 'INITIAL');
 CREATE TYPE "PaymentStatus" AS ENUM ('REPORTED', 'CONFIRMED', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "ArLedgerDirection" AS ENUM ('CHARGE', 'SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'REVERSAL');
+CREATE TYPE "ArLedgerDirection" AS ENUM ('CHARGE', 'SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'REVERSAL');
 
 -- CreateEnum
 CREATE TYPE "PaymentKind" AS ENUM ('PAYMENT', 'WAIVE', 'BAD_DEBT');
+
+-- CreateEnum
+CREATE TYPE "SpecialOrderStatus" AS ENUM ('DRAFT', 'PENDING_PRICE', 'APPROVED', 'CONVERTED', 'REJECTED');
+
+-- CreateEnum
+CREATE TYPE "ReturnStatus" AS ENUM ('PENDING_REVIEW', 'APPROVED', 'RECEIVED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
@@ -300,12 +306,17 @@ CREATE TABLE "OrderLine" (
 CREATE TABLE "ApprovalRecord" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
-    "orderId" TEXT NOT NULL,
-    "type" "ApprovalType" NOT NULL,
+    "line" "ApprovalLine" NOT NULL,
+    "entityType" TEXT NOT NULL,
+    "entityId" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
     "amount" DECIMAL(12,2),
     "reason" TEXT NOT NULL,
-    "approverId" TEXT NOT NULL,
-    "result" "ApprovalResult" NOT NULL,
+    "payload" JSONB,
+    "applicantId" TEXT NOT NULL,
+    "status" "ApprovalStatus" NOT NULL DEFAULT 'PENDING',
+    "approverId" TEXT,
+    "decidedAt" TIMESTAMP(3),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ApprovalRecord_pkey" PRIMARY KEY ("id")
@@ -411,6 +422,80 @@ CREATE TABLE "ReceivableLedger" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ReceivableLedger_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SpecialOrder" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "specialNo" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "customerId" TEXT,
+    "customerName" TEXT NOT NULL,
+    "isBanquet" BOOLEAN NOT NULL DEFAULT false,
+    "eventDate" TIMESTAMP(3),
+    "venue" TEXT,
+    "contactName" TEXT NOT NULL,
+    "contactPhone" TEXT NOT NULL,
+    "address" TEXT NOT NULL,
+    "deliveryDate" TIMESTAMP(3),
+    "payeeName" TEXT,
+    "payDueDate" TIMESTAMP(3),
+    "note" TEXT,
+    "status" "SpecialOrderStatus" NOT NULL DEFAULT 'DRAFT',
+    "convertedOrderId" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SpecialOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SpecialOrderLine" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "specialOrderId" TEXT NOT NULL,
+    "productId" TEXT,
+    "productName" TEXT NOT NULL,
+    "specText" TEXT,
+    "unit" TEXT NOT NULL,
+    "qty" DECIMAL(14,3) NOT NULL,
+    "price" DECIMAL(12,2) NOT NULL,
+    "note" TEXT,
+
+    CONSTRAINT "SpecialOrderLine_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ReturnOrder" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "returnNo" TEXT NOT NULL,
+    "sourceOrderId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "reason" TEXT NOT NULL,
+    "status" "ReturnStatus" NOT NULL DEFAULT 'PENDING_REVIEW',
+    "receivedAt" TIMESTAMP(3),
+    "receivedById" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "ReturnOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "ReturnLine" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "returnOrderId" TEXT NOT NULL,
+    "orderLineId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "batchId" TEXT,
+    "qty" DECIMAL(14,3) NOT NULL,
+    "note" TEXT,
+
+    CONSTRAINT "ReturnLine_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -568,7 +653,10 @@ CREATE INDEX "OrderLine_tenantId_orderId_idx" ON "OrderLine"("tenantId", "orderI
 CREATE INDEX "OrderLine_reversalOfId_idx" ON "OrderLine"("reversalOfId");
 
 -- CreateIndex
-CREATE INDEX "ApprovalRecord_tenantId_orderId_idx" ON "ApprovalRecord"("tenantId", "orderId");
+CREATE INDEX "ApprovalRecord_tenantId_status_createdAt_idx" ON "ApprovalRecord"("tenantId", "status", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "ApprovalRecord_tenantId_line_entityType_entityId_idx" ON "ApprovalRecord"("tenantId", "line", "entityType", "entityId");
 
 -- CreateIndex
 CREATE INDEX "Outbound_tenantId_orderId_idx" ON "Outbound"("tenantId", "orderId");
@@ -599,6 +687,24 @@ CREATE UNIQUE INDEX "Payment_tenantId_idemKey_key" ON "Payment"("tenantId", "ide
 
 -- CreateIndex
 CREATE INDEX "ReceivableLedger_tenantId_receivableId_createdAt_idx" ON "ReceivableLedger"("tenantId", "receivableId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "SpecialOrder_tenantId_status_idx" ON "SpecialOrder"("tenantId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "SpecialOrder_tenantId_specialNo_key" ON "SpecialOrder"("tenantId", "specialNo");
+
+-- CreateIndex
+CREATE INDEX "SpecialOrderLine_tenantId_specialOrderId_idx" ON "SpecialOrderLine"("tenantId", "specialOrderId");
+
+-- CreateIndex
+CREATE INDEX "ReturnOrder_tenantId_status_idx" ON "ReturnOrder"("tenantId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ReturnOrder_tenantId_returnNo_key" ON "ReturnOrder"("tenantId", "returnNo");
+
+-- CreateIndex
+CREATE INDEX "ReturnLine_tenantId_returnOrderId_idx" ON "ReturnLine"("tenantId", "returnOrderId");
 
 -- CreateIndex
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
@@ -676,6 +782,9 @@ ALTER TABLE "OrderLine" ADD CONSTRAINT "OrderLine_productId_fkey" FOREIGN KEY ("
 ALTER TABLE "OrderLine" ADD CONSTRAINT "OrderLine_reversalOfId_fkey" FOREIGN KEY ("reversalOfId") REFERENCES "OrderLine"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "ApprovalRecord" ADD CONSTRAINT "ApprovalRecord_applicantId_fkey" FOREIGN KEY ("applicantId") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "Outbound" ADD CONSTRAINT "Outbound_orderId_fkey" FOREIGN KEY ("orderId") REFERENCES "SalesOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -718,6 +827,18 @@ ALTER TABLE "ReceivableLedger" ADD CONSTRAINT "ReceivableLedger_receivableId_fke
 ALTER TABLE "ReceivableLedger" ADD CONSTRAINT "ReceivableLedger_paymentId_fkey" FOREIGN KEY ("paymentId") REFERENCES "Payment"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "SpecialOrderLine" ADD CONSTRAINT "SpecialOrderLine_specialOrderId_fkey" FOREIGN KEY ("specialOrderId") REFERENCES "SpecialOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ReturnOrder" ADD CONSTRAINT "ReturnOrder_sourceOrderId_fkey" FOREIGN KEY ("sourceOrderId") REFERENCES "SalesOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ReturnOrder" ADD CONSTRAINT "ReturnOrder_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "ReturnLine" ADD CONSTRAINT "ReturnLine_returnOrderId_fkey" FOREIGN KEY ("returnOrderId") REFERENCES "ReturnOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -729,23 +850,23 @@ ALTER TABLE "ImportRowError" ADD CONSTRAINT "ImportRowError_batchId_fkey" FOREIG
 
 -- ═══════════ 安全基线 DB 层加固 (安全评审-01) ═══════════
 -- B2/B4 append-only: 撤销 UPDATE/DELETE/TRUNCATE(仅 INSERT+SELECT)
--- 注意: compose 的 POSTGRES_USER=liquor 是表 owner; 生产收紧(专用低权限角色+RLS FORCE)
---       步骤与验收用例见文末注释。
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "AuditLog" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "InventoryLedger" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReceivableLedger" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "OrderLine" FROM PUBLIC;          -- B3 写一次
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "SignatureRecord" FROM PUBLIC;    -- P1-6
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;         -- R4 只增
 
--- B5 第二层(P1-4): 租户 RLS 策略(键=会话 GUC app.tenant_id; FORCE 启用步骤见部署收紧单)
+-- B5 第二层(P1-4): 租户 RLS 策略(FORCE 启用步骤见部署收紧单)
 DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['User','Product','Price','CustomerPrice','Customer','BatchStock',
     'InventoryLedger','SalesOrder','OrderLine','Outbound','OutboundLine','SignatureRecord',
     'Receivable','Payment','ReceivableLedger','AuditLog','ApprovalRecord','ImportBatch',
-    'ImportRowError','IdempotencyRecord','SystemConfig']
+    'ImportRowError','IdempotencyRecord','SystemConfig','SpecialOrder','SpecialOrderLine',
+    'ReturnOrder','ReturnLine']
   LOOP
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;

@@ -3,7 +3,7 @@ import { ProLayout } from '@ant-design/pro-components';
 import type { MenuDataItem } from '@ant-design/pro-components';
 import {
   ProfileOutlined, DatabaseOutlined, AccountBookOutlined, BarChartOutlined,
-  SettingOutlined, LogoutOutlined,
+  SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -11,6 +11,9 @@ import LoginPage from './pages/LoginPage';
 import PagePlaceholder from './pages/PagePlaceholder';
 import OrdersPage from './pages/orders/OrdersPage';
 import DeliveryNotePrint from './pages/orders/DeliveryNotePrint';
+import ApprovalsPage from './pages/approvals/ApprovalsPage';
+import SpecialOrdersPage from './pages/special-orders/SpecialOrdersPage';
+import ReturnsPage from './pages/returns/ReturnsPage';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
 import FourQuestionsPage from './pages/reports/FourQuestionsPage';
@@ -21,6 +24,9 @@ import { RequireAuth } from './components/RequireAuth';
 
 const ICONS: Record<string, ReactNode> = {
   ProfileOutlined: <ProfileOutlined />,
+  AuditOutlined: <AuditOutlined />,
+  GoldOutlined: <GoldOutlined />,
+  RollbackOutlined: <RollbackOutlined />,
   DatabaseOutlined: <DatabaseOutlined />,
   AccountBookOutlined: <AccountBookOutlined />,
   BarChartOutlined: <BarChartOutlined />,
@@ -30,6 +36,9 @@ const ICONS: Record<string, ReactNode> = {
 // 业务页面已实施的模块；/settings 仍为路由占位
 const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/orders': <OrdersPage />,
+  '/approvals': <ApprovalsPage />,
+  '/special-orders': <SpecialOrdersPage />,
+  '/returns': <ReturnsPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,
   '/reports': <FourQuestionsPage />,

@@ -21,6 +21,7 @@ const APPEND_ONLY_MODELS = new Set<string>([
 
 const WRITE_ONCE_MODELS = new Set<string>([
   'OrderLine', // B3: 只允许 create(红字冲销走新行), 禁一切 update/delete
+  'ReturnLine', // R4: 退货数量只增——行 append-only, 增量走追加行
 ]);
 
 // B5: 带 tenantId 的业务模型(查询/写入强制注入)

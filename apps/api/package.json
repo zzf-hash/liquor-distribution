@@ -7,7 +7,7 @@
     "start": "node dist/main.js",
     "dev": "tsc -p tsconfig.json --watch",
     "prisma:generate": "prisma generate",
-    "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js"
+    "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js && node prisma/seed-p1.js"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

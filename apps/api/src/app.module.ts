@@ -16,6 +16,9 @@ import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { PricesModule } from './modules/prices/prices.module';
 import { DashboardModule } from './modules/dashboard/dashboard.controller';
+import { ApprovalsModule } from './modules/approvals/approvals.controller';
+import { SpecialOrdersModule } from './modules/special-orders/special-orders.controller';
+import { ReturnsModule } from './modules/returns/returns.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
@@ -30,6 +33,9 @@ import { ShopModule } from './modules/shop/shop.controller';
     ReceivablesModule,
     DashboardModule,
     ShopModule,
+    ApprovalsModule,
+    SpecialOrdersModule,
+    ReturnsModule,
     ImportsModule,
     UsersModule,
     HealthModule,

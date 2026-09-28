@@ -74,6 +74,7 @@ model User {
   paymentsReported Payment[]      @relation("PaymentReporter")
   paymentsEntered  Payment[]      @relation("PaymentClerk")
   auditLogs        AuditLog[]
+  approvalsAsApplicant ApprovalRecord[] @relation("ApprovalApplicant")
 
   @@unique([tenantId, username])
   @@index([tenantId, role])
@@ -259,6 +260,7 @@ model Customer {
   prices        CustomerPrice[]
   orders        SalesOrder[]
   receivables   Receivable[]
+  returns       ReturnOrder[]
   payments      Payment[]
 
   @@unique([tenantId, code])
@@ -298,6 +300,7 @@ enum InventoryRefType {
   INITIAL_IMPORT // 期初导入
   OUTBOUND       // 出库
   REJECT_RETURN  // 拒收回冲
+  RETURN_IN      // 退货原批次回冲(P1-T03)
   REVERSAL_IN    // 红字冲销回冲
   ADJUST         // 盘差调账(P1-07 前仅出库修正)
 }
@@ -375,6 +378,7 @@ model SalesOrder {
   outbounds  Outbound[]
   signature  SignatureRecord?
   receivables Receivable[]
+  returns    ReturnOrder[]
 
   @@unique([tenantId, orderNo])
   @@unique([tenantId, id])
@@ -423,30 +427,42 @@ model OrderLine {
   @@index([reversalOfId])
 }
 
-// 特批留痕 (D01: ≤2000 内勤, >2000/低于成本 老板; 信用放行 R2)
-enum ApprovalType {
-  CREDIT_RELEASE // 信用超额放行
-  PRICE_SPECIAL  // 低于可用价/成本价
-  ORDER_SPECIAL  // 特单(地址/时段/宴席/超账期回款)
+// ═══════════ P1-T01 审批中心: 五条线统一 (D01: 金额路由, ≤2000内勤 >2000/低于成本老板; 超时24h退回不自动通过) ═══════════
+enum ApprovalLine {
+  CREDIT_RELEASE // 信用超额放行(原 P0 特批)
+  PRICE_SPECIAL  // 特单/客户价格审批
+  PRICE_CHANGE   // 调价审批(F7, P1-T05)
+  PURCHASE       // 采购审批(P1-T06)
+  EXPENSE        // 运营费审批(P1)
+  RETURN         // 退货审批(P1-T03)
 }
 
-enum ApprovalResult {
+enum ApprovalStatus {
+  PENDING
   APPROVED
   REJECTED
+  EXPIRED_24H // 超时24h自动退回(不自动通过, D01)
 }
 
 model ApprovalRecord {
-  id         String        @id @default(cuid())
-  tenantId   String
-  orderId    String
-  type       ApprovalType
-  amount     Decimal?      @db.Decimal(12, 2)
-  reason     String
-  approverId String
-  result     ApprovalResult
-  createdAt  DateTime      @default(now())
+  id           String         @id @default(cuid())
+  tenantId     String
+  line         ApprovalLine
+  entityType   String // ORDER / SPECIAL_ORDER / PRICE_CHANGE / PURCHASE / EXPENSE / RETURN
+  entityId     String
+  title        String // 待办列表展示
+  amount       Decimal?       @db.Decimal(12, 2)
+  reason       String // 申请理由
+  payload      Json? // 线内扩展(调价差异清单/特单字段快照等)
+  applicantId  String
+  applicant    User           @relation("ApprovalApplicant", fields: [applicantId], references: [id])
+  status       ApprovalStatus @default(PENDING)
+  approverId   String? // 实际审批人(金额路由: 2000 阈值可配 special_approve_threshold)
+  decidedAt    DateTime?
+  createdAt    DateTime       @default(now())
 
-  @@index([tenantId, orderId])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, line, entityType, entityId])
 }
 
 // ───────────────────────── P0-T22 出库单 ─────────────────────────
@@ -589,6 +605,7 @@ enum ArLedgerDirection {
   REBATE_OFFSET // 返利抵扣(c 直接冲应收)
   WAIVE         // 抹零减免(审批通过后核减, 单笔/月累计上限)
   WRITEOFF      // 坏账核销(老板审批)
+  RETURN_CREDIT // 退货冲减(P1-T03, 不改原单金额)
   REVERSAL      // 红字冲正
 }
 
@@ -614,6 +631,108 @@ model ReceivableLedger {
   payment    Payment?   @relation(fields: [paymentId], references: [id])
 
   @@index([tenantId, receivableId, createdAt])
+}
+
+// ═══════════ P1-T02 特单 (F8: 全员下单——品名/数量/价格/配送时间/地址/联系人/收款人及时间 + 婚宴宴席单) ═══════════
+// 红线: 未经定价审批不可出货 → status=APPROVED 才可转正式订单(PENDING_PRICE→APPROVED 闸门)
+enum SpecialOrderStatus {
+  DRAFT
+  PENDING_PRICE // 待定价审批(走审批中心 PRICE_SPECIAL 线)
+  APPROVED
+  CONVERTED // 已转正式订单
+  REJECTED
+}
+
+model SpecialOrder {
+  id            String             @id @default(cuid())
+  tenantId      String
+  specialNo     String
+  title         String // "XX婚宴用酒" 等
+  customerId    String? // 可无档案客户(现金散客)
+  customerName  String
+  isBanquet     Boolean            @default(false) // 宴席/活动用酒(D1 信号④)
+  eventDate     DateTime? // 宴席日期
+  venue         String? // 地点
+  contactName   String
+  contactPhone  String
+  address       String
+  deliveryDate  DateTime? // 配送时段(D1 信号③)
+  payeeName     String? // 收款人及时间(F8)
+  payDueDate    DateTime?
+  note          String?
+  status        SpecialOrderStatus @default(DRAFT)
+  convertedOrderId String? // 转正式订单后回填
+  createdById   String
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  lines SpecialOrderLine[]
+
+  @@unique([tenantId, specialNo])
+  @@index([tenantId, status])
+}
+
+// 特单行: 可引用商品或自由品名(杂酒/赠品组合); 价格待审批(D1 信号① 低于可用价即特单)
+model SpecialOrderLine {
+  id          String  @id @default(cuid())
+  tenantId    String
+  specialOrderId String
+  productId   String? // 自由品名时为空
+  productName String
+  specText    String?
+  unit        String
+  qty         Decimal @db.Decimal(14, 3)
+  price       Decimal @db.Decimal(12, 2)
+  note        String?
+
+  specialOrder SpecialOrder @relation(fields: [specialOrderId], references: [id])
+
+  @@index([tenantId, specialOrderId])
+}
+
+// ═══════════ P1-T03 退货销户 (F10 + R4 数量只能多不能少 + D13: 签收后48h窗口/关联原单/老板审批) ═══════════
+enum ReturnStatus {
+  PENDING_REVIEW // 待审批(走审批中心 RETURN 线, 老板)
+  APPROVED
+  RECEIVED // 仓库收货, 批次回冲完成, 应收已重算
+  CANCELLED
+}
+
+model ReturnOrder {
+  id              String       @id @default(cuid())
+  tenantId        String
+  returnNo        String
+  sourceOrderId   String // 关联原单(必填, D13)
+  customerId      String
+  reason          String
+  status          ReturnStatus @default(PENDING_REVIEW)
+  receivedAt      DateTime?
+  receivedById    String?
+  createdById     String
+  createdAt       DateTime     @default(now())
+
+  order    SalesOrder   @relation(fields: [sourceOrderId], references: [id])
+  customer Customer     @relation(fields: [customerId], references: [id])
+  lines    ReturnLine[]
+
+  @@unique([tenantId, returnNo])
+  @@index([tenantId, status])
+}
+
+// R4 写一次+只增: 行数量禁 UPDATE 减少(Prisma 守卫拦截 + API 层校验), 增量走追加行
+model ReturnLine {
+  id           String  @id @default(cuid())
+  tenantId     String
+  returnOrderId String
+  orderLineId  String // 退的是原订单哪一行
+  productId    String
+  batchId      String? // 原批次回冲(仓库收货时定)
+  qty          Decimal @db.Decimal(14, 3)
+  note         String?
+
+  returnOrder ReturnOrder @relation(fields: [returnOrderId], references: [id])
+
+  @@index([tenantId, returnOrderId])
 }
 
 // ───────────────────────── P0-T03 审计日志 (B2 哈希链) ─────────────────────────
