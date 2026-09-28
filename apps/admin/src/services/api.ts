@@ -681,3 +681,196 @@ export const returnsApi = {
   receive: (id: string) =>
     request<ReturnOrderDTO>(`/returns/${id}/receive`, { method: 'POST', body: {}, idemKey: genIdemKey() }),
 };
+
+// ───────────────────────── 调价（P1-T05，F7 + D08 版本化） ─────────────────────────
+
+export type PriceChangeStatusDTO =
+  | 'DRAFT'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'EFFECTIVE'
+  | 'REJECTED'
+  | 'CANCELLED';
+
+/** 存货增贬值测算（R7/D15：仅登记不自动调账） */
+export interface StockImpactDTO {
+  onHandQty: Decimalish;
+  oldPrice: Decimalish;
+  newPrice: Decimalish;
+  deltaAmount: Decimalish;
+}
+
+export interface PriceChangeDTO {
+  id: string;
+  productId: string;
+  /** 列表接口附带 */
+  product?: { skuCode: string; name: string } | null;
+  unit: PriceUnitDTO;
+  levelType: string;
+  oldPrice: Decimalish;
+  newPrice: Decimalish;
+  effectiveDate: string;
+  reason: string;
+  stockImpact?: StockImpactDTO | null;
+  customerSync: boolean;
+  status: PriceChangeStatusDTO;
+  approvalId?: string | null;
+  effectuatedAt?: string | null;
+  createdAt: string;
+}
+
+export interface PriceChangeInput {
+  productId: string;
+  unit: PriceUnitDTO;
+  levelType: string;
+  newPrice: number;
+  effectiveDate: string;
+  reason: string;
+  customerSync?: boolean;
+}
+
+export const priceChangesApi = {
+  list: (params: { status?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<PriceChangeDTO>>(`/price-changes${qs(params)}`),
+  /** 创建草稿；响应附带存货增贬值测算 stockImpact（后端按在库量×价差计算） */
+  create: (input: PriceChangeInput) =>
+    request<PriceChangeDTO>('/price-changes', { method: 'POST', body: input }),
+  /** DRAFT → PENDING，生成 PRICE_CHANGE 审批待办（审批中心） */
+  submit: (id: string) =>
+    request<{ id: string; status: PriceChangeStatusDTO; approvalId: string }>(`/price-changes/${id}/submit`, {
+      method: 'POST',
+      body: {},
+    }),
+  /** APPROVED → EFFECTIVE：插入新价格版本行（D08 只新增版本不覆盖历史） */
+  effectuate: (id: string) =>
+    request<{ id: string; status: PriceChangeStatusDTO; priceRowId: string }>(`/price-changes/${id}/effectuate`, {
+      method: 'POST',
+      body: {},
+    }),
+};
+
+// ───────────────────────── 回包装（P1-T04，F11 + 押金台账） ─────────────────────────
+
+export type PackageRecordTypeDTO = 'WITH_ORDER' | 'STANDALONE' | 'OUT';
+
+export interface PackageRecordDTO {
+  id: string;
+  customerId: string;
+  /** 列表接口附带 */
+  customer?: { code: string; name: string } | null;
+  category: string;
+  qty: number;
+  type: PackageRecordTypeDTO;
+  orderId?: string | null;
+  /** OUT（押金退付）为负数 */
+  depositPaid: Decimalish;
+  note?: string | null;
+  createdAt: string;
+}
+
+export interface PackageSummaryDTO {
+  items: Array<{ category: string; qty: number; deposit: number }>;
+  totalDeposit: number;
+}
+
+/** 幂等重放时仅返回 { replay: true, summary }，业务字段缺省 */
+export interface PackageCreateResultDTO {
+  id?: string;
+  category?: string;
+  qty?: number;
+  type?: PackageRecordTypeDTO;
+  depositPaid?: Decimalish;
+  replay?: boolean;
+}
+
+export const packagesApi = {
+  /** 各品类押金余额汇总（qty=在押数量，deposit=押金余额） */
+  summary: () => request<PackageSummaryDTO>('/packages/summary'),
+  list: (params: { customerId?: string; category?: string; type?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<PackageRecordDTO>>(`/packages${qs(params)}`),
+  /** F11 无单回收（STANDALONE）/ 押金退付（OUT，后端校验余额）；押金=品类 cfg 单价×数量 */
+  create: (input: { customerId: string; category: string; qty: number; type: 'STANDALONE' | 'OUT'; note?: string }) =>
+    request<PackageCreateResultDTO>('/packages', { method: 'POST', body: input, idemKey: genIdemKey() }),
+};
+
+// ───────────────────────── 采购（P1-T06，F3 先付 / F4 后付双流程） ─────────────────────────
+
+export type PurchaseTypeDTO = 'PREPAID' | 'POSTPAID';
+export type PurchaseStatusDTO =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'APPROVED'
+  | 'PAID'
+  | 'RECEIVED'
+  | 'CANCELLED';
+
+export interface PurchaseLineDTO {
+  id: string;
+  productId: string;
+  /** 列表/详情接口附带 */
+  product?: { name: string; skuCode: string } | null;
+  batchNo: string;
+  qty: Decimalish; // 最小单位
+  unitCost: Decimalish;
+  produceDate?: string | null;
+  expiryDate?: string | null;
+}
+
+export interface PurchaseOrderDTO {
+  id: string;
+  purNo: string;
+  supplier: string;
+  type: PurchaseTypeDTO;
+  status: PurchaseStatusDTO;
+  totalAmount: Decimalish;
+  payeeNote?: string | null;
+  paidAt?: string | null;
+  receivedAt?: string | null;
+  note?: string | null;
+  createdAt: string;
+  /** 列表/详情接口均附带 */
+  lines?: PurchaseLineDTO[];
+}
+
+export interface PurchaseInput {
+  supplier: string;
+  type: PurchaseTypeDTO;
+  payeeNote?: string;
+  note?: string;
+  lines: Array<{
+    productId: string;
+    batchNo: string;
+    qty: number;
+    unitCost: number;
+    produceDate?: string;
+    expiryDate?: string;
+  }>;
+}
+
+export const purchasesApi = {
+  list: (params: { status?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<PurchaseOrderDTO>>(`/purchases${qs(params)}`),
+  detail: (id: string) => request<PurchaseOrderDTO>(`/purchases/${id}`),
+  create: (input: PurchaseInput) => request<PurchaseOrderDTO>('/purchases', { method: 'POST', body: input }),
+  /** DRAFT → PENDING_APPROVAL，生成 PURCHASE 审批待办 */
+  submit: (id: string) =>
+    request<{ id: string; status: PurchaseStatusDTO; approvalId: string }>(`/purchases/${id}/submit`, {
+      method: 'POST',
+      body: {},
+    }),
+  /** 登记付款：F3=APPROVED 后 / F4=RECEIVED 后（资金动作，幂等键必传） */
+  pay: (id: string, note?: string) =>
+    request<{ purNo: string; status: PurchaseStatusDTO; amount: number }>(`/purchases/${id}/pay`, {
+      method: 'POST',
+      body: { note },
+      idemKey: genIdemKey(),
+    }),
+  /** 收货入库：F3=PAID 后 / F4=APPROVED 后；批次建/补 + IN 流水 + COST 价版本 */
+  receive: (id: string) =>
+    request<{
+      purNo: string;
+      status: PurchaseStatusDTO;
+      batches: Array<{ productId: string; batchNo: string; qty: number }>;
+      costPriceVersions: number;
+    }>(`/purchases/${id}/receive`, { method: 'POST', body: {} }),
+};

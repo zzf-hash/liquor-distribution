@@ -4,6 +4,7 @@ import type { MenuDataItem } from '@ant-design/pro-components';
 import {
   ProfileOutlined, DatabaseOutlined, AccountBookOutlined, BarChartOutlined,
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
+  RiseOutlined, InboxOutlined, ShoppingCartOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -14,6 +15,9 @@ import DeliveryNotePrint from './pages/orders/DeliveryNotePrint';
 import ApprovalsPage from './pages/approvals/ApprovalsPage';
 import SpecialOrdersPage from './pages/special-orders/SpecialOrdersPage';
 import ReturnsPage from './pages/returns/ReturnsPage';
+import PriceChangesPage from './pages/price-changes/PriceChangesPage';
+import PackagesPage from './pages/packages/PackagesPage';
+import PurchasesPage from './pages/purchases/PurchasesPage';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
 import FourQuestionsPage from './pages/reports/FourQuestionsPage';
@@ -27,6 +31,9 @@ const ICONS: Record<string, ReactNode> = {
   AuditOutlined: <AuditOutlined />,
   GoldOutlined: <GoldOutlined />,
   RollbackOutlined: <RollbackOutlined />,
+  RiseOutlined: <RiseOutlined />,
+  InboxOutlined: <InboxOutlined />,
+  ShoppingCartOutlined: <ShoppingCartOutlined />,
   DatabaseOutlined: <DatabaseOutlined />,
   AccountBookOutlined: <AccountBookOutlined />,
   BarChartOutlined: <BarChartOutlined />,
@@ -39,6 +46,9 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/approvals': <ApprovalsPage />,
   '/special-orders': <SpecialOrdersPage />,
   '/returns': <ReturnsPage />,
+  '/price-changes': <PriceChangesPage />,
+  '/packages': <PackagesPage />,
+  '/purchases': <PurchasesPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,
   '/reports': <FourQuestionsPage />,

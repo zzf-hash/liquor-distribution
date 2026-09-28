@@ -171,6 +171,58 @@ export const RETURN_STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: 'CANCELLED', label: '已取消' },
 ];
 
+/** P1-T05 调价状态（草稿灰/待审批橙/已批绿/已生效蓝/驳回红） */
+export const PRICE_CHANGE_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '草稿', color: 'default' },
+  PENDING: { label: '待审批', color: 'warning' },
+  APPROVED: { label: '已批', color: 'success' },
+  EFFECTIVE: { label: '已生效', color: 'processing' },
+  REJECTED: { label: '驳回', color: 'error' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
+export const PRICE_CHANGE_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'DRAFT', label: '草稿' },
+  { key: 'PENDING', label: '待审批' },
+  { key: 'APPROVED', label: '已批' },
+  { key: 'EFFECTIVE', label: '已生效' },
+  { key: 'REJECTED', label: '驳回' },
+  { key: 'CANCELLED', label: '已取消' },
+];
+
+/** P1-T04 回包装记录类型（台账 append-only，OUT 冲减为负押金） */
+export const PACKAGE_TYPE_META: Record<string, { label: string; color: string }> = {
+  WITH_ORDER: { label: '有单回填', color: 'processing' },
+  STANDALONE: { label: '无单回收', color: 'success' },
+  OUT: { label: '押金退付', color: 'warning' },
+};
+
+/** P1-T06 采购类型与状态（F3/F4 审批节点位置不同） */
+export const PURCHASE_TYPE_META: Record<string, { label: string; color: string }> = {
+  PREPAID: { label: '先付F3', color: 'processing' },
+  POSTPAID: { label: '后付F4', color: 'warning' },
+};
+
+export const PURCHASE_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '草稿', color: 'default' },
+  PENDING_APPROVAL: { label: '待审批', color: 'warning' },
+  APPROVED: { label: '已审批', color: 'success' },
+  PAID: { label: '已付款', color: 'processing' },
+  RECEIVED: { label: '已收货', color: 'geekblue' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
+export const PURCHASE_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'DRAFT', label: '草稿' },
+  { key: 'PENDING_APPROVAL', label: '待审批' },
+  { key: 'APPROVED', label: '已审批' },
+  { key: 'PAID', label: '已付款' },
+  { key: 'RECEIVED', label: '已收货' },
+  { key: 'CANCELLED', label: '已取消' },
+];
+
 export function labelOf(map: Record<string, string>, key?: string | null, fallback = '-'): string {
   return (key && map[key]) || fallback;
 }
