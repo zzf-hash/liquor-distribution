@@ -8,3 +8,4 @@ dist-h5/
 .swc/
 project.private.config.json
 apps/api/.env
+logs/
