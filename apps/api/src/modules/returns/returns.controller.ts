@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Injectable, Module, Param, Post, Query } from '@nestjs/common';
-import { IsArray, IsNumber, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ReturnsService } from './returns.service';
 import { ApprovalsModule } from '../approvals/approvals.controller';
@@ -22,8 +22,6 @@ class CreateReturnDto {
 class AppendLinesDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => ReturnLineDto) lines!: ReturnLineDto[];
 }
-
-import { IsOptional } from 'class-validator';
 
 @Controller('returns')
 @Roles('OWNER', 'CLERK', 'WAREHOUSE')
