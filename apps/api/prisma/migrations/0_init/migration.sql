@@ -74,7 +74,10 @@ CREATE TYPE "ReceivableSourceType" AS ENUM ('ORDER', 'INITIAL');
 CREATE TYPE "PaymentStatus" AS ENUM ('REPORTED', 'CONFIRMED', 'CANCELLED');
 
 -- CreateEnum
-CREATE TYPE "ArLedgerDirection" AS ENUM ('CHARGE', 'SETTLE', 'REBATE_OFFSET', 'REVERSAL');
+CREATE TYPE "ArLedgerDirection" AS ENUM ('CHARGE', 'SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'REVERSAL');
+
+-- CreateEnum
+CREATE TYPE "PaymentKind" AS ENUM ('PAYMENT', 'WAIVE', 'BAD_DEBT');
 
 -- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
@@ -366,6 +369,8 @@ CREATE TABLE "Receivable" (
     "generatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "disputeFlag" BOOLEAN NOT NULL DEFAULT false,
     "note" TEXT,
+    "archivedAt" TIMESTAMP(3),
+    "archivedById" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "Receivable_pkey" PRIMARY KEY ("id")
@@ -378,6 +383,8 @@ CREATE TABLE "Payment" (
     "paymentNo" TEXT NOT NULL,
     "customerId" TEXT NOT NULL,
     "amount" DECIMAL(12,2) NOT NULL,
+    "kind" "PaymentKind" NOT NULL DEFAULT 'PAYMENT',
+    "receivableId" TEXT,
     "method" TEXT,
     "voucher" TEXT,
     "reportedById" TEXT,
@@ -476,6 +483,19 @@ CREATE TABLE "IdempotencyRecord" (
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "IdempotencyRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "SystemConfig" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "value" JSONB NOT NULL,
+    "note" TEXT,
+    "updatedBy" TEXT NOT NULL,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "SystemConfig_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateIndex
@@ -601,6 +621,9 @@ CREATE INDEX "ImportRowError_tenantId_batchId_idx" ON "ImportRowError"("tenantId
 -- CreateIndex
 CREATE UNIQUE INDEX "IdempotencyRecord_tenantId_key_key" ON "IdempotencyRecord"("tenantId", "key");
 
+-- CreateIndex
+CREATE UNIQUE INDEX "SystemConfig_tenantId_key_key" ON "SystemConfig"("tenantId", "key");
+
 -- AddForeignKey
 ALTER TABLE "User" ADD CONSTRAINT "User_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -659,6 +682,9 @@ ALTER TABLE "Outbound" ADD CONSTRAINT "Outbound_orderId_fkey" FOREIGN KEY ("orde
 ALTER TABLE "OutboundLine" ADD CONSTRAINT "OutboundLine_outboundId_fkey" FOREIGN KEY ("outboundId") REFERENCES "Outbound"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "OutboundLine" ADD CONSTRAINT "OutboundLine_orderLineId_fkey" FOREIGN KEY ("orderLineId") REFERENCES "OrderLine"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "OutboundLine" ADD CONSTRAINT "OutboundLine_batchId_fkey" FOREIGN KEY ("batchId") REFERENCES "BatchStock"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -702,9 +728,9 @@ ALTER TABLE "ImportRowError" ADD CONSTRAINT "ImportRowError_batchId_fkey" FOREIG
 
 
 -- ═══════════ 安全基线 DB 层加固 (安全评审-01) ═══════════
--- B2/B4 append-only: 应用账号撤销 UPDATE/DELETE/TRUNCATE(仅 INSERT+SELECT)
--- 注意: compose 的 POSTGRES_USER=liquor 是表 owner, owner 绕过 REVOKE 之外还需
---       下方 RLS FORCE 才真正约束; 生产收紧步骤见文末注释。
+-- B2/B4 append-only: 撤销 UPDATE/DELETE/TRUNCATE(仅 INSERT+SELECT)
+-- 注意: compose 的 POSTGRES_USER=liquor 是表 owner; 生产收紧(专用低权限角色+RLS FORCE)
+--       步骤与验收用例见文末注释。
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "AuditLog" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "InventoryLedger" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReceivableLedger" FROM PUBLIC;
@@ -712,20 +738,14 @@ REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "OrderLine" FROM PUBLIC;          -- B3
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "SignatureRecord" FROM PUBLIC;    -- P1-6
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
 
--- B5 第二层(P1-4): 租户行级安全, 键 = 会话 GUC app.tenant_id
--- 应用层(PrismaService $extends)已强制注入 tenant_id; 启用 FORCE 前应用必须
--- 在每个连接上 SET app.tenant_id(专项任务: 专用低权限 DB 角色 + 连接钩子)。
--- 启用步骤(上线安全收紧单):
---   ALTER TABLE "Product" ENABLE ROW LEVEL SECURITY; ALTER TABLE "Product" FORCE ROW LEVEL SECURITY;
---   CREATE POLICY tenant_isolation ON "Product" USING (tenant_id = current_setting('app.tenant_id', true));
---   ... 对全部带 tenant_id 的业务表重复; 验收用例: 裸 SQL 查他租户 = 空集(安全评审 P1-4)
+-- B5 第二层(P1-4): 租户 RLS 策略(键=会话 GUC app.tenant_id; FORCE 启用步骤见部署收紧单)
 DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['User','Product','Price','CustomerPrice','Customer','BatchStock',
     'InventoryLedger','SalesOrder','OrderLine','Outbound','OutboundLine','SignatureRecord',
     'Receivable','Payment','ReceivableLedger','AuditLog','ApprovalRecord','ImportBatch',
-    'ImportRowError','IdempotencyRecord']
+    'ImportRowError','IdempotencyRecord','SystemConfig']
   LOOP
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;

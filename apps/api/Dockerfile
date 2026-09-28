@@ -5,7 +5,7 @@ WORKDIR /app
 RUN corepack enable
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/api/package.json apps/api/
-RUN pnpm install --filter @liquor/api --frozen-lockfile || pnpm install --filter @liquor/api
+RUN node -e "const f='package.json';const p=require('./'+f);p.pnpm={onlyBuiltDependencies:['@nestjs/core','@prisma/client','@prisma/engines','prisma','esbuild','@swc/core','unrs-resolver']};require('fs').writeFileSync(f,JSON.stringify(p,null,2))" && (pnpm install --filter @liquor/api --frozen-lockfile || pnpm install --filter @liquor/api)
 COPY apps/api apps/api
 RUN cd apps/api && pnpm exec prisma generate && pnpm run build
 

@@ -30,7 +30,7 @@ async function main() {
       { username: "clerk", name: "小王(内勤)", role: "CLERK", dataScope: "ALL", passwordHash },
       { username: "rep1", name: "李业务员", role: "REP", dataScope: "OWN_CUSTOMERS", passwordHash },
       { username: "warehouse", name: "老张(仓管)", role: "WAREHOUSE", dataScope: "SELF", passwordHash },
-      { username: "cust-c0001", name: "张三(客户登录)", role: "CUSTOMER", dataScope: "SELF_ORDER" },
+      { username: "cust-c0001", name: "张三(客户登录)", role: "CUSTOMER", dataScope: "SELF_ORDER", passwordHash },
     ];
 
     const userMap: Record<string, string> = {};

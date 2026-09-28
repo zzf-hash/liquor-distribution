@@ -17,6 +17,11 @@ class ReasonDto {
   @IsString() reason!: string;
 }
 
+class WaiveDto {
+  @IsNumber() @Min(0.01) amount!: number;
+  @IsString() reason!: string;
+}
+
 @Controller()
 export class ReceivablesController {
   constructor(private readonly svc: ReceivablesService) {}
@@ -38,6 +43,52 @@ export class ReceivablesController {
   @Roles('OWNER', 'CLERK')
   async summary(@CurrentUser() user: AuthUser): Promise<unknown> {
     return this.svc.summary(user);
+  }
+
+  /** T51: 账期提醒(到期前N天, N可配) */
+  @Get('receivables/reminders')
+  @Roles('OWNER', 'CLERK', 'REP', 'CUSTOMER')
+  async reminders(@CurrentUser() user: AuthUser): Promise<unknown> {
+    return this.svc.reminders(user);
+  }
+
+  /** T03: 抹零发起(内勤; 单笔/月累计上限护栏) */
+  @Post('receivables/:id/waive')
+  @Roles('CLERK', 'OWNER')
+  async waive(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: WaiveDto,
+    @Headers('idempotency-key') idemKey: string,
+    @Ip() ip: string,
+  ): Promise<unknown> {
+    return this.svc.waive(user, id, dto, idemKey, ip);
+  }
+
+  /** T03: 坏账核销(老板直接执行) */
+  @Post('receivables/:id/write-off')
+  @Roles('OWNER')
+  async writeOff(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ReasonDto,
+    @Headers('idempotency-key') idemKey: string,
+    @Ip() ip: string,
+  ): Promise<unknown> {
+    return this.svc.writeOff(user, id, dto.reason, idemKey, ip);
+  }
+
+  /** T32: 已结满6个月软归档(客户不可见, 后台可恢复) */
+  @Post('receivables/:id/archive')
+  @Roles('OWNER', 'CLERK')
+  async archive(@CurrentUser() user: AuthUser, @Param('id') id: string, @Ip() ip: string): Promise<unknown> {
+    return this.svc.archive(user, id, ip);
+  }
+
+  @Post('receivables/:id/unarchive')
+  @Roles('OWNER')
+  async unarchive(@CurrentUser() user: AuthUser, @Param('id') id: string, @Ip() ip: string): Promise<unknown> {
+    return this.svc.unarchive(user, id, ip);
   }
 
   @Get('payments')

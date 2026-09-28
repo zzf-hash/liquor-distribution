@@ -535,6 +535,8 @@ model Receivable {
   generatedAt  DateTime @default(now())
   disputeFlag  Boolean              @default(false) // 争议/死账: 不进账龄分档与提醒(D11)
   note         String?
+  archivedAt   DateTime? // T32 软归档: 已结6个月后归档, 客户查询过滤, 后台可恢复(禁物理删除)
+  archivedById String?
   createdAt    DateTime             @default(now())
 
   tenant   Tenant             @relation(fields: [tenantId], references: [id])
@@ -558,6 +560,8 @@ model Payment {
   paymentNo     String
   customerId    String
   amount        Decimal       @db.Decimal(12, 2)
+  kind          PaymentKind   @default(PAYMENT) // T03: 收款/抹零/坏账
+  receivableId  String? // kind=WAIVE/BAD_DEBT 时的目标应收单(审批后写 WAIVE/WRITEOFF 流水)
   method        String? // 现金/转账/返利抵扣(D02)
   voucher       String? // 凭证
   reportedById  String? // 业务员上报
@@ -583,7 +587,15 @@ enum ArLedgerDirection {
   CHARGE        // 应收发生(签收/期初)
   SETTLE        // 收款核销(FIFO)
   REBATE_OFFSET // 返利抵扣(c 直接冲应收)
+  WAIVE         // 抹零减免(审批通过后核减, 单笔/月累计上限)
+  WRITEOFF      // 坏账核销(老板审批)
   REVERSAL      // 红字冲正
+}
+
+enum PaymentKind {
+  PAYMENT   // 正常收款(F9)
+  WAIVE     // 抹零(内勤发起→老板审批)
+  BAD_DEBT  // 坏账核销(老板直接执行)
 }
 
 // append-only 应收流水: 余额 = total - SUM(SETTLE+REBATE_OFFSET) 可重放 (B4)
@@ -704,6 +716,19 @@ model IdempotencyRecord {
   responseSummary Json?
   createdBy       String
   createdAt       DateTime @default(now())
+
+  @@unique([tenantId, key])
+}
+
+// 业务规则配置(数值型默认值商户签字可否决, 业务适配清单§0): T03 抹零上限/T51 账期提醒N天/特批阈值T等
+model SystemConfig {
+  id        String   @id @default(cuid())
+  tenantId  String
+  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold
+  value     Json
+  note      String?
+  updatedBy String
+  updatedAt DateTime @updatedAt
 
   @@unique([tenantId, key])
 }

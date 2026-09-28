@@ -15,6 +15,8 @@ import { ImportsModule } from './modules/imports/imports.controller';
 import { ProductsModule } from './modules/products/products.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { PricesModule } from './modules/prices/prices.module';
+import { DashboardModule } from './modules/dashboard/dashboard.controller';
+import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { PricesModule } from './modules/prices/prices.module';
     PricesModule, // L3 子agent 交付
     OrdersModule,
     ReceivablesModule,
+    DashboardModule,
+    ShopModule,
     ImportsModule,
     UsersModule,
     HealthModule,

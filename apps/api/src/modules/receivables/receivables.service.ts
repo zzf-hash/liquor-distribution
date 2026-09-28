@@ -5,10 +5,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
-// ═══════════════ P0-T30 应收台账 + P0-T31 收款销账(F9) ═══════════════
+// ═══════════════ P0-T30 应收台账 + P0-T31 收款销账(F9) + T03 抹零坏账 + T32 软归档 + T51 提醒 ═══════════════
 // D4 冻结口径: 生成=签收完成; 到期日=生成日+账期; 分档未到期/1-30/31-60/61-90/>90(可配);
-//   核销 FIFO(最早到期优先, 到期日同按生成先后), 禁止比例分摊; 争议款不进分档与提醒
-// B4: 余额=total-Σ(SETTLE+REBATE_OFFSET) 流水投影; B3 同原则: 收款冲正只准红字新单
+//   核销 FIFO(最早到期优先), 禁止比例分摊; 争议款不进分档与提醒
+// B4: open=流水投影(total−SETTLE−WAIVE−WRITEOFF−冲正); B3 同原则: 收款冲正只准红字新单
 
 export type AgingBucket = 'not_due' | 'd1_30' | 'd31_60' | 'd61_90' | 'd90p' | 'disputed';
 
@@ -33,31 +33,41 @@ export class ReceivablesService {
   }
 
   /** B4 统一开账口径: settled = Σ(SETTLE+REBATE) − Σ(带 paymentId 的 REVERSAL);
-   *  open = total − settled − Σ(无 paymentId 的 REVERSAL=导入批次冲正, 整单作废) */
+   *  open = max(0, total − settled − WAIVE(抹零) − WRITEOFF(坏账) − Σ(无 paymentId 的 REVERSAL=导入冲正)) */
   private arOpen(r: { total: unknown; ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }> }): { settled: number; open: number } {
-    let settled = 0; let reversalNoPay = 0;
+    let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0;
     for (const l of r.ledger) {
       const amt = Number(l.amount);
       if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
+      else if (l.direction === 'WAIVE') waived += amt;
+      else if (l.direction === 'WRITEOFF') writtenOff += amt;
       else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else reversalNoPay += amt; }
     }
-    return { settled, open: Number(r.total) - settled - reversalNoPay };
+    return { settled, open: Math.max(0, Number(r.total) - settled - waived - writtenOff - reversalNoPay) };
   }
 
-  async list(user: AuthUser, q: { bucket?: AgingBucket; customerId?: string; page?: number; pageSize?: number }): Promise<{ items: ArRow[]; total: number }> {
+  /** SystemConfig 读取(带默认值): 数值型商户签字可否决(业务适配清单§0) */
+  private async cfgNumber(key: string, dflt: number): Promise<number> {
+    const row = await this.prisma.systemConfig.findFirst({ where: { key } });
+    const v = row ? Number((row.value as { v?: unknown })?.v ?? row.value) : NaN;
+    return Number.isFinite(v) ? v : dflt;
+  }
+
+  async list(user: AuthUser, q: { bucket?: AgingBucket; customerId?: string; page?: number; pageSize?: number; archived?: 'only' | 'all' }): Promise<{ items: ArRow[]; total: number }> {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 50));
     const where: Prisma.ReceivableWhereInput = {
       customerId: user.role === 'CUSTOMER' ? user.customerId : q.customerId,
+      // T32: 客户侧强制只见未归档; 内勤默认未归档, archived=all 审计查全量, only 查已归档
+      archivedAt: user.aud === 'customer' ? null : q.archived === 'all' ? undefined : q.archived === 'only' ? { not: null } : null,
     };
     const rows = await this.prisma.receivable.findMany({
       where,
-      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'REVERSAL'] } } } },
+      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'REVERSAL'] } } } },
       orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // FIFO 顺序即列表顺序
     });
     const mapped: ArRow[] = rows.map((r) => {
       const { settled, open } = this.arOpen(r);
-      void settled;
       const { daysOverdue, bucket } = this.bucketOf(r.dueDate, r.disputeFlag);
       return {
         id: r.id, sourceType: r.sourceType, sourceDocNo: r.sourceDocNo, customerName: r.customer.name,
@@ -90,7 +100,7 @@ export class ReceivablesService {
       data: {
         tenantId: user.tenantId,
         paymentNo: `PAY${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
-        customerId: dto.customerId, amount: new Prisma.Decimal(dto.amount),
+        customerId: dto.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'PAYMENT',
         method: dto.method, voucher: dto.voucher, note: dto.note,
         reportedById: user.role === 'REP' ? user.id : null,
         enteredById: user.role === 'CLERK' || user.role === 'OWNER' ? user.id : null,
@@ -103,22 +113,29 @@ export class ReceivablesService {
       data: { tenantId: user.tenantId, key: idemKey, endpoint: 'payments.report', requestHash: JSON.stringify({ c: dto.customerId, a: dto.amount }), createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
     });
     await this.audit.log({ user, action: AuditAction.PAYMENT_CONFIRM, entityType: 'Payment', entityId: payment.id, after: { paymentNo: payment.paymentNo, amount: dto.amount, status: payment.status }, ip });
-    // 内勤/老板直录 = 上报即确认 → 直接销账
-    if (payment.status === 'CONFIRMED') return this.settleFifo(user, payment.id, ip);
+    if (payment.status === 'CONFIRMED') return this.settleFifo(user, payment.id, ip); // 内勤/老板直录 = 即确认销账
     return payment;
   }
 
-  /** 内勤确认 → FIFO 销账(D4: 最早到期优先, 到期日同按生成先后; 逐单冲抵) */
+  /** 确认: 收款(PAYMENT)→FIFO 销账; 抹零(WAIVE)→老板审批生效(T03) */
   async confirmPayment(user: AuthUser, paymentId: string, ip?: string): Promise<unknown> {
+    const payment0 = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment0) throw new NotFoundException('收款单不存在');
+    if (payment0.kind === 'WAIVE') {
+      if (user.role !== 'OWNER') throw new ForbiddenException('抹零审批仅老板可执行(D7)');
+      if (payment0.status !== 'REPORTED') throw new ConflictException('该抹零单状态不可审批');
+      if (!payment0.receivableId) throw new ConflictException('抹零单缺少目标应收, 数据异常');
+      await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
+      return this.applyWaive(user, paymentId, payment0.receivableId, ip);
+    }
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可确认收款');
-    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
-    if (!payment) throw new NotFoundException('收款单不存在');
-    if (payment.status === 'CONFIRMED') throw new ConflictException('该收款已确认');
-    if (payment.status === 'CANCELLED') throw new ConflictException('该收款已冲正');
+    if (payment0.status === 'CONFIRMED') throw new ConflictException('该收款已确认');
+    if (payment0.status === 'CANCELLED') throw new ConflictException('该收款已冲正');
     await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', enteredById: user.id, confirmedAt: new Date() } });
     return this.settleFifo(user, paymentId, ip);
   }
 
+  /** FIFO 销账(D4: 最早到期优先, 到期日同按生成先后; 逐单冲抵) */
   private async settleFifo(user: AuthUser, paymentId: string, ip?: string): Promise<unknown> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('收款单不存在');
@@ -143,13 +160,12 @@ export class ReceivablesService {
         await tx.receivableLedger.create({
           data: { tenantId: user.tenantId, receivableId: s.receivableId, paymentId, direction: 'SETTLE', amount: new Prisma.Decimal(s.amount), note: `FIFO 核销 ${payment.paymentNo}`, createdBy: user.id },
         });
-        // 订单应收全额核销 → SIGNED→SETTLED(状态机白名单: 未签收不可销账由 receivable 仅签收后存在保证)
         if (s.fullySettled) {
           const ar = ars.find((a) => a.id === s.receivableId)!;
           if (ar.order) {
             const order = await tx.salesOrder.findUnique({ where: { id: ar.order.id } });
             if (order && order.status === 'SIGNED') {
-              await tx.salesOrder.update({ where: { id: order.id }, data: { status: 'SETTLED', settledAt: new Date() } });
+              await tx.salesOrder.update({ where: { id: order.id }, data: { status: 'SETTLED', settledAt: new Date() } }); // 未签收不可销账由 receivable 仅签收后存在保证
             }
           }
         }
@@ -157,6 +173,124 @@ export class ReceivablesService {
     });
     await this.audit.log({ user, action: AuditAction.SETTLE, entityType: 'Payment', entityId: paymentId, after: { paymentNo: payment.paymentNo, amount: Number(payment.amount), applied: settled, unapplied: remain }, ip });
     return { paymentNo: payment.paymentNo, amount: Number(payment.amount), applied: settled, unapplied: remain };
+  }
+
+  /** T03: 抹零(内勤发起→老板审批; 单笔/月累计上限护栏, D7§4) */
+  async waive(user: AuthUser, receivableId: string, dto: { amount: number; reason: string }, idemKey: string, ip?: string): Promise<unknown> {
+    if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤可发起抹零');
+    if (!idemKey) throw new BadRequestException('抹零必须携带 Idempotency-Key 头');
+    if (!dto.reason?.trim()) throw new BadRequestException('抹零必须填写原因');
+    if (dto.amount <= 0) throw new BadRequestException('抹零金额须大于 0');
+    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
+    if (dup) return { replay: true, summary: dup.responseSummary };
+    const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId }, include: { ledger: true } });
+    if (!ar) throw new NotFoundException('应收单不存在');
+    const { open } = this.arOpen(ar);
+    if (dto.amount > open + 0.0001) throw new BadRequestException(`抹零金额 ${dto.amount} 超过未结 ${open.toFixed(2)}`);
+    const singleMax = await this.cfgNumber('waive_single_max', 50);
+    const monthMax = await this.cfgNumber('waive_monthly_max', 500);
+    if (dto.amount > singleMax) throw new BadRequestException(`单笔抹零超上限 ${singleMax} 元(可配置)`);
+    const monthWaived = await this.prisma.receivableLedger.aggregate({
+      where: { direction: 'WAIVE', createdAt: { gte: dayjs().startOf('month').toDate() } }, _sum: { amount: true },
+    });
+    if (Number(monthWaived._sum.amount ?? 0) + dto.amount > monthMax) {
+      throw new BadRequestException(`本月抹零累计将超上限 ${monthMax} 元(当前 ${Number(monthWaived._sum.amount ?? 0)})`);
+    }
+    const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `WV${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const payment = await this.prisma.payment.create({
+      data: {
+        tenantId: user.tenantId,
+        paymentNo: `WV${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        customerId: ar.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'WAIVE', receivableId,
+        method: '抹零', note: dto.reason, reportedById: user.id,
+        status: user.role === 'OWNER' ? 'CONFIRMED' : 'REPORTED', // 老板发起即生效
+        confirmedAt: user.role === 'OWNER' ? new Date() : null,
+        idemKey,
+      },
+    });
+    await this.prisma.idempotencyRecord.create({
+      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'receivables.waive', requestHash: `${receivableId}:${dto.amount}`, createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
+    });
+    await this.audit.log({ user, action: 'WAIVE_INITIATE', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: dto.amount, reason: dto.reason }, ip });
+    if (payment.status === 'CONFIRMED') return this.applyWaive(user, payment.id, receivableId, ip);
+    return payment;
+  }
+
+  /** 抹零生效: 写 WAIVE 流水(append-only), open 核减 */
+  private async applyWaive(user: AuthUser, paymentId: string, receivableId: string, ip?: string): Promise<unknown> {
+    const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
+    if (!payment) throw new NotFoundException('抹零单不存在');
+    const already = await this.prisma.receivableLedger.findFirst({ where: { paymentId, direction: 'WAIVE' } });
+    if (already) return { paymentNo: payment.paymentNo, alreadyApplied: true };
+    await this.prisma.receivableLedger.create({
+      data: { tenantId: user.tenantId, receivableId, paymentId, direction: 'WAIVE', amount: payment.amount, note: `抹零 ${payment.paymentNo}: ${payment.note ?? ''}`, createdBy: user.id },
+    });
+    await this.audit.log({ user, action: 'WAIVE_APPLY', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: Number(payment.amount) }, ip });
+    return { paymentNo: payment.paymentNo, waived: Number(payment.amount) };
+  }
+
+  /** T03: 坏账核销(老板直接执行, R2 级动作, 幂等) */
+  async writeOff(user: AuthUser, receivableId: string, reason: string, idemKey: string, ip?: string): Promise<unknown> {
+    if (user.role !== 'OWNER') throw new ForbiddenException('坏账核销仅老板可执行');
+    if (!reason?.trim()) throw new BadRequestException('坏账核销必须填写原因');
+    if (!idemKey) throw new BadRequestException('坏账核销必须携带 Idempotency-Key 头');
+    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
+    if (dup) return { replay: true, summary: dup.responseSummary };
+    const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId }, include: { ledger: true } });
+    if (!ar) throw new NotFoundException('应收单不存在');
+    const { open } = this.arOpen(ar);
+    if (open <= 0.0001) throw new ConflictException('该应收已结清, 无需核销');
+    const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `BD${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const payment = await this.prisma.payment.create({
+      data: {
+        tenantId: user.tenantId,
+        paymentNo: `BD${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        customerId: ar.customerId, amount: new Prisma.Decimal(open), kind: 'BAD_DEBT', receivableId,
+        method: '坏账核销', note: reason, status: 'CONFIRMED', confirmedAt: new Date(), idemKey,
+      },
+    });
+    await this.prisma.receivableLedger.create({
+      data: { tenantId: user.tenantId, receivableId, paymentId: payment.id, direction: 'WRITEOFF', amount: payment.amount, note: `坏账核销 ${payment.paymentNo}: ${reason}`, createdBy: user.id },
+    });
+    await this.prisma.idempotencyRecord.create({
+      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'receivables.writeOff', requestHash: receivableId, createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
+    });
+    await this.audit.log({ user, action: 'BAD_DEBT_WRITEOFF', entityType: 'Receivable', entityId: receivableId, before: { open }, after: { paymentNo: payment.paymentNo, amount: open, reason }, ip });
+    return { paymentNo: payment.paymentNo, writtenOff: open };
+  }
+
+  // ─────────────── T32: 电子单据软归档(已结满6个月; 客户不可见, 后台可恢复, 禁物理删除 R8) ───────────────
+  async archive(user: AuthUser, receivableId: string, ip?: string): Promise<unknown> {
+    const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId }, include: { ledger: { orderBy: { createdAt: 'desc' } } } });
+    if (!ar) throw new NotFoundException('应收单不存在');
+    if (ar.archivedAt) throw new ConflictException('该单据已归档');
+    const { open } = this.arOpen(ar);
+    if (open > 0.0001) throw new ConflictException('仅已结清单据可归档');
+    const lastSettle = ar.ledger.find((l) => l.direction === 'SETTLE');
+    if (!lastSettle || lastSettle.createdAt > dayjs().subtract(6, 'month').toDate()) {
+      throw new ConflictException('已结单据须满 6 个月方可归档(R8)');
+    }
+    const updated = await this.prisma.receivable.update({ where: { id: receivableId }, data: { archivedAt: new Date(), archivedById: user.id } });
+    await this.audit.log({ user, action: 'DOC_ARCHIVE', entityType: 'Receivable', entityId: receivableId, after: { archivedAt: updated.archivedAt }, ip });
+    return { id: receivableId, archivedAt: updated.archivedAt };
+  }
+
+  async unarchive(user: AuthUser, receivableId: string, ip?: string): Promise<unknown> {
+    const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId } });
+    if (!ar) throw new NotFoundException('应收单不存在');
+    if (!ar.archivedAt) throw new ConflictException('该单据未归档');
+    await this.prisma.receivable.update({ where: { id: receivableId }, data: { archivedAt: null, archivedById: null } });
+    await this.audit.log({ user, action: 'DOC_UNARCHIVE', entityType: 'Receivable', entityId: receivableId, before: { archivedAt: ar.archivedAt }, ip });
+    return { id: receivableId, restored: true };
+  }
+
+  /** T51: 账期提醒——到期前 N 天(cfg remind_days_before 默认7)的未结单据 */
+  async reminders(user: AuthUser): Promise<unknown> {
+    const n = await this.cfgNumber('remind_days_before', 7);
+    const { items } = await this.list(user, {});
+    return items
+      .filter((r) => r.bucket === 'not_due' && dayjs(r.dueDate).isBefore(dayjs().add(n, 'day').endOf('day')))
+      .map((r) => ({ sourceDocNo: r.sourceDocNo, dueDate: r.dueDate, open: r.open, daysLeft: dayjs(r.dueDate).diff(dayjs(), 'day') }));
   }
 
   /** 收款冲正: 只准红字新单(禁改原收款, B3 同原则) */
