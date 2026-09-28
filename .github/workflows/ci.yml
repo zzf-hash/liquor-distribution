@@ -1,0 +1,43 @@
+# P0-01 CI: 新环境 clone → 装依赖 → 类型检查 → 单测 → 构建, 全绿才过
+# 对应验收标准"新环境 clone→compose up→一键起全绿"的静态前半段(类型/单测/构建)。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package first (api/admin depend on it)
+        run: pnpm --filter @liquor/shared build
+
+      - name: Typecheck @liquor/api
+        run: pnpm --filter @liquor/api exec tsc --noEmit -p tsconfig.json
+
+      - name: Typecheck @liquor/admin
+        run: pnpm --filter @liquor/admin exec tsc --noEmit
+
+      - name: Unit tests (@liquor/api, jest)
+        run: pnpm --filter @liquor/api test
+
+      - name: Build @liquor/api (prisma generate + tsc)
+        run: pnpm --filter @liquor/api build

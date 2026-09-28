@@ -14,5 +14,8 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.74.0"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
   }
 }

@@ -1,7 +1,9 @@
 import { ArgumentsHost, Catch, ExceptionFilter, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { ApiCodes } from '@liquor/shared';
 import type { Response } from 'express';
 
 // 失败统一 {code, message}: code = HTTP 状态码; 409=状态机非法转换, 403=越权, 401=认证, 422=业务预检拦截
+// 语义码常量来自 @liquor/shared.ApiCodes(三端共享同一套码值)
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger('Http');
@@ -18,6 +20,6 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return;
     }
     this.logger.error('unhandled', exception instanceof Error ? exception.stack : String(exception));
-    void res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ code: 500, message: '服务内部错误' });
+    void res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({ code: ApiCodes.Server, message: '服务内部错误' });
   }
 }

@@ -6,7 +6,11 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/admin/package.json apps/admin/
 COPY apps/api/package.json apps/api/
-RUN pnpm install --filter @liquor/api --frozen-lockfile
+COPY packages/shared/package.json packages/shared/
+# @liquor/shared 为 api 的 workspace 依赖, --filter A... 递归拉取其依赖
+RUN pnpm install --filter @liquor/api... --frozen-lockfile
+# 先构建 shared(产出 dist+类型声明), 再构建 api(依赖其类型)
+RUN pnpm --filter @liquor/shared build
 COPY apps/api apps/api
 RUN cd apps/api && pnpm exec prisma generate && pnpm run build
 
