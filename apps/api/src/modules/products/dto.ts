@@ -1,5 +1,6 @@
 // P0-T10 商品档案 DTO：字段口径与 prisma/schema.prisma Product 一致
 import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ProductCategory, ProductStatus } from '@prisma/client';
 
 export class ListProductsDto {
@@ -17,11 +18,13 @@ export class ListProductsDto {
   status?: ProductStatus;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(200)
@@ -63,6 +66,7 @@ export class CreateProductDto {
 
   /** 度数 */
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   abv?: number;
 
@@ -113,6 +117,7 @@ export class UpdateProductDto {
   minUnit?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   packSize?: number;
@@ -122,6 +127,7 @@ export class UpdateProductDto {
   barcode?: string;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   abv?: number;
 

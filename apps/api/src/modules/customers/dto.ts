@@ -1,5 +1,6 @@
 // P0-T12 客户档案 DTO：开户四步 F1 业务员录入→内勤确认→老板终审
 import { IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { Type } from 'class-transformer';
 import { CustomerType, OnboardingStatus, SettlementType, SignMode } from '@prisma/client';
 
 export class ListCustomersDto {
@@ -21,11 +22,13 @@ export class ListCustomersDto {
   onboarding?: OnboardingStatus;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   page?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(200)
@@ -67,17 +70,20 @@ export class CreateCustomerDto {
   settlement!: SettlementType;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   termsDays?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   creditLimit?: number;
 
   /** 起送量 */
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minOrderAmount?: number;
@@ -148,16 +154,19 @@ export class UpdateCustomerDto {
   settlement?: SettlementType;
 
   @IsOptional()
+  @Type(() => Number)
   @IsInt()
   @Min(0)
   termsDays?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   creditLimit?: number;
 
   @IsOptional()
+  @Type(() => Number)
   @IsNumber()
   @Min(0)
   minOrderAmount?: number;
