@@ -6,7 +6,8 @@ RUN corepack enable && corepack prepare pnpm@9.15.0 --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/admin/package.json apps/admin/
 COPY apps/api/package.json apps/api/
-COPY packages/shared/package.json packages/shared/
+# shared 整包(含 tsconfig.json+src): build 步骤需要 tsc -p tsconfig.json
+COPY packages/shared packages/shared
 # @liquor/shared 为 api 的 workspace 依赖, --filter A... 递归拉取其依赖
 RUN pnpm install --filter @liquor/api... --frozen-lockfile
 # 先构建 shared(产出 dist+类型声明), 再构建 api(依赖其类型)

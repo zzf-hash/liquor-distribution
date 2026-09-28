@@ -1,2 +1,2 @@
-commit: 8132c0b8d506a7642d764d42dd52a863dc337936
-build: 三端tsc/build全绿; P0全量+P1全量(T01~T13含T12语音转单, qwen引擎实测4/4)完成; 冒烟六套; 可全量交付客户测试
+commit: d1bc019e30ce907ea95425b5e426bd6214d49919
+build: api镜像Dockerfile修复——COPY packages/shared整包(tsconfig+src), 此前只拷package.json导致tsc -p tsconfig.json报TS5058构建失败; 含fcbab26查询DTO@Type修复(GET page/pageSize字符串400)
