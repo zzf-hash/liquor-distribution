@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { NotifyModule } from './common/notify.module';
 import { PrismaService } from './prisma/prisma.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthGuard } from './common/auth.guard';
@@ -34,6 +35,7 @@ import { ShopModule } from './modules/shop/shop.controller';
 @Module({
   imports: [
     PrismaModule,
+    NotifyModule,
     AuthModule,
     AuditModule,
     ProductsModule, // L3 子agent 交付

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { NotifyService } from '../../common/notify.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P1-T01 审批中心: 五条线统一 ═══════════════
@@ -18,6 +19,7 @@ export class ApprovalsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notify: NotifyService,
   ) {}
 
   private async threshold(): Promise<number> {
@@ -42,6 +44,13 @@ export class ApprovalsService {
       },
     });
     await this.audit.log({ user, action: 'APPROVAL_CREATE', entityType: input.entityType, entityId: input.entityId, after: { approvalId: record.id, line: input.line, amount: input.amount } });
+    void this.notify.send('审批待办', [
+      `单据: ${input.title}`,
+      input.amount !== undefined ? `金额: ¥${input.amount}` : '金额: —',
+      `线别: ${input.line}`,
+      `申请人: ${user.name}`,
+      '请到后台「审批中心」处理',
+    ]);
     return { id: record.id };
   }
 

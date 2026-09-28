@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService, AuditAction } from '../../audit/audit.service';
+import { NotifyService } from '../../common/notify.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P0-T30 应收台账 + P0-T31 收款销账(F9) + T03 抹零坏账 + T32 软归档 + T51 提醒 ═══════════════
@@ -23,6 +24,7 @@ export class ReceivablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly notify: NotifyService,
   ) {}
 
   private bucketOf(dueDate: Date, disputeFlag: boolean): { daysOverdue: number; bucket: AgingBucket } {
@@ -174,6 +176,12 @@ export class ReceivablesService {
       }
     });
     await this.audit.log({ user, action: AuditAction.SETTLE, entityType: 'Payment', entityId: paymentId, after: { paymentNo: payment.paymentNo, amount: Number(payment.amount), applied: settled, unapplied: remain }, ip });
+    const customer = await this.prisma.customer.findUnique({ where: { id: payment.customerId }, select: { name: true } });
+    void this.notify.send('收款销账完成', [
+      `客户: ${customer?.name ?? payment.customerId}`,
+      `收款单: ${payment.paymentNo} ¥${Number(payment.amount).toFixed(2)}`,
+      `核销: ${settled.length} 张应收单${remain > 0.0001 ? `, 未分配 ¥${remain.toFixed(2)}` : ''}`,
+    ]);
     return { paymentNo: payment.paymentNo, amount: Number(payment.amount), applied: settled, unapplied: remain };
   }
 
