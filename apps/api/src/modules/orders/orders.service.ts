@@ -457,6 +457,27 @@ export class OrdersService {
     return this.transition(user, orderId, 'DELIVERING', {}, 'ORDER_DELIVER', ip);
   }
 
+  /** 出库单列表(仓配工作台): PICKING=待拣货复核, CONFIRMED=已出库 */
+  async listOutbounds(q: { status?: string; page?: number; pageSize?: number }): Promise<unknown> {
+    const page = Math.max(1, q.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
+    const where = { status: q.status as never };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.outbound.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          order: { select: { orderNo: true, customerName: true, addressSnapshot: true, status: true, deliveryDate: true } },
+          lines: { include: { batch: { select: { batchNo: true } }, orderLine: { select: { productName: true, unit: true, conversionRate: true, qty: true } } } },
+        },
+      }),
+      this.prisma.outbound.count({ where }),
+    ]);
+    return { items, total };
+  }
+
   // ─────────────── T23 签收(+T24 纸单回录): 部分签收/拒收回冲/回包装回填 → 应收生成(D4) ───────────────
   async sign(
     user: AuthUser, orderId: string,

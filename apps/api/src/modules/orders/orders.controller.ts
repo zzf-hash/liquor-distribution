@@ -123,6 +123,17 @@ export class OrdersController {
     return this.orders.createOutbound(user, id);
   }
 
+  /** 出库单列表(仓配工作台) */
+  @Get('outbounds')
+  @Roles('WAREHOUSE', 'OWNER', 'CLERK')
+  async listOutbounds(
+    @Query('status') status?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ): Promise<unknown> {
+    return this.orders.listOutbounds({ status, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
   /** P0-T22 复核确认出库(库存流水, 幂等) */
   @Post('outbounds/:outboundNo/confirm')
   @Roles('WAREHOUSE', 'OWNER')
