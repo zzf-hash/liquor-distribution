@@ -21,6 +21,10 @@ ENV NODE_ENV=production
 COPY --from=build /app/apps/api/package.json ./
 COPY --from=build /app/node_modules /app/node_modules
 COPY --from=build /app/apps/api/node_modules ./node_modules
+# @liquor/shared 是 workspace 依赖: pnpm 在 node_modules 里放的是指向 ../packages/shared 的符号链接,
+# COPY 后链接悬空(目标目录未拷)。删链, 直接把构建好的 shared(dist+package.json)拷进 node_modules。
+RUN rm -f node_modules/@liquor/shared
+COPY --from=build /app/packages/shared ./node_modules/@liquor/shared
 COPY --from=build /app/apps/api/dist ./dist
 COPY --from=build /app/apps/api/prisma ./prisma
 EXPOSE 3000
