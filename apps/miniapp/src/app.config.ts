@@ -12,10 +12,11 @@ export const CUSTOMER_PAGES = [
   'pages/customer/receivables/index',
 ] as const
 
-// 业务员端页面（P1-T13 起挂入）：拜访打卡等；随本构建一并注册编译，
-// 独立业务员端入口（首页/tabBar 按 APP_ROLE 切换）后续任务接入。
+// 业务员端页面（P1-T13 起挂入）：拜访打卡、语音报单（T12 草稿入口）等；
+// 随本构建一并注册编译，独立业务员端入口（首页/tabBar 按 APP_ROLE 切换）后续任务接入。
 export const SALESMAN_PAGES = [
   'pages/salesman/visit/index',
+  'pages/salesman/voice-order/index',
 ] as const
 
 export const RESERVED_PAGES: Record<Exclude<AppRole, 'customer'>, string[]> = {

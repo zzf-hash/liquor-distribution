@@ -17,10 +17,12 @@ export const ROLE_LABELS: Record<Role, string> = {
 // P1 第二批：调价=老板+内勤(成本价仅老板发起)；回包装/采购=内勤+仓配
 // P1 第三批：盘点=内勤+仓配+老板(仓管盘/内勤核双签)；优惠返利/绩效工资=老板+内勤
 // P1 收尾批：对账=老板+内勤(推送客户/差异处理)；报表=老板+内勤(一键出表)
+// P1-T12：转单草稿=owner+clerk+rep(业务员语音入口的确认工作台)
 export const MENU_ROLES: Record<string, Role[]> = {
   '/orders': ['owner', 'clerk', 'warehouse'],
   '/approvals': ['owner', 'clerk'],
   '/special-orders': ['owner', 'clerk', 'rep'],
+  '/drafts': ['owner', 'clerk', 'rep'],
   '/returns': ['owner', 'clerk', 'warehouse'],
   '/price-changes': ['owner', 'clerk'],
   '/packages': ['owner', 'clerk', 'warehouse'],
@@ -44,10 +46,12 @@ export interface RouteDef {
 
 // 五模块路由（task 7bb5e0eb：订单池/主数据/应收/报表 + 配置）+ P1 第一批（审批中心/特单/退货）
 // + P1 第二批（调价/回包装/采购）+ P1 第三批（盘点/优惠返利/绩效工资）+ P1 收尾批（对账/报表增强）
+// + P1-T12（转单草稿：语音/拍照/文字接单）
 export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/orders', name: '订单池', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
   { path: '/approvals', name: '审批中心', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
   { path: '/special-orders', name: '特单', icon: 'GoldOutlined', taskId: 'P1-T02 F8 全员下单·婚宴宴席' },
+  { path: '/drafts', name: '转单草稿', icon: 'AudioOutlined', taskId: 'P1-T12 语音/拍照/文字·可编辑草稿' },
   { path: '/returns', name: '退货', icon: 'RollbackOutlined', taskId: 'P1-T03 F10 退货·只多不少' },
   { path: '/price-changes', name: '调价', icon: 'RiseOutlined', taskId: 'P1-T05 F7 调价·版本不覆盖' },
   { path: '/packages', name: '回包装', icon: 'InboxOutlined', taskId: 'P1-T04 F11 无单回收·押金台账' },

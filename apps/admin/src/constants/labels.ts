@@ -302,6 +302,20 @@ export const DISPUTE_STATUS_META: Record<string, { label: string; color: string 
   RESOLVED: { label: '已处理', color: 'success' },
 };
 
+/** P1-T12 草稿来源（语音=客户端转写文本 / 拍照=图存人工辅助 / 文字=微信单粘贴） */
+export const DRAFT_SOURCE_META: Record<string, { label: string; color: string }> = {
+  VOICE: { label: '语音', color: 'purple' },
+  PHOTO: { label: '拍照', color: 'cyan' },
+  TEXT: { label: '文字', color: 'default' },
+};
+
+/** P1-T12 草稿状态（待确认橙→已转单绿/已废弃灰）；CONFIRMED 只建 PENDING_CONFIRM 订单 */
+export const DRAFT_STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING_REVIEW: { label: '待确认', color: 'warning' },
+  CONFIRMED: { label: '已转单', color: 'success' },
+  DISCARDED: { label: '已废弃', color: 'default' },
+};
+
 export function labelOf(map: Record<string, string>, key?: string | null, fallback = '-'): string {
   return (key && map[key]) || fallback;
 }

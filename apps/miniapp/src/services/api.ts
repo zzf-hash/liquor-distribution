@@ -326,3 +326,42 @@ export const visitsApi = {
   stats: (month: string) =>
     request<{ month: string; count: number }>(`/visits/stats?month=${encodeURIComponent(month)}`),
 }
+
+// ───────────────────────── 业务员语音报单（P1-T12，rep token：语音/文字 → 待确认草稿） ─────────────────────────
+
+export type DraftSource = 'VOICE' | 'TEXT'
+
+/** 草稿行（items Json：productId 空=未匹配，确认转单在内勤后台完成） */
+export interface RepDraftItemDTO {
+  productName: string
+  productId?: string | null
+  qty: number
+  unit: string
+  unitPrice?: number | null
+  priceHint?: number | null
+  aliasMatched?: boolean
+}
+
+export interface RepDraftDTO {
+  id: string
+  draftNo: string
+  source: DraftSource
+  rawText?: string | null
+  customerHint?: string | null
+  items: RepDraftItemDTO[]
+  confidence: number
+  ambiguities?: string[] | null
+  engine?: string | null
+  /** 后端附带：confidence < 0.7 低置信度红条强提示 */
+  lowConfidence?: boolean
+  createdAt: string
+}
+
+export const draftsApi = {
+  /** 报单入口：语音(试点期口述内容手敲成文字)/文字 → 后端 qwen 解析成草稿；确认转单在内勤后台「转单草稿」工作台 */
+  create: (input: { source: DraftSource; text: string }) =>
+    request<RepDraftDTO>('/drafts', {
+      method: 'POST',
+      body: { source: input.source, text: input.text },
+    }),
+}

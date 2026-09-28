@@ -1191,3 +1191,93 @@ export const payrollApi = {
   /** 确认发放（owner） */
   confirm: (id: string) => request<PayrollDTO>(`/payroll/${id}/confirm`, { method: 'POST', body: {} }),
 };
+
+// ───────────────────────── 转单草稿（P1-T12，语音/拍照/文字 → 可编辑草稿 → 确认转单） ─────────────────────────
+
+export type DraftSourceDTO = 'VOICE' | 'PHOTO' | 'TEXT';
+export type DraftStatusDTO = 'PENDING_REVIEW' | 'CONFIRMED' | 'DISCARDED';
+
+/** 草稿行（items Json：productName 原文，productId 空=未匹配需人工选） */
+export interface DraftItemDTO {
+  productName: string;
+  productId?: string | null;
+  qty: number;
+  unit: string; // 原文口径（箱/瓶）
+  unitPrice?: number | null;
+  priceHint?: number | null;
+  aliasMatched?: boolean;
+}
+
+export interface OrderDraftDTO {
+  id: string;
+  draftNo: string;
+  source: DraftSourceDTO;
+  rawText?: string | null;
+  photoUrl?: string | null;
+  customerId?: string | null;
+  customerHint?: string | null;
+  items: DraftItemDTO[];
+  confidence: number;
+  ambiguities?: string[] | null;
+  engine?: string | null;
+  status: DraftStatusDTO;
+  convertedOrderId?: string | null;
+  createdAt: string;
+  /** 后端附带：confidence < 0.7 低置信度强提示（红线：必须逐项人工核对） */
+  lowConfidence: boolean;
+}
+
+export interface DraftEngineStatusDTO {
+  engine: string;
+  available: boolean;
+  baseUrl: string;
+}
+
+/** 确认转单结果：只建 PENDING_CONFIRM 订单（D16 红线：不可能直接出库） */
+export interface DraftConfirmResultDTO {
+  draftNo: string;
+  orderId: string;
+  orderNo: string;
+  orderStatus: string;
+}
+
+export const draftsApi = {
+  engineStatus: () => request<DraftEngineStatusDTO>('/drafts/engine-status'),
+  list: (params: { status?: DraftStatusDTO; page?: number; pageSize?: number }) =>
+    request<PageResult<OrderDraftDTO>>(`/drafts${qs(params)}`),
+  create: (input: { source: DraftSourceDTO; text?: string; photoUrl?: string }) =>
+    request<OrderDraftDTO>('/drafts', { method: 'POST', body: input }),
+  /** 可编辑红线：人工修正客户/items（仅 PENDING_REVIEW） */
+  update: (id: string, input: { customerId?: string; items?: DraftItemDTO[] }) =>
+    request<OrderDraftDTO>(`/drafts/${id}`, { method: 'PATCH', body: input }),
+  confirm: (
+    id: string,
+    input: { customerId?: string; lines?: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; priceOverride?: number }>; learnAliases?: boolean },
+  ) =>
+    request<DraftConfirmResultDTO>(`/drafts/${id}/confirm`, { method: 'POST', body: input, idemKey: genIdemKey() }),
+  /** 废弃（仅 PENDING_REVIEW）；reason 选填，服务端 DTO 暂未收该字段（whitelist 剥离，不报错） */
+  discard: (id: string, reason?: string) =>
+    request<{ id: string; status: DraftStatusDTO }>(`/drafts/${id}/discard`, { method: 'POST', body: reason ? { reason } : {} }),
+};
+
+// ───────────────────────── 别名词典（P1-T12，Q13 确认转单自动学习） ─────────────────────────
+
+export type AliasKindDTO = 'PRODUCT' | 'CUSTOMER';
+
+export interface AliasEntryDTO {
+  id: string;
+  kind: AliasKindDTO;
+  key: string;
+  targetId: string;
+  source: string; // MANUAL / AUTO_LEARNED
+  hitCount: number;
+  createdAt: string;
+}
+
+export const aliasesApi = {
+  list: (kind: AliasKindDTO) => request<AliasEntryDTO[]>(`/aliases${qs({ kind })}`),
+  /** key 服务端小写规范化且 ≥2 字符；同 (kind,key) upsert 覆盖目标 */
+  add: (input: { kind: AliasKindDTO; key: string; targetId: string }) =>
+    request<AliasEntryDTO>('/aliases', { method: 'POST', body: input }),
+  remove: (id: string) => request<{ ok: boolean }>(`/aliases/${id}`, { method: 'DELETE' }),
+};

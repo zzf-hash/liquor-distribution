@@ -1,0 +1,263 @@
+@use '../../../styles/tokens' as *;
+
+// 语音报单（P1-T12）：模式切换+录音+文字域+解析结果卡；全部可点元素 ≥ $touch-min 触控红线。
+.vo {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+// 表单/结果卡
+.vo__card {
+  padding: $gap-base;
+  margin-bottom: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.vo__title {
+  display: block;
+  font-size: $font-title;
+  font-weight: 600;
+  color: $color-text;
+  margin-bottom: $gap-base;
+}
+
+.vo__label {
+  display: block;
+  margin: $gap-base 0 12px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 语音/文字模式切换（两块整点可点）
+.vo__modes {
+  display: flex;
+  gap: $gap-base;
+}
+
+.vo__mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: $touch-min;
+  background: $color-bg;
+  border: 2px solid transparent;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+
+  &--on {
+    background: rgba(139, 30, 36, 0.06);
+    border-color: $color-primary;
+  }
+}
+
+.vo__mode-txt {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.vo__mode--on .vo__mode-txt {
+  font-weight: 600;
+}
+
+// 语音模式：录音大按钮 + 试点期简提示
+.vo__voice {
+  margin-top: $gap-base;
+}
+
+.vo__rec {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-primary;
+  background: $color-bg;
+  border: 2px dashed rgba(139, 30, 36, 0.5);
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &--on {
+    color: #fff;
+    background: $color-primary;
+    border-style: solid;
+    border-color: $color-primary;
+  }
+}
+
+.vo__hint {
+  display: block;
+  margin-top: 12px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 报单文字域
+.vo__ipt {
+  width: 100%;
+  min-height: 200px;
+  padding: $gap-base;
+  font-size: $font-body;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+// 解析结果卡：置信度/时间
+.vo__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $gap-base;
+}
+
+.vo__meta-conf {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.vo__meta-time {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 低置信度红条（强提示）
+.vo__alert {
+  padding: 16px $gap-base;
+  margin-bottom: $gap-base;
+  background: rgba(139, 30, 36, 0.08);
+  border-left: 8px solid $color-primary;
+  border-radius: 8px;
+}
+
+.vo__alert-txt {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-primary;
+}
+
+.vo__empty {
+  display: block;
+  padding: 16px 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+}
+
+// 商品行：品名+标签 / 数量单位
+.vo__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  margin-bottom: 12px;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.vo__item-name {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.vo__item-txt {
+  font-size: $font-body;
+  color: $color-text;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vo__item-qty {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.vo__tag {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  font-size: 24px;
+  border-radius: 8px;
+
+  &--warn {
+    color: #8a6116;
+    background: rgba(230, 162, 60, 0.18);
+  }
+
+  &--alias {
+    color: $color-primary;
+    background: rgba(139, 30, 36, 0.08);
+  }
+}
+
+// 歧义/未解析项（橙字小字）
+.vo__amb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: $gap-base;
+}
+
+.vo__amb-txt {
+  font-size: $font-sub;
+  color: #b4730f;
+}
+
+// 去后台确认提示（确认动作在内勤后台工作台）
+.vo__go {
+  padding: $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.vo__go-title {
+  display: block;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-primary;
+  margin-bottom: 8px;
+}
+
+.vo__go-txt {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  line-height: 1.6;
+}
+
+// 提交按钮（与拜访页同款主按钮）
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  margin-top: $gap-lg;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}

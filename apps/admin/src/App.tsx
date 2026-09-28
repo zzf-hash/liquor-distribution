@@ -5,7 +5,7 @@ import {
   ProfileOutlined, DatabaseOutlined, AccountBookOutlined, BarChartOutlined,
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
   RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
-  GiftOutlined, MoneyCollectOutlined, FileSyncOutlined,
+  GiftOutlined, MoneyCollectOutlined, FileSyncOutlined, AudioOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -15,6 +15,7 @@ import OrdersPage from './pages/orders/OrdersPage';
 import DeliveryNotePrint from './pages/orders/DeliveryNotePrint';
 import ApprovalsPage from './pages/approvals/ApprovalsPage';
 import SpecialOrdersPage from './pages/special-orders/SpecialOrdersPage';
+import DraftsPage from './pages/drafts/DraftsPage';
 import ReturnsPage from './pages/returns/ReturnsPage';
 import PriceChangesPage from './pages/price-changes/PriceChangesPage';
 import PackagesPage from './pages/packages/PackagesPage';
@@ -47,6 +48,7 @@ const ICONS: Record<string, ReactNode> = {
   GiftOutlined: <GiftOutlined />,
   MoneyCollectOutlined: <MoneyCollectOutlined />,
   FileSyncOutlined: <FileSyncOutlined />,
+  AudioOutlined: <AudioOutlined />,
 };
 
 // 业务页面已实施的模块；/settings 仍为路由占位
@@ -54,6 +56,7 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/orders': <OrdersPage />,
   '/approvals': <ApprovalsPage />,
   '/special-orders': <SpecialOrdersPage />,
+  '/drafts': <DraftsPage />,
   '/returns': <ReturnsPage />,
   '/price-changes': <PriceChangesPage />,
   '/packages': <PackagesPage />,
