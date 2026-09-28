@@ -44,7 +44,7 @@ CREATE TYPE "CustomerStatus" AS ENUM ('ACTIVE', 'DISABLED');
 CREATE TYPE "LedgerDirection" AS ENUM ('IN', 'OUT');
 
 -- CreateEnum
-CREATE TYPE "InventoryRefType" AS ENUM ('INITIAL_IMPORT', 'OUTBOUND', 'REJECT_RETURN', 'RETURN_IN', 'REVERSAL_IN', 'ADJUST');
+CREATE TYPE "InventoryRefType" AS ENUM ('INITIAL_IMPORT', 'OUTBOUND', 'REJECT_RETURN', 'RETURN_IN', 'PURCHASE_IN', 'REVERSAL_IN', 'ADJUST');
 
 -- CreateEnum
 CREATE TYPE "OrderSource" AS ENUM ('CLERK', 'REP', 'CUSTOMER');
@@ -84,6 +84,18 @@ CREATE TYPE "SpecialOrderStatus" AS ENUM ('DRAFT', 'PENDING_PRICE', 'APPROVED', 
 
 -- CreateEnum
 CREATE TYPE "ReturnStatus" AS ENUM ('PENDING_REVIEW', 'APPROVED', 'RECEIVED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "PriceChangeStatus" AS ENUM ('DRAFT', 'PENDING', 'APPROVED', 'EFFECTIVE', 'REJECTED', 'CANCELLED');
+
+-- CreateEnum
+CREATE TYPE "PackageRecordType" AS ENUM ('WITH_ORDER', 'STANDALONE', 'OUT');
+
+-- CreateEnum
+CREATE TYPE "PurchaseType" AS ENUM ('PREPAID', 'POSTPAID');
+
+-- CreateEnum
+CREATE TYPE "PurchaseStatus" AS ENUM ('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PAID', 'RECEIVED', 'CANCELLED');
 
 -- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
@@ -499,6 +511,79 @@ CREATE TABLE "ReturnLine" (
 );
 
 -- CreateTable
+CREATE TABLE "PriceChangeRequest" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "unit" "PriceUnit" NOT NULL,
+    "levelType" "PriceLevelType" NOT NULL,
+    "oldPrice" DECIMAL(12,2) NOT NULL,
+    "newPrice" DECIMAL(12,2) NOT NULL,
+    "effectiveDate" TIMESTAMP(3) NOT NULL,
+    "reason" TEXT NOT NULL,
+    "stockImpact" JSONB,
+    "customerSync" BOOLEAN NOT NULL DEFAULT false,
+    "status" "PriceChangeStatus" NOT NULL DEFAULT 'DRAFT',
+    "approvalId" TEXT,
+    "createdById" TEXT NOT NULL,
+    "effectuatedAt" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PriceChangeRequest_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PackageRecord" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "category" TEXT NOT NULL,
+    "qty" INTEGER NOT NULL,
+    "type" "PackageRecordType" NOT NULL,
+    "orderId" TEXT,
+    "depositPaid" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "note" TEXT,
+    "recordedById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PackageRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PurchaseOrder" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "purNo" TEXT NOT NULL,
+    "supplier" TEXT NOT NULL,
+    "type" "PurchaseType" NOT NULL,
+    "status" "PurchaseStatus" NOT NULL DEFAULT 'DRAFT',
+    "totalAmount" DECIMAL(12,2) NOT NULL DEFAULT 0,
+    "payeeNote" TEXT,
+    "paidAt" TIMESTAMP(3),
+    "receivedAt" TIMESTAMP(3),
+    "note" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "PurchaseOrder_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "PurchaseLine" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "purchaseId" TEXT NOT NULL,
+    "productId" TEXT NOT NULL,
+    "batchNo" TEXT NOT NULL,
+    "qty" DECIMAL(14,3) NOT NULL,
+    "unitCost" DECIMAL(12,4) NOT NULL,
+    "produceDate" TIMESTAMP(3),
+    "expiryDate" TIMESTAMP(3),
+
+    CONSTRAINT "PurchaseLine_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
@@ -707,6 +792,24 @@ CREATE UNIQUE INDEX "ReturnOrder_tenantId_returnNo_key" ON "ReturnOrder"("tenant
 CREATE INDEX "ReturnLine_tenantId_returnOrderId_idx" ON "ReturnLine"("tenantId", "returnOrderId");
 
 -- CreateIndex
+CREATE INDEX "PriceChangeRequest_tenantId_status_idx" ON "PriceChangeRequest"("tenantId", "status");
+
+-- CreateIndex
+CREATE INDEX "PackageRecord_tenantId_customerId_category_idx" ON "PackageRecord"("tenantId", "customerId", "category");
+
+-- CreateIndex
+CREATE INDEX "PackageRecord_tenantId_createdAt_idx" ON "PackageRecord"("tenantId", "createdAt");
+
+-- CreateIndex
+CREATE INDEX "PurchaseOrder_tenantId_status_idx" ON "PurchaseOrder"("tenantId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "PurchaseOrder_tenantId_purNo_key" ON "PurchaseOrder"("tenantId", "purNo");
+
+-- CreateIndex
+CREATE INDEX "PurchaseLine_tenantId_purchaseId_idx" ON "PurchaseLine"("tenantId", "purchaseId");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 
 -- CreateIndex
@@ -839,6 +942,18 @@ ALTER TABLE "ReturnOrder" ADD CONSTRAINT "ReturnOrder_customerId_fkey" FOREIGN K
 ALTER TABLE "ReturnLine" ADD CONSTRAINT "ReturnLine_returnOrderId_fkey" FOREIGN KEY ("returnOrderId") REFERENCES "ReturnOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "PriceChangeRequest" ADD CONSTRAINT "PriceChangeRequest_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PackageRecord" ADD CONSTRAINT "PackageRecord_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PurchaseLine" ADD CONSTRAINT "PurchaseLine_purchaseId_fkey" FOREIGN KEY ("purchaseId") REFERENCES "PurchaseOrder"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "PurchaseLine" ADD CONSTRAINT "PurchaseLine_productId_fkey" FOREIGN KEY ("productId") REFERENCES "Product"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -849,16 +964,15 @@ ALTER TABLE "ImportRowError" ADD CONSTRAINT "ImportRowError_batchId_fkey" FOREIG
 
 
 -- ═══════════ 安全基线 DB 层加固 (安全评审-01) ═══════════
--- B2/B4 append-only: 撤销 UPDATE/DELETE/TRUNCATE(仅 INSERT+SELECT)
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "AuditLog" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "InventoryLedger" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReceivableLedger" FROM PUBLIC;
-REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "OrderLine" FROM PUBLIC;          -- B3 写一次
-REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "SignatureRecord" FROM PUBLIC;    -- P1-6
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "OrderLine" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "SignatureRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
-REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;         -- R4 只增
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "PackageRecord" FROM PUBLIC;
 
--- B5 第二层(P1-4): 租户 RLS 策略(FORCE 启用步骤见部署收紧单)
 DO $$
 DECLARE t text;
 BEGIN
@@ -866,7 +980,7 @@ BEGIN
     'InventoryLedger','SalesOrder','OrderLine','Outbound','OutboundLine','SignatureRecord',
     'Receivable','Payment','ReceivableLedger','AuditLog','ApprovalRecord','ImportBatch',
     'ImportRowError','IdempotencyRecord','SystemConfig','SpecialOrder','SpecialOrderLine',
-    'ReturnOrder','ReturnLine']
+    'ReturnOrder','ReturnLine','PriceChangeRequest','PackageRecord','PurchaseOrder','PurchaseLine']
   LOOP
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;

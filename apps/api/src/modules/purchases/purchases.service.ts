@@ -1,0 +1,137 @@
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
+import dayjs from 'dayjs';
+import { PrismaService } from '../../prisma/prisma.service';
+import { AuditService } from '../../audit/audit.service';
+import { ApprovalsService } from '../approvals/approvals.service';
+import type { AuthUser } from '../../common/current-user.decorator';
+
+// ═══════════════ P1-T06 采购双流程 (F3 先付 / F4 后付) ═══════════════
+// F3 先付: DRAFT→PENDING_APPROVAL→APPROVED→PAID→RECEIVED (审批→付款→收货)
+// F4 后付: DRAFT→PENDING_APPROVAL→APPROVED→RECEIVED→PAID (审批→收货→付款)
+// 收货入库: 批次建/补 + IN 流水(PURCHASE_IN) + 成本价新版本(COST, D08 版本化)
+// 资金/库存动作: 幂等键 + 审计
+
+@Injectable()
+export class PurchasesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    private readonly approvals: ApprovalsService,
+  ) {}
+
+  async create(user: AuthUser, dto: { supplier: string; type: 'PREPAID' | 'POSTPAID'; payeeNote?: string; note?: string; lines: Array<{ productId: string; batchNo: string; qty: number; unitCost: number; produceDate?: string; expiryDate?: string }> }): Promise<unknown> {
+    if (!dto.supplier?.trim()) throw new BadRequestException('供应商必填');
+    if (!dto.lines?.length) throw new BadRequestException('采购单至少一行');
+    for (const l of dto.lines) {
+      if (l.qty <= 0 || l.unitCost < 0) throw new BadRequestException('数量须>0, 成本须≥0');
+      if (!l.batchNo?.trim()) throw new BadRequestException('批次号必填');
+      if (l.expiryDate && l.expiryDate < dayjs().format('YYYY-MM-DD')) throw new BadRequestException('已过期批次拒入');
+    }
+    const products = await this.prisma.product.findMany({ where: { id: { in: dto.lines.map((l) => l.productId) } } });
+    if (products.length !== new Set(dto.lines.map((l) => l.productId)).size) throw new BadRequestException('存在无效商品');
+    const totalAmount = dto.lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
+    const seq = (await this.prisma.purchaseOrder.count({ where: { purNo: { startsWith: `CG${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const created = await this.prisma.purchaseOrder.create({
+      data: {
+        tenantId: user.tenantId,
+        purNo: `CG${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        supplier: dto.supplier, type: dto.type, status: 'DRAFT',
+        totalAmount: new Prisma.Decimal(totalAmount.toFixed(2)),
+        payeeNote: dto.payeeNote, note: dto.note, createdById: user.id,
+        lines: { create: dto.lines.map((l) => ({ tenantId: user.tenantId, productId: l.productId, batchNo: l.batchNo, qty: new Prisma.Decimal(l.qty), unitCost: new Prisma.Decimal(l.unitCost), produceDate: l.produceDate ? new Date(l.produceDate) : undefined, expiryDate: l.expiryDate ? new Date(l.expiryDate) : undefined })) },
+      } as never,
+      include: { lines: true },
+    });
+    await this.audit.log({ user, action: 'PURCHASE_CREATE', entityType: 'PURCHASE', entityId: created.id, after: { purNo: created.purNo, type: dto.type, totalAmount } });
+    return created;
+  }
+
+  async submit(user: AuthUser, id: string): Promise<unknown> {
+    const p = await this.prisma.purchaseOrder.findUnique({ where: { id }, include: { lines: true } });
+    if (!p) throw new NotFoundException('采购单不存在');
+    if (p.status !== 'DRAFT') throw new ConflictException(`仅草稿可提交(当前 ${p.status})`);
+    const approval = await this.approvals.create(user, {
+      line: 'PURCHASE', entityType: 'PURCHASE', entityId: id,
+      title: `采购 ${p.purNo} ${p.supplier} ¥${Number(p.totalAmount)}`,
+      amount: Number(p.totalAmount), reason: `${p.type === 'PREPAID' ? 'F3 先付' : 'F4 后付'}采购, ${p.lines.length} 行`,
+      payload: { purNo: p.purNo, type: p.type, supplier: p.supplier, lines: p.lines.map((l) => ({ productId: l.productId, qty: Number(l.qty), unitCost: Number(l.unitCost) })) },
+    });
+    await this.prisma.purchaseOrder.update({ where: { id }, data: { status: 'PENDING_APPROVAL' } });
+    return { id, status: 'PENDING_APPROVAL', approvalId: approval.id };
+  }
+
+  /** 付款: F3 先付=APPROVED 后; F4 后付=RECEIVED 后 */
+  async pay(user: AuthUser, id: string, idemKey: string, note?: string): Promise<unknown> {
+    if (!idemKey) throw new BadRequestException('付款必须携带 Idempotency-Key 头');
+    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
+    if (dup) return { replay: true, summary: dup.responseSummary };
+    const p = await this.prisma.purchaseOrder.findUnique({ where: { id } });
+    if (!p) throw new NotFoundException('采购单不存在');
+    if (p.status === 'PAID') throw new ConflictException('该采购单已付款');
+    const validFrom = p.type === 'PREPAID' ? 'APPROVED' : 'RECEIVED';
+    if (p.status !== validFrom) {
+      throw new ConflictException(p.type === 'PREPAID' ? 'F3 先付流程: 审批通过后才可付款' : 'F4 后付流程: 收货入库后才可付款');
+    }
+    await this.prisma.purchaseOrder.update({ where: { id }, data: { status: 'PAID', paidAt: new Date(), payeeNote: note ?? p.payeeNote } });
+    await this.prisma.idempotencyRecord.create({
+      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'purchases.pay', requestHash: id, createdBy: user.id, responseSummary: { purNo: p.purNo } as never },
+    });
+    await this.audit.log({ user, action: 'PURCHASE_PAY', entityType: 'PURCHASE', entityId: id, after: { purNo: p.purNo, amount: Number(p.totalAmount), note } });
+    return { purNo: p.purNo, status: 'PAID', amount: Number(p.totalAmount) };
+  }
+
+  /** 收货入库: F3 先付=PAID 后; F4 后付=APPROVED 后; 批次+IN 流水+COST 价版本 */
+  async receive(user: AuthUser, id: string): Promise<unknown> {
+    const p = await this.prisma.purchaseOrder.findUnique({ where: { id }, include: { lines: { include: { product: true } } } });
+    if (!p) throw new NotFoundException('采购单不存在');
+    if (p.status === 'RECEIVED') throw new ConflictException('该采购单已收货');
+    const validFrom = p.type === 'PREPAID' ? 'PAID' : 'APPROVED';
+    if (p.status !== validFrom) {
+      throw new ConflictException(p.type === 'PREPAID' ? 'F3 先付流程: 付款后才可收货' : 'F4 后付流程: 审批通过后才可收货');
+    }
+    const batches: Array<{ productId: string; batchNo: string; qty: number }> = [];
+    await this.prisma.$transaction(async (tx) => {
+      for (const l of p.lines) {
+        let batch = await tx.batchStock.findFirst({ where: { productId: l.productId, batchNo: l.batchNo } });
+        if (!batch) {
+          batch = await tx.batchStock.create({
+            data: {
+              tenantId: user.tenantId, productId: l.productId, batchNo: l.batchNo,
+              produceDate: l.produceDate ?? undefined, expiryDate: l.expiryDate ?? undefined,
+              unitCost: l.unitCost, isInitial: false,
+            },
+          });
+        }
+        await tx.inventoryLedger.create({
+          data: { tenantId: user.tenantId, productId: l.productId, batchId: batch.id, direction: 'IN', qty: l.qty, refType: 'PURCHASE_IN', refNo: p.purNo, note: `采购入库 ${p.purNo}`, createdBy: user.id },
+        });
+        // 成本价录入 → COST 价新版本(D08: 版本化, 最小单位口径)
+        await tx.price.create({
+          data: { tenantId: user.tenantId, productId: l.productId, unit: 'MIN', levelType: 'COST', price: l.unitCost, validFrom: new Date(), approvalRef: `CG-${p.purNo}`, note: '采购成本录入', createdBy: user.id },
+        });
+        batches.push({ productId: l.productId, batchNo: l.batchNo, qty: Number(l.qty) });
+      }
+      await tx.purchaseOrder.update({ where: { id }, data: { status: 'RECEIVED', receivedAt: new Date() } });
+    });
+    await this.audit.log({ user, action: 'PURCHASE_RECEIVE', entityType: 'PURCHASE', entityId: id, after: { purNo: p.purNo, batches, costVersions: p.lines.length } });
+    return { purNo: p.purNo, status: 'RECEIVED', batches, costPriceVersions: p.lines.length };
+  }
+
+  async list(q: { status?: string; page?: number; pageSize?: number }): Promise<unknown> {
+    const page = Math.max(1, q.page ?? 1);
+    const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
+    const where = { status: q.status as never };
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.purchaseOrder.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { lines: { include: { product: { select: { name: true, skuCode: true } } } } } }),
+      this.prisma.purchaseOrder.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  async detail(id: string): Promise<unknown> {
+    const p = await this.prisma.purchaseOrder.findUnique({ where: { id }, include: { lines: { include: { product: { select: { name: true, skuCode: true } } } } } });
+    if (!p) throw new NotFoundException('采购单不存在');
+    return p;
+  }
+}

@@ -500,6 +500,17 @@ export class OrdersService {
           recordedById: user.id, returnPackages: (body.returnPackages ?? undefined) as never,
         } as never,
       });
+      // T04 联动: 回包装回填落押金台账(WITH_ORDER, 单价 cfg)
+      if (body.returnPackages?.length) {
+        for (const pkg of body.returnPackages) {
+          const cfgRow = await tx.systemConfig.findFirst({ where: { key: `deposit_${pkg.category}` } });
+          const unitD = cfgRow ? Number((cfgRow.value as { v?: unknown })?.v ?? cfgRow.value) : NaN;
+          const unit = Number.isFinite(unitD) ? unitD : ({ 周转箱: 15, 啤酒瓶: 0.5, 白酒盒: 2 } as Record<string, number>)[pkg.category] ?? 0;
+          await tx.packageRecord.create({
+            data: { tenantId: user.tenantId, customerId: order.customerId, category: pkg.category, qty: Math.max(0, Math.trunc(pkg.qty)), type: 'WITH_ORDER', orderId, depositPaid: new Prisma.Decimal((unit * Math.trunc(pkg.qty)).toFixed(2)), note: `签收回填 ${order.orderNo}`, recordedById: user.id },
+          });
+        }
+      }
       // 拒收回冲库存(不可变流水 IN, refType=REJECT_RETURN)
       for (const r of rejections) {
         if (!r.batchId) continue;

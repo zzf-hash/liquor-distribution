@@ -19,6 +19,9 @@ import { DashboardModule } from './modules/dashboard/dashboard.controller';
 import { ApprovalsModule } from './modules/approvals/approvals.controller';
 import { SpecialOrdersModule } from './modules/special-orders/special-orders.controller';
 import { ReturnsModule } from './modules/returns/returns.controller';
+import { PriceChangesModule } from './modules/price-changes/price-changes.controller';
+import { PackagesModule } from './modules/packages/packages.controller';
+import { PurchasesModule } from './modules/purchases/purchases.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
@@ -36,6 +39,9 @@ import { ShopModule } from './modules/shop/shop.controller';
     ApprovalsModule,
     SpecialOrdersModule,
     ReturnsModule,
+    PriceChangesModule,
+    PackagesModule,
+    PurchasesModule,
     ImportsModule,
     UsersModule,
     HealthModule,
