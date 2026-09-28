@@ -4,7 +4,8 @@ import type { MenuDataItem } from '@ant-design/pro-components';
 import {
   ProfileOutlined, DatabaseOutlined, AccountBookOutlined, BarChartOutlined,
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
-  RiseOutlined, InboxOutlined, ShoppingCartOutlined,
+  RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
+  GiftOutlined, MoneyCollectOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -18,6 +19,9 @@ import ReturnsPage from './pages/returns/ReturnsPage';
 import PriceChangesPage from './pages/price-changes/PriceChangesPage';
 import PackagesPage from './pages/packages/PackagesPage';
 import PurchasesPage from './pages/purchases/PurchasesPage';
+import StocktakesPage from './pages/stocktakes/StocktakesPage';
+import RebatesPage from './pages/rebates/RebatesPage';
+import PayrollPage from './pages/payroll/PayrollPage';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
 import FourQuestionsPage from './pages/reports/FourQuestionsPage';
@@ -38,6 +42,9 @@ const ICONS: Record<string, ReactNode> = {
   AccountBookOutlined: <AccountBookOutlined />,
   BarChartOutlined: <BarChartOutlined />,
   SettingOutlined: <SettingOutlined />,
+  ReconciliationOutlined: <ReconciliationOutlined />,
+  GiftOutlined: <GiftOutlined />,
+  MoneyCollectOutlined: <MoneyCollectOutlined />,
 };
 
 // 业务页面已实施的模块；/settings 仍为路由占位
@@ -49,6 +56,9 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/price-changes': <PriceChangesPage />,
   '/packages': <PackagesPage />,
   '/purchases': <PurchasesPage />,
+  '/stocktakes': <StocktakesPage />,
+  '/rebates': <RebatesPage />,
+  '/payroll': <PayrollPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,
   '/reports': <FourQuestionsPage />,

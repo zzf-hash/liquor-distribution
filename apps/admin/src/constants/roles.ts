@@ -15,6 +15,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 // /orders 全部内勤角色(owner/clerk/warehouse)+owner；主数据/应收=老板+内勤；报表/配置=老板
 // P1 新增：审批中心=老板+内勤；特单=F8 全员下单(owner/clerk/rep)；退货=内勤+仓配
 // P1 第二批：调价=老板+内勤(成本价仅老板发起)；回包装/采购=内勤+仓配
+// P1 第三批：盘点=内勤+仓配+老板(仓管盘/内勤核双签)；优惠返利/绩效工资=老板+内勤
 export const MENU_ROLES: Record<string, Role[]> = {
   '/orders': ['owner', 'clerk', 'warehouse'],
   '/approvals': ['owner', 'clerk'],
@@ -23,6 +24,9 @@ export const MENU_ROLES: Record<string, Role[]> = {
   '/price-changes': ['owner', 'clerk'],
   '/packages': ['owner', 'clerk', 'warehouse'],
   '/purchases': ['owner', 'clerk', 'warehouse'],
+  '/stocktakes': ['owner', 'clerk', 'warehouse'],
+  '/rebates': ['owner', 'clerk'],
+  '/payroll': ['owner', 'clerk'],
   '/master-data': ['owner', 'clerk'],
   '/receivables': ['owner', 'clerk'],
   '/reports': ['owner'],
@@ -37,7 +41,7 @@ export interface RouteDef {
 }
 
 // 五模块路由（task 7bb5e0eb：订单池/主数据/应收/报表 + 配置）+ P1 第一批（审批中心/特单/退货）
-// + P1 第二批（调价/回包装/采购）
+// + P1 第二批（调价/回包装/采购）+ P1 第三批（盘点/优惠返利/绩效工资）
 export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/orders', name: '订单池', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
   { path: '/approvals', name: '审批中心', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
@@ -46,6 +50,9 @@ export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/price-changes', name: '调价', icon: 'RiseOutlined', taskId: 'P1-T05 F7 调价·版本不覆盖' },
   { path: '/packages', name: '回包装', icon: 'InboxOutlined', taskId: 'P1-T04 F11 无单回收·押金台账' },
   { path: '/purchases', name: '采购', icon: 'ShoppingCartOutlined', taskId: 'P1-T06 F3/F4 采购双流程' },
+  { path: '/stocktakes', name: '盘点', icon: 'ReconciliationOutlined', taskId: 'P1-T07 Q11 抽盘·月末大盘·双签' },
+  { path: '/rebates', name: '优惠返利', icon: 'GiftOutlined', taskId: 'P1-T08 D02 优惠三式·月末核算' },
+  { path: '/payroll', name: '绩效工资', icon: 'MoneyCollectOutlined', taskId: 'P1-T09 D5 三指标·一键工资表' },
   { path: '/master-data', name: '主数据', icon: 'DatabaseOutlined', taskId: 'P0-T10~T13 商品·客户·价格·导入' },
   { path: '/receivables', name: '应收', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 应收·销账·提醒' },
   { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 老板四问看板' },

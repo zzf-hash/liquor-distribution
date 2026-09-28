@@ -1026,8 +1026,8 @@ ALTER TABLE "Receivable" ADD CONSTRAINT "Receivable_tenantId_fkey" FOREIGN KEY (
 -- AddForeignKey
 ALTER TABLE "Receivable" ADD CONSTRAINT "Receivable_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- AddForeignKey
-ALTER TABLE "Receivable" ADD CONSTRAINT "Receivable_tenantId_sourceDocNo_fkey" FOREIGN KEY ("tenantId", "sourceDocNo") REFERENCES "SalesOrder"("tenantId", "orderNo") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- 注: 原 Receivable(tenantId,sourceDocNo)->SalesOrder(tenantId,orderNo) 复合外键已移除:
+-- 期初应收(INITIAL)单号不存在于 SalesOrder, NOT NULL FK 必然违反。订单关联走应用层。
 
 -- AddForeignKey
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;

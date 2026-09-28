@@ -128,6 +128,7 @@ export const APPROVAL_LINE_LABELS: Record<string, string> = {
   PURCHASE: '采购',
   EXPENSE: '运营费',
   RETURN: '退货',
+  STOCKTAKE: '盘点调账',
 };
 
 export const APPROVAL_STATUS_META: Record<string, { label: string; color: string }> = {
@@ -222,6 +223,53 @@ export const PURCHASE_STATUS_TABS: Array<{ key: string; label: string }> = [
   { key: 'RECEIVED', label: '已收货' },
   { key: 'CANCELLED', label: '已取消' },
 ];
+
+/** P1-T07 盘点（Q11：仓管盘→内勤核对→超阈值报老板→调账，双签留痕） */
+export const STOCKTAKE_TYPE_META: Record<string, { label: string; color: string }> = {
+  SPOT: { label: '抽盘', color: 'processing' },
+  FULL: { label: '月末大盘', color: 'purple' },
+};
+
+export const STOCKTAKE_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '待录实盘', color: 'default' },
+  COUNTED: { label: '已录实盘', color: 'processing' },
+  RECONCILED: { label: '已核对', color: 'success' },
+  PENDING_APPROVAL: { label: '超阈值待审批', color: 'warning' },
+  ADJUSTED: { label: '已调账', color: 'geekblue' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
+export const STOCKTAKE_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'DRAFT', label: '待录实盘' },
+  { key: 'COUNTED', label: '已录实盘' },
+  { key: 'RECONCILED', label: '已核对' },
+  { key: 'PENDING_APPROVAL', label: '超阈值待审批' },
+  { key: 'ADJUSTED', label: '已调账' },
+  { key: 'CANCELLED', label: '已取消' },
+];
+
+/** P1-T08 优惠（D02：b 除瓶箱后返利 / c 定扣货款；同客户 b/c 互斥） */
+export const REBATE_TYPE_META: Record<string, { label: string; color: string }> = {
+  B: { label: '除瓶箱返利', color: 'processing' },
+  C: { label: '定扣货款', color: 'warning' },
+};
+
+export const REBATE_SETTLE_TYPE_META: Record<string, { label: string; color: string }> = {
+  GOODS: { label: '货补', color: 'success' },
+  INVOICE: { label: '票折', color: 'processing' },
+};
+
+export const REBATE_SETTLEMENT_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '待确认', color: 'warning' },
+  CONFIRMED: { label: '已确认', color: 'success' },
+};
+
+/** P1-T09 绩效工资（D5：工资表一键生成，确认发放后不可复算） */
+export const PAYROLL_STATUS_META: Record<string, { label: string; color: string }> = {
+  DRAFT: { label: '待发放', color: 'warning' },
+  CONFIRMED: { label: '已发放', color: 'success' },
+};
 
 export function labelOf(map: Record<string, string>, key?: string | null, fallback = '-'): string {
   return (key && map[key]) || fallback;

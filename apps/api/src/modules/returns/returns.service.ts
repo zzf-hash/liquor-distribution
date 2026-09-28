@@ -125,10 +125,15 @@ export class ReturnsService {
   async receive(user: AuthUser, id: string): Promise<unknown> {
     const r = await this.prisma.returnOrder.findUnique({
       where: { id },
-      include: { lines: true, order: { include: { lines: true, outbounds: { include: { lines: true } }, receivables: true } } },
+      include: { lines: true, order: { include: { lines: true, outbounds: { include: { lines: true } } } } },
     });
     if (!r) throw new NotFoundException('退货单不存在');
     if (r.status !== 'APPROVED') throw new ConflictException('退货审批通过后才可收货回冲');
+    // 应收按应用层关联查询(schema FK 已移除)
+    const orderReceivables = await this.prisma.receivable.findMany({
+      where: { tenantId: r.tenantId, sourceType: 'ORDER', sourceDocNo: r.order.orderNo },
+      orderBy: { generatedAt: 'asc' },
+    });
     // 原批次回冲(该行出库批次顺序取)
     const batches: Array<{ productId: string; batchId: string; qty: number }> = [];
     let arCredit = 0;
@@ -153,7 +158,7 @@ export class ReturnsService {
         });
       }
       // 应收冲减: 找订单应收写 RETURN_CREDIT 流水(不改原单 total, B3)
-      const ar = r.order.receivables[0];
+      const ar = orderReceivables[0];
       if (ar && arCredit > 0) {
         await tx.receivableLedger.create({
           data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'RETURN_CREDIT', amount: new Prisma.Decimal(arCredit), note: `退货冲减 ${r.returnNo}: ${r.reason}`, createdBy: user.id },

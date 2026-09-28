@@ -142,7 +142,7 @@ export class ReceivablesService {
     if (!payment) throw new NotFoundException('收款单不存在');
     const ars = await this.prisma.receivable.findMany({
       where: { customerId: payment.customerId, disputeFlag: false },
-      include: { ledger: true, order: { select: { id: true } } },
+      include: { ledger: true },
       orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // D4 FIFO 唯一算法
     });
     let remain = Number(payment.amount);
@@ -163,8 +163,9 @@ export class ReceivablesService {
         });
         if (s.fullySettled) {
           const ar = ars.find((a) => a.id === s.receivableId)!;
-          if (ar.order) {
-            const order = await tx.salesOrder.findUnique({ where: { id: ar.order.id } });
+          if (ar.sourceType === 'ORDER') {
+            // schema 关系已移除(期初应收 FK 不成立), 按 unique(tenantId, orderNo) 关联
+            const order = await tx.salesOrder.findUnique({ where: { tenantId_orderNo: { tenantId: ar.tenantId, orderNo: ar.sourceDocNo } } });
             if (order && order.status === 'SIGNED') {
               await tx.salesOrder.update({ where: { id: order.id }, data: { status: 'SETTLED', settledAt: new Date() } }); // 未签收不可销账由 receivable 仅签收后存在保证
             }

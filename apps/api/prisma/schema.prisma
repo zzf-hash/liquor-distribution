@@ -384,7 +384,6 @@ model SalesOrder {
   lines      OrderLine[]
   outbounds  Outbound[]
   signature  SignatureRecord?
-  receivables Receivable[]
   returns    ReturnOrder[]
 
   @@unique([tenantId, orderNo])
@@ -566,7 +565,9 @@ model Receivable {
 
   tenant   Tenant             @relation(fields: [tenantId], references: [id])
   customer Customer           @relation(fields: [customerId], references: [id])
-  order    SalesOrder?        @relation(fields: [tenantId, sourceDocNo], references: [tenantId, orderNo])
+  // 注: 原 order SalesOrder? @relation(fields:[tenantId,sourceDocNo]...) 复合外键已移除——
+  // 期初应收(sourceType=INITIAL)的单号不存在于 SalesOrder, NOT NULL FK 必然违反。
+  // 订单关联在应用层按 sourceType='ORDER' && sourceDocNo=orderNo 查询。
   ledger   ReceivableLedger[]
 
   @@unique([tenantId, sourceType, sourceDocNo])

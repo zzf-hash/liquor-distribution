@@ -1,2 +1,2 @@
-commit: 8b1c6b10e3e1955bc6c09689dc923f1f3e2542b7
-build: api tsc/build绿 + admin tsc/vite绿 + miniapp weapp编译绿 + 冒烟脚本scripts/smoke.mjs就绪(部署后跑); P0全部任务(T01~T03/T10~T13/T20~T25/T30~T32/T40/T50~T51)完成
+commit: 403c5fea90a0c5506f198637dcfe66887a12873a
+build: api+admin+miniapp 全绿; P0全量+P1五任务(T01审批/T02特单/T03退货/T05调价/T04回包装/T06采购)完成; 冒烟: smoke.mjs+smoke_p1.mjs+smoke_p1b2.mjs

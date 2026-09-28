@@ -874,3 +874,192 @@ export const purchasesApi = {
       costPriceVersions: number;
     }>(`/purchases/${id}/receive`, { method: 'POST', body: {} }),
 };
+
+// ───────────────────────── 盘点（P1-T07，Q11 仓管盘→内勤核对→超阈值报老板→调账） ─────────────────────────
+
+export type StocktakeTypeDTO = 'SPOT' | 'FULL';
+export type StocktakeStatusDTO =
+  | 'DRAFT'
+  | 'COUNTED'
+  | 'RECONCILED'
+  | 'PENDING_APPROVAL'
+  | 'ADJUSTED'
+  | 'CANCELLED';
+
+export interface StocktakeLineDTO {
+  id: string;
+  productId: string;
+  batchId: string;
+  /** 详情接口附带（商品名挂在批次上） */
+  batch?: { batchNo: string; product?: { skuCode: string; name: string } | null } | null;
+  systemQty: Decimalish; // 建单时账面快照
+  countedQty: Decimalish; // 实盘（建单预填=账面，录实盘覆盖）
+  unitCost: Decimalish;
+}
+
+export interface StocktakeDTO {
+  id: string;
+  takeNo: string;
+  type: StocktakeTypeDTO;
+  status: StocktakeStatusDTO;
+  countedById: string;
+  /** 列表接口附带（仓管·盘） */
+  countedBy?: { id: string; name: string } | null;
+  reconciledById?: string | null;
+  /** 列表接口附带（内勤·核，双签另一环） */
+  reconciledBy?: { id: string; name: string } | null;
+  thresholdOver: boolean;
+  diffAmount?: Decimalish | null; // 成本口径差异金额
+  note?: string | null;
+  countedAt?: string | null;
+  reconciledAt?: string | null;
+  adjustedAt?: string | null;
+  createdAt: string;
+  /** 详情接口附带（建单即生成账面快照行） */
+  lines?: StocktakeLineDTO[];
+  lineCount?: number;
+}
+
+export const stocktakesApi = {
+  list: (params: { status?: string; page?: number; pageSize?: number }) =>
+    request<PageResult<StocktakeDTO>>(`/stocktakes${qs(params)}`),
+  detail: (id: string) => request<StocktakeDTO>(`/stocktakes/${id}`),
+  /** 建单（仓管/老板）：类型+范围（全部商品或品类），响应附带行=账面快照 */
+  create: (input: { type: StocktakeTypeDTO; category?: ProductCategoryDTO }) =>
+    request<StocktakeDTO>('/stocktakes', { method: 'POST', body: input }),
+  /** 仓管录实盘（DRAFT/COUNTED 可重复录）→ COUNTED */
+  count: (id: string, lines: Array<{ id: string; countedQty: number }>) =>
+    request<{ id: string; status: StocktakeStatusDTO }>(`/stocktakes/${id}/count`, {
+      method: 'POST',
+      body: { lines },
+    }),
+  /** 内勤核对差异 → RECONCILED；差异超阈值 → PENDING_APPROVAL（thresholdOver=true，STOCKTAKE 审批线） */
+  reconcile: (id: string) =>
+    request<{ id: string; status: StocktakeStatusDTO; thresholdOver: boolean; diffAmount?: Decimalish | null }>(
+      `/stocktakes/${id}/reconcile`,
+      { method: 'POST', body: {} },
+    ),
+  /** 调账落账（内勤/老板，仅 RECONCILED）：差异行写 ADJUST 流水（盘盈 IN/盘亏 OUT），幂等拒绝 */
+  adjust: (id: string) =>
+    request<{ id: string; status: StocktakeStatusDTO; adjustedLines: number }>(`/stocktakes/${id}/adjust`, {
+      method: 'POST',
+      body: {},
+    }),
+};
+
+// ───────────────────────── 优惠返利（P1-T08，D02 b/c 互斥·月末核算货补/票折） ─────────────────────────
+
+export type RebateTypeDTO = 'B' | 'C';
+export type RebateSettleTypeDTO = 'GOODS' | 'INVOICE';
+
+export interface RebateSchemeDTO {
+  id: string;
+  customerId: string;
+  /** 列表接口附带 */
+  customer?: { code: string; name: string } | null;
+  type: RebateTypeDTO;
+  rate: Decimalish; // 0.05-0.50
+  note?: string | null;
+  validFrom: string;
+  validTo?: string | null;
+  closedAt?: string | null;
+  createdById: string;
+  createdAt: string;
+}
+
+export interface RebateSettlementDTO {
+  id: string;
+  customerId: string;
+  /** 列表接口附带 */
+  customer?: { code: string; name: string } | null;
+  schemeId: string;
+  period: string; // YYYY-MM
+  baseAmount: Decimalish; // 计提基数（当月回款−瓶箱押金口径）
+  rebateAmount: Decimalish;
+  settleType: RebateSettleTypeDTO;
+  status: string; // DRAFT→CONFIRMED
+  confirmedAt?: string | null;
+  note?: string | null;
+  createdAt: string;
+}
+
+/** 核算测算：基数=当月回款−瓶箱押金支出，返利额=基数×费率 */
+export interface RebateSettlementPreviewDTO {
+  customerId: string;
+  period: string;
+  schemeType?: RebateTypeDTO;
+  rate?: Decimalish;
+  payments?: Decimalish;
+  bottlesDeposit?: Decimalish;
+  baseAmount: Decimalish;
+  rebateAmount: Decimalish;
+  [key: string]: unknown;
+}
+
+export const rebatesApi = {
+  listSchemes: (params: { customerId?: string }) =>
+    request<RebateSchemeDTO[]>(`/rebates/schemes${qs(params)}`),
+  /** 同客户已有生效中方案 → 409（D02 b/c 互斥），前端捕获展示；生效起始=创建当天（无 validFrom 入参） */
+  createScheme: (input: { customerId: string; type: RebateTypeDTO; rate: number; validTo?: string; note?: string }) =>
+    request<RebateSchemeDTO>('/rebates/schemes', { method: 'POST', body: input }),
+  closeScheme: (id: string) =>
+    request<{ id: string; closed: boolean }>(`/rebates/schemes/${id}/close`, { method: 'POST', body: {} }),
+  previewSettlement: (input: { customerId: string; period: string }) =>
+    request<RebateSettlementPreviewDTO>('/rebates/settlements/preview', { method: 'POST', body: input }),
+  /** GOODS=货补（走随单赠下单）/ INVOICE=票折（REBATE_OFFSET 冲应收）；资金动作加幂等键防重放 */
+  createSettlement: (input: { customerId: string; period: string; settleType: RebateSettleTypeDTO; note?: string }) =>
+    request<RebateSettlementDTO>('/rebates/settlements', { method: 'POST', body: input, idemKey: genIdemKey() }),
+  listSettlements: (params: { period?: string }) =>
+    request<RebateSettlementDTO[]>(`/rebates/settlements${qs(params)}`),
+};
+
+// ───────────────────────── 绩效工资（P1-T09，D5 回款70/拜访20/新客10·可复算） ─────────────────────────
+
+/** 绩效指标行（GET /performance）；工资表 items 同构，baseSalary/total 为工资表口径 */
+export interface PerformanceItemDTO {
+  repId: string;
+  name: string;
+  paymentAmount: Decimalish; // 当月回款（确认收款×客户归属 D5）
+  newCustomers: number;
+  visitCount: number; // T13 拜访接入前预留 0
+  returnDeduction: Decimalish; // 退货冲减（当期冲减不回算）
+  commission: Decimalish; // 提成测算
+  baseSalary?: Decimalish | null; // 底薪（cfg）
+  total?: Decimalish | null; // 合计=底薪+提成
+}
+
+export interface PayrollDTO {
+  id: string;
+  month: string; // YYYY-MM
+  items: PerformanceItemDTO[];
+  totalAmount: Decimalish;
+  status: string; // DRAFT→CONFIRMED
+  confirmedAt?: string | null;
+  generatedBy: string;
+  createdAt: string;
+}
+
+/** GET /performance 响应：{month, items, generatedAt} */
+export interface PerformanceResultDTO {
+  month: string;
+  items: PerformanceItemDTO[];
+  generatedAt: string;
+}
+
+export const payrollApi = {
+  /** 当月绩效口径：回款=确认收款×客户归属；拜访数待 T13 接入 */
+  performance: (month: string) => request<PerformanceResultDTO>(`/performance${qs({ month })}`),
+  /** 按当月绩效一键生成/复算工资表（tenant+month 唯一，覆盖重算；已确认月份后端拒绝） */
+  generate: (month: string) => request<PayrollDTO>('/payroll/generate', { method: 'POST', body: { month } }),
+  /** 指定月份工资表；未生成（404）归一为 null 走空态 */
+  get: async (month: string): Promise<PayrollDTO | null> => {
+    try {
+      return await request<PayrollDTO>(`/payroll${qs({ month })}`);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
+  /** 确认发放（owner） */
+  confirm: (id: string) => request<PayrollDTO>(`/payroll/${id}/confirm`, { method: 'POST', body: {} }),
+};

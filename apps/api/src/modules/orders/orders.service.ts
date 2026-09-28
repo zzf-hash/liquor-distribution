@@ -286,12 +286,16 @@ export class OrdersService {
         lines: { include: { reversalOf: { select: { id: true } }, reversedBy: { select: { id: true } } }, orderBy: { createdAt: 'asc' } },
         outbounds: { include: { lines: { include: { batch: { select: { batchNo: true } } } } } },
         signature: true,
-        receivables: { include: { ledger: true } },
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
     if (user.role === 'CUSTOMER' && order.customerId !== user.customerId) throw new ForbiddenException('无权查看该订单');
-    return { ...order, statusLabel: ORDER_STATUS_LABELS[order.status] };
+    // 应收按应用层关联(sourceType='ORDER' && sourceDocNo=orderNo), schema FK 已移除
+    const receivables = await this.prisma.receivable.findMany({
+      where: { tenantId: order.tenantId, sourceType: 'ORDER', sourceDocNo: order.orderNo },
+      include: { ledger: true },
+    });
+    return { ...order, receivables, statusLabel: ORDER_STATUS_LABELS[order.status] };
   }
 
   private async transition(user: AuthUser, orderId: string, to: OrderStatus, extra: Prisma.SalesOrderUpdateInput, auditAction: string, ip?: string): Promise<unknown> {
