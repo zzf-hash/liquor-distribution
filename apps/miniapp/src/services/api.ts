@@ -132,10 +132,16 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     throw new ApiError('网络连接失败，请检查网络后重试', -1, -1, null)
   }
 
-  // B1：token 过期/被吊销 → 清会话回登录页（登录接口本身除外，避免死循环）
+  // B1：401 分两类，文案必须区分，否则排查被误导
   if (statusCode === 401) {
+    if (path === '/auth/login') {
+      // 登录即 401 = 账号/密码错（或该库无此账号）——不是"过期"。
+      // 常见诱因：devtools 打的不是线上后端（本地后端 JWT 密钥/库与线上不一致）
+      throw new ApiError('账号或密码错误', 401, 401, null)
+    }
+    // 带 token 的受保护接口 401 = token 过期/被吊销/与当前后端密钥不符 → 清会话回登录
     clearSession()
-    if (path !== '/auth/login') Taro.reLaunch({ url: LOGIN_PAGE })
+    Taro.reLaunch({ url: LOGIN_PAGE })
     throw new ApiError('登录已过期，请重新登录', 401, 401, null)
   }
   if (statusCode < 200 || statusCode >= 300 || !envelope || envelope.code !== 0) {
