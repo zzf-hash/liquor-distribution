@@ -266,6 +266,8 @@ model Customer {
   returns       ReturnOrder[]
   rebateSchemes RebateScheme[]
   rebateSettlements RebateSettlement[]
+  statements   Statement[]
+  visits       Visit[]
   payments      Payment[]
 
   @@unique([tenantId, code])
@@ -973,6 +975,89 @@ model Payroll {
   createdAt   DateTime @default(now())
 
   @@unique([tenantId, month])
+}
+
+// ═══════════ P1-T10 月结对账 (生成→推送客户确认→差异处理四类→核销) ═══════════
+enum StatementStatus {
+  GENERATED // 已生成
+  SENT // 已推送(客户 miniapp 可见)
+  CONFIRMED // 客户确认无误
+  DISPUTED // 客户异议(差异工作池)
+  RESOLVED // 差异处理完毕
+}
+
+model Statement {
+  id            String          @id @default(cuid())
+  tenantId      String
+  statementNo   String
+  customerId    String
+  period        String // YYYY-MM
+  totalCharged  Decimal         @db.Decimal(12, 2) // 当期发生(签收应收)
+  totalSettled  Decimal         @db.Decimal(12, 2) // 当期核销(收款+票折)
+  openBalance   Decimal         @db.Decimal(12, 2) // 期末未结
+  lines         Json // 明细(应收单+单据摘要)
+  status        StatementStatus @default(GENERATED)
+  sentAt        DateTime?
+  confirmedAt   DateTime?
+  note          String?
+  generatedById String
+  createdAt     DateTime        @default(now())
+
+  customer Customer     @relation(fields: [customerId], references: [id])
+  disputes DisputeItem[]
+
+  @@unique([tenantId, customerId, period])
+  @@index([tenantId, status])
+}
+
+// 差异四类(任务书 P1-T10): 漏单/价格/赠品/退货
+enum DisputeType {
+  MISSING_ORDER // 漏单
+  PRICE         // 价格差异
+  GIFT          // 赠品差异
+  RETURN        // 退货差异
+}
+
+enum DisputeStatus {
+  OPEN
+  RESOLVED
+}
+
+model DisputeItem {
+  id          String       @id @default(cuid())
+  tenantId    String
+  statementId String
+  type        DisputeType
+  content     String // 客户描述
+  resolution  String? // 处理结论
+  resolvedBy  String?
+  resolvedAt  DateTime?
+  status      DisputeStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+
+  statement Statement @relation(fields: [statementId], references: [id])
+
+  @@index([tenantId, status])
+}
+
+// ═══════════ P1-T13 拜访管理 (标准八步骤 + 水印相机打卡 + ABC 级频率) ═══════════
+model Visit {
+  id          String   @id @default(cuid())
+  tenantId    String
+  repId       String
+  customerId  String
+  visitedAt   DateTime @default(now())
+  location    String? // 定位(打卡时采集)
+  photoUrl    String? // 水印相机照片(时间+定位水印, 对象存储)
+  steps       Json? // 八步骤勾选: 陈列检查/库存盘点/收单/收款/宣传物料/客情/竞品/设备
+  notes       String?
+  abcLevel    String? // ABC 快照(拜访频率校验用)
+  createdAt   DateTime @default(now())
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@index([tenantId, repId, visitedAt])
+  @@index([tenantId, customerId])
 }
 
 // ───────────────────────── P0-T03 审计日志 (B2 哈希链) ─────────────────────────

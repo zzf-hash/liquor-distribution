@@ -41,6 +41,11 @@ export class PerformanceService {
       where: { onboarding: 'ACTIVE', updatedAt: { gte: start, lte: end } },
       select: { id: true, salespersonId: true },
     });
+    // 拜访打卡数(T13)
+    const visits = await this.prisma.visit.findMany({
+      where: { visitedAt: { gte: start, lte: end } },
+      select: { repId: true },
+    });
     // 退货冲减: 当月 RECEIVED 的退货金额按客户归属
     const returns = await this.prisma.returnOrder.findMany({
       where: { status: 'RECEIVED', receivedAt: { gte: start, lte: end } },
@@ -62,7 +67,7 @@ export class PerformanceService {
         returnDeduction += r.lines.reduce((s, l) => s + Number(l.orderLine?.unitPrice ?? 0) * Number(l.qty), 0);
       }
       const newCustomerCount = newCustomers.filter((c) => c.salespersonId === rep.id).length;
-      const visitCount = 0; // T13 拜访管理接入后回填
+      const visitCount = visits.filter((v) => v.repId === rep.id).length; // T13 拜访打卡(T09 数据源)
       const commission = Number((
         paymentAmount * wPayment * commissionRate * 100 // 回款提成
         + visitCount * (wVisit * 1000 / visitTarget) // 拜访达成(占位公式, T13 后按实际)

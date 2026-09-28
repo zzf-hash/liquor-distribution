@@ -25,6 +25,9 @@ import { PurchasesModule } from './modules/purchases/purchases.controller';
 import { StocktakesModule } from './modules/stocktakes/stocktakes.controller';
 import { RebatesModule } from './modules/rebates/rebates.controller';
 import { PerformanceModule } from './modules/performance/performance.controller';
+import { StatementsModule } from './modules/statements/statements.controller';
+import { ReportsModule } from './modules/reports/reports.controller';
+import { VisitsModule } from './modules/visits/visits.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
@@ -48,6 +51,9 @@ import { ShopModule } from './modules/shop/shop.controller';
     StocktakesModule,
     RebatesModule,
     PerformanceModule,
+    StatementsModule,
+    ReportsModule,
+    VisitsModule,
     ImportsModule,
     UsersModule,
     HealthModule,

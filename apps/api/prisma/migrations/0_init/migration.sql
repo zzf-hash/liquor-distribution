@@ -110,6 +110,15 @@ CREATE TYPE "RebateType" AS ENUM ('B', 'C');
 CREATE TYPE "RebateSettleType" AS ENUM ('GOODS', 'INVOICE');
 
 -- CreateEnum
+CREATE TYPE "StatementStatus" AS ENUM ('GENERATED', 'SENT', 'CONFIRMED', 'DISPUTED', 'RESOLVED');
+
+-- CreateEnum
+CREATE TYPE "DisputeType" AS ENUM ('MISSING_ORDER', 'PRICE', 'GIFT', 'RETURN');
+
+-- CreateEnum
+CREATE TYPE "DisputeStatus" AS ENUM ('OPEN', 'RESOLVED');
+
+-- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
 
 -- CreateEnum
@@ -681,6 +690,60 @@ CREATE TABLE "Payroll" (
 );
 
 -- CreateTable
+CREATE TABLE "Statement" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "statementNo" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "period" TEXT NOT NULL,
+    "totalCharged" DECIMAL(12,2) NOT NULL,
+    "totalSettled" DECIMAL(12,2) NOT NULL,
+    "openBalance" DECIMAL(12,2) NOT NULL,
+    "lines" JSONB NOT NULL,
+    "status" "StatementStatus" NOT NULL DEFAULT 'GENERATED',
+    "sentAt" TIMESTAMP(3),
+    "confirmedAt" TIMESTAMP(3),
+    "note" TEXT,
+    "generatedById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Statement_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "DisputeItem" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "statementId" TEXT NOT NULL,
+    "type" "DisputeType" NOT NULL,
+    "content" TEXT NOT NULL,
+    "resolution" TEXT,
+    "resolvedBy" TEXT,
+    "resolvedAt" TIMESTAMP(3),
+    "status" "DisputeStatus" NOT NULL DEFAULT 'OPEN',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "DisputeItem_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Visit" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "repId" TEXT NOT NULL,
+    "customerId" TEXT NOT NULL,
+    "visitedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "location" TEXT,
+    "photoUrl" TEXT,
+    "steps" JSONB,
+    "notes" TEXT,
+    "abcLevel" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Visit_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
@@ -928,6 +991,21 @@ CREATE UNIQUE INDEX "RebateSettlement_tenantId_customerId_period_key" ON "Rebate
 CREATE UNIQUE INDEX "Payroll_tenantId_month_key" ON "Payroll"("tenantId", "month");
 
 -- CreateIndex
+CREATE INDEX "Statement_tenantId_status_idx" ON "Statement"("tenantId", "status");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Statement_tenantId_customerId_period_key" ON "Statement"("tenantId", "customerId", "period");
+
+-- CreateIndex
+CREATE INDEX "DisputeItem_tenantId_status_idx" ON "DisputeItem"("tenantId", "status");
+
+-- CreateIndex
+CREATE INDEX "Visit_tenantId_repId_visitedAt_idx" ON "Visit"("tenantId", "repId", "visitedAt");
+
+-- CreateIndex
+CREATE INDEX "Visit_tenantId_customerId_idx" ON "Visit"("tenantId", "customerId");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 
 -- CreateIndex
@@ -1026,9 +1104,6 @@ ALTER TABLE "Receivable" ADD CONSTRAINT "Receivable_tenantId_fkey" FOREIGN KEY (
 -- AddForeignKey
 ALTER TABLE "Receivable" ADD CONSTRAINT "Receivable_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
--- 注: 原 Receivable(tenantId,sourceDocNo)->SalesOrder(tenantId,orderNo) 复合外键已移除:
--- 期初应收(INITIAL)单号不存在于 SalesOrder, NOT NULL FK 必然违反。订单关联走应用层。
-
 -- AddForeignKey
 ALTER TABLE "Payment" ADD CONSTRAINT "Payment_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -1087,6 +1162,15 @@ ALTER TABLE "RebateScheme" ADD CONSTRAINT "RebateScheme_customerId_fkey" FOREIGN
 ALTER TABLE "RebateSettlement" ADD CONSTRAINT "RebateSettlement_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
+ALTER TABLE "Statement" ADD CONSTRAINT "Statement_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "DisputeItem" ADD CONSTRAINT "DisputeItem_statementId_fkey" FOREIGN KEY ("statementId") REFERENCES "Statement"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "Visit" ADD CONSTRAINT "Visit_customerId_fkey" FOREIGN KEY ("customerId") REFERENCES "Customer"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "AuditLog" ADD CONSTRAINT "AuditLog_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -1106,6 +1190,7 @@ REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "PackageRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "StocktakeLine" FROM PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "Visit" FROM PUBLIC; -- 拜访打卡不可篡改
 
 DO $$
 DECLARE t text;
@@ -1115,7 +1200,8 @@ BEGIN
     'Receivable','Payment','ReceivableLedger','AuditLog','ApprovalRecord','ImportBatch',
     'ImportRowError','IdempotencyRecord','SystemConfig','SpecialOrder','SpecialOrderLine',
     'ReturnOrder','ReturnLine','PriceChangeRequest','PackageRecord','PurchaseOrder','PurchaseLine',
-    'Stocktake','StocktakeLine','RebateScheme','RebateSettlement','Payroll']
+    'Stocktake','StocktakeLine','RebateScheme','RebateSettlement','Payroll',
+    'Statement','DisputeItem','Visit']
   LOOP
     EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;
