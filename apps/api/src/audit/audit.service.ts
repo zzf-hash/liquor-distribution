@@ -28,6 +28,11 @@ export const AuditAction = {
   SETTLE: 'SETTLE', // 收款销账
   PAYMENT_CONFIRM: 'PAYMENT_CONFIRM',
   PAYMENT_REVERSE: 'PAYMENT_REVERSE', // 收款冲正(只准红字新单)
+  WAIVE_APPROVE: 'WAIVE_APPROVE', // 抹零审批生效(§D7, 老板; 核减应收走 WAIVE 流水)
+  BAD_DEBT_WRITEOFF: 'BAD_DEBT_WRITEOFF', // 坏账核销(§D7, 老板; WRITEOFF 流水)
+  STOCK_CORRECT: 'STOCK_CORRECT', // 出入库修正/盘点差异调账(P1-T07, 差异走红字不直改余额 B4)
+  RETURN_QTY_CHANGE: 'RETURN_QTY_CHANGE', // 退货数量变更(R4 只增方向; 减少方向 4xx 拒绝也留痕)
+  STOCKTAKE_ADJUST: 'STOCKTAKE_ADJUST', // 盘点调账(仓管盘+内勤核对)
   IMPORT_PREVIEW: 'IMPORT_PREVIEW',
   IMPORT_COMMIT: 'IMPORT_COMMIT', // 期初迁移批改
   IMPORT_ROLLBACK: 'IMPORT_ROLLBACK',

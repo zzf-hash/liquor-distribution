@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService, AuditAction } from '../../audit/audit.service';
+import { IdempotencyService } from '../../audit/idempotency.service';
+import { assertPaymentTransition, PaymentState } from '../../statemachine/payment-state';
 import { NotifyService } from '../../common/notify.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -24,6 +26,7 @@ export class ReceivablesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly idem: IdempotencyService,
     private readonly notify: NotifyService,
   ) {}
 
@@ -94,8 +97,8 @@ export class ReceivablesService {
   async reportPayment(user: AuthUser, dto: { customerId: string; amount: number; method?: string; voucher?: string; note?: string }, idemKey: string, ip?: string): Promise<unknown> {
     if (!idemKey) throw new BadRequestException('收款必须携带 Idempotency-Key 头');
     if (dto.amount <= 0) throw new BadRequestException('金额必须大于 0');
-    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-    if (dup) return { replay: true, summary: dup.responseSummary };
+    const dup = await this.idem.check(user, 'payments.report', idemKey, { c: dto.customerId, a: dto.amount, m: dto.method ?? '' });
+    if (dup) return { replay: true, summary: dup.summary };
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
     const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `PAY${dayjs().format('YYYYMMDD')}` } } })) + 1;
@@ -112,9 +115,7 @@ export class ReceivablesService {
         idemKey,
       },
     });
-    await this.prisma.idempotencyRecord.create({
-      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'payments.report', requestHash: JSON.stringify({ c: dto.customerId, a: dto.amount }), createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
-    });
+    await this.idem.complete(user, 'payments.report', idemKey, { c: dto.customerId, a: dto.amount, m: dto.method ?? '' }, { paymentNo: payment.paymentNo });
     await this.audit.log({ user, action: AuditAction.PAYMENT_CONFIRM, entityType: 'Payment', entityId: payment.id, after: { paymentNo: payment.paymentNo, amount: dto.amount, status: payment.status }, ip });
     if (payment.status === 'CONFIRMED') return this.settleFifo(user, payment.id, ip); // 内勤/老板直录 = 即确认销账
     return payment;
@@ -124,17 +125,16 @@ export class ReceivablesService {
   async confirmPayment(user: AuthUser, paymentId: string, ip?: string): Promise<unknown> {
     const payment0 = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment0) throw new NotFoundException('收款单不存在');
+    assertPaymentTransition(payment0.status as PaymentState, 'CONFIRMED'); // P0-C 状态机: 非法转换 409
     if (payment0.kind === 'WAIVE') {
       if (user.role !== 'OWNER') throw new ForbiddenException('抹零审批仅老板可执行(D7)');
-      if (payment0.status !== 'REPORTED') throw new ConflictException('该抹零单状态不可审批');
-      if (!payment0.receivableId) throw new ConflictException('抹零单缺少目标应收, 数据异常');
       await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
-      return this.applyWaive(user, paymentId, payment0.receivableId, ip);
+      await this.audit.log({ user, action: AuditAction.WAIVE_APPROVE, entityType: 'Payment', entityId: paymentId, before: { status: payment0.status }, after: { status: 'CONFIRMED' }, ip });
+      return this.applyWaive(user, paymentId, payment0.receivableId!, ip);
     }
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可确认收款');
-    if (payment0.status === 'CONFIRMED') throw new ConflictException('该收款已确认');
-    if (payment0.status === 'CANCELLED') throw new ConflictException('该收款已冲正');
     await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', enteredById: user.id, confirmedAt: new Date() } });
+    await this.audit.log({ user, action: AuditAction.PAYMENT_CONFIRM, entityType: 'Payment', entityId: paymentId, before: { status: payment0.status }, after: { status: 'CONFIRMED' }, ip });
     return this.settleFifo(user, paymentId, ip);
   }
 
@@ -191,8 +191,8 @@ export class ReceivablesService {
     if (!idemKey) throw new BadRequestException('抹零必须携带 Idempotency-Key 头');
     if (!dto.reason?.trim()) throw new BadRequestException('抹零必须填写原因');
     if (dto.amount <= 0) throw new BadRequestException('抹零金额须大于 0');
-    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-    if (dup) return { replay: true, summary: dup.responseSummary };
+    const dup = await this.idem.check(user, 'receivables.waive', idemKey, { r: receivableId, a: dto.amount, reason: dto.reason });
+    if (dup) return { replay: true, summary: dup.summary };
     const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId }, include: { ledger: true } });
     if (!ar) throw new NotFoundException('应收单不存在');
     const { open } = this.arOpen(ar);
@@ -218,9 +218,7 @@ export class ReceivablesService {
         idemKey,
       },
     });
-    await this.prisma.idempotencyRecord.create({
-      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'receivables.waive', requestHash: `${receivableId}:${dto.amount}`, createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
-    });
+    await this.idem.complete(user, 'receivables.waive', idemKey, { r: receivableId, a: dto.amount, reason: dto.reason }, { paymentNo: payment.paymentNo });
     await this.audit.log({ user, action: 'WAIVE_INITIATE', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: dto.amount, reason: dto.reason }, ip });
     if (payment.status === 'CONFIRMED') return this.applyWaive(user, payment.id, receivableId, ip);
     return payment;
@@ -244,8 +242,8 @@ export class ReceivablesService {
     if (user.role !== 'OWNER') throw new ForbiddenException('坏账核销仅老板可执行');
     if (!reason?.trim()) throw new BadRequestException('坏账核销必须填写原因');
     if (!idemKey) throw new BadRequestException('坏账核销必须携带 Idempotency-Key 头');
-    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-    if (dup) return { replay: true, summary: dup.responseSummary };
+    const dup = await this.idem.check(user, 'receivables.writeOff', idemKey, { r: receivableId, reason });
+    if (dup) return { replay: true, summary: dup.summary };
     const ar = await this.prisma.receivable.findUnique({ where: { id: receivableId }, include: { ledger: true } });
     if (!ar) throw new NotFoundException('应收单不存在');
     const { open } = this.arOpen(ar);
@@ -262,10 +260,8 @@ export class ReceivablesService {
     await this.prisma.receivableLedger.create({
       data: { tenantId: user.tenantId, receivableId, paymentId: payment.id, direction: 'WRITEOFF', amount: payment.amount, note: `坏账核销 ${payment.paymentNo}: ${reason}`, createdBy: user.id },
     });
-    await this.prisma.idempotencyRecord.create({
-      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'receivables.writeOff', requestHash: receivableId, createdBy: user.id, responseSummary: { paymentNo: payment.paymentNo } as never },
-    });
-    await this.audit.log({ user, action: 'BAD_DEBT_WRITEOFF', entityType: 'Receivable', entityId: receivableId, before: { open }, after: { paymentNo: payment.paymentNo, amount: open, reason }, ip });
+    await this.idem.complete(user, 'receivables.writeOff', idemKey, { r: receivableId, reason }, { paymentNo: payment.paymentNo });
+    await this.audit.log({ user, action: AuditAction.BAD_DEBT_WRITEOFF, entityType: 'Receivable', entityId: receivableId, before: { open }, after: { paymentNo: payment.paymentNo, amount: open, reason }, ip });
     return { paymentNo: payment.paymentNo, writtenOff: open };
   }
 
@@ -309,7 +305,7 @@ export class ReceivablesService {
     if (!reason?.trim()) throw new BadRequestException('冲正必须填写原因');
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId }, include: { ledger: true } });
     if (!payment) throw new NotFoundException('收款单不存在');
-    if (payment.status === 'CANCELLED') throw new ConflictException('该收款已冲正');
+    assertPaymentTransition(payment.status as PaymentState, 'CANCELLED'); // P0-C: 已冲正/终态 409
     await this.prisma.$transaction(async (tx) => {
       for (const l of payment.ledger.filter((x) => x.direction === 'SETTLE')) {
         await tx.receivableLedger.create({

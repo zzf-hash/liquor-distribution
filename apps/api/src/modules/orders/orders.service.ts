@@ -3,8 +3,10 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService, AuditAction } from '../../audit/audit.service';
+import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
 import type { OrderStatus } from '../../statemachine/order-state';
+import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
@@ -46,6 +48,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly idem: IdempotencyService,
   ) {}
 
   // ─────────────── 取价引擎 (D08/R1: 专属价>终端供货>二批>一批>零售; 无生效价拒单) ───────────────
@@ -421,15 +424,16 @@ export class OrdersService {
     return { outbound, suggestions };
   }
 
-  /** 复核确认出库: 写 InventoryLedger OUT 流水(B4) + 状态机推进; 需 Idempotency-Key */
+  /** 复核确认出库: 写 InventoryLedger OUT 流水(B4) + 出库状态机推进(P0-C); 需 Idempotency-Key, 幂等记录与出库同事务原子落 */
   async confirmOutbound(user: AuthUser, outboundNo: string, idemKey: string, ip?: string): Promise<unknown> {
     if (!idemKey) throw new BadRequestException('出库确认必须携带 Idempotency-Key 头');
-    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-    if (dup) return { replay: true, summary: dup.responseSummary };
     const outbound = await this.prisma.outbound.findUnique({ where: { tenantId_outboundNo: { tenantId: user.tenantId, outboundNo } }, include: { lines: { include: { orderLine: true } }, order: true } });
     if (!outbound) throw new NotFoundException('出库单不存在');
+    const h = IdempotencyService.requestHash('outbound.confirm', { no: outboundNo });
+    const dup = await this.idem.check(user, 'outbound.confirm', idemKey, { no: outboundNo });
+    if (dup) return { replay: true, summary: dup.summary };
     if (outbound.status === 'CONFIRMED') return { alreadyConfirmed: true };
-    if (outbound.status !== 'PICKING') throw new ConflictException('出库单状态异常');
+    assertOutboundTransition(outbound.status as OutboundState, 'CONFIRMED'); // P0-C 白名单, 非法 409
     assertOrderTransition(outbound.order.status as OrderStatus, 'OUTBOUND');
     await this.prisma.$transaction(async (tx) => {
       for (const l of outbound.lines) {
@@ -443,8 +447,9 @@ export class OrdersService {
       }
       await tx.outbound.update({ where: { id: outbound.id }, data: { status: 'CONFIRMED', checkerId: user.id, confirmedAt: new Date() } });
       await tx.salesOrder.update({ where: { id: outbound.orderId }, data: { status: 'OUTBOUND', outboundAt: new Date() } });
+      // 幂等记录与出库流水同事务原子落(不可用 idem.complete: 其 tx 参数是 PrismaService, 而此处须 Prisma.TransactionClient)
       await tx.idempotencyRecord.create({
-        data: { tenantId: user.tenantId, key: idemKey, endpoint: 'outbound.confirm', requestHash: outboundNo, createdBy: user.id,
+        data: { tenantId: user.tenantId, key: idemKey, endpoint: 'outbound.confirm', requestHash: h, createdBy: user.id,
           responseSummary: { outboundNo, lines: outbound.lines.length } as never },
       });
     });

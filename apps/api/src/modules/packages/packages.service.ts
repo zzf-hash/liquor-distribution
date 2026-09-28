@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { IdempotencyService } from '../../audit/idempotency.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P1-T04 回包装闭环 ═══════════════
@@ -16,6 +17,7 @@ export class PackagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly idem: IdempotencyService,
   ) {}
 
   async depositUnit(category: string): Promise<number> {
@@ -36,10 +38,9 @@ export class PackagesService {
     }
     const unit = await this.depositUnit(dto.category);
     const depositPaid = dto.type === 'OUT' ? -Number((unit * dto.qty).toFixed(2)) : Number((unit * dto.qty).toFixed(2));
-    if (idemKey) {
-      const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-      if (dup) return { replay: true, summary: dup.responseSummary };
-    }
+    const pPayload = { c: dto.customerId, k: dto.category, q: dto.qty, t: dto.type };
+    const dup = await this.idem.check(user, 'packages.create', idemKey ?? '', pPayload);
+    if (dup) return { replay: true, summary: dup.summary };
     const created = await this.prisma.packageRecord.create({
       data: {
         tenantId: user.tenantId, customerId: dto.customerId, category: dto.category, qty: dto.qty,
@@ -48,9 +49,7 @@ export class PackagesService {
       },
     });
     if (idemKey) {
-      await this.prisma.idempotencyRecord.create({
-        data: { tenantId: user.tenantId, key: idemKey, endpoint: 'packages.create', requestHash: JSON.stringify({ c: dto.customerId, k: dto.category, q: dto.qty, t: dto.type }), createdBy: user.id, responseSummary: { id: created.id } as never },
-      });
+      await this.idem.complete(user, 'packages.create', idemKey, pPayload, { id: created.id });
     }
     await this.audit.log({ user, action: 'PACKAGE_RECORD', entityType: 'PackageRecord', entityId: created.id, after: { customer: customer.name, category: dto.category, qty: dto.qty, type: dto.type, depositPaid } });
     return { id: created.id, category: dto.category, qty: dto.qty, type: dto.type, depositPaid };

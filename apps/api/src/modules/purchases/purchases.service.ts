@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { IdempotencyService } from '../../audit/idempotency.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -17,6 +18,7 @@ export class PurchasesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly idem: IdempotencyService,
     private readonly approvals: ApprovalsService,
   ) {}
 
@@ -61,11 +63,12 @@ export class PurchasesService {
     return { id, status: 'PENDING_APPROVAL', approvalId: approval.id };
   }
 
-  /** 付款: F3 先付=APPROVED 后; F4 后付=RECEIVED 后 */
+  /** 付款: F3 先付=APPROVED 后; F4 后付=RECEIVED 后; 幂等键统一基座(P0-03) */
   async pay(user: AuthUser, id: string, idemKey: string, note?: string): Promise<unknown> {
     if (!idemKey) throw new BadRequestException('付款必须携带 Idempotency-Key 头');
-    const dup = await this.prisma.idempotencyRecord.findUnique({ where: { tenantId_key: { tenantId: user.tenantId, key: idemKey } } });
-    if (dup) return { replay: true, summary: dup.responseSummary };
+    const pPayload = { p: id, note: note ?? '' };
+    const dup = await this.idem.check(user, 'purchases.pay', idemKey, pPayload);
+    if (dup) return { replay: true, summary: dup.summary };
     const p = await this.prisma.purchaseOrder.findUnique({ where: { id } });
     if (!p) throw new NotFoundException('采购单不存在');
     if (p.status === 'PAID') throw new ConflictException('该采购单已付款');
@@ -74,9 +77,7 @@ export class PurchasesService {
       throw new ConflictException(p.type === 'PREPAID' ? 'F3 先付流程: 审批通过后才可付款' : 'F4 后付流程: 收货入库后才可付款');
     }
     await this.prisma.purchaseOrder.update({ where: { id }, data: { status: 'PAID', paidAt: new Date(), payeeNote: note ?? p.payeeNote } });
-    await this.prisma.idempotencyRecord.create({
-      data: { tenantId: user.tenantId, key: idemKey, endpoint: 'purchases.pay', requestHash: id, createdBy: user.id, responseSummary: { purNo: p.purNo } as never },
-    });
+    await this.idem.complete(user, 'purchases.pay', idemKey, pPayload, { purNo: p.purNo });
     await this.audit.log({ user, action: 'PURCHASE_PAY', entityType: 'PURCHASE', entityId: id, after: { purNo: p.purNo, amount: Number(p.totalAmount), note } });
     return { purNo: p.purNo, status: 'PAID', amount: Number(p.totalAmount) };
   }
