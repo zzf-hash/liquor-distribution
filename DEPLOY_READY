@@ -1,2 +1,2 @@
-commit: 403c5fea90a0c5506f198637dcfe66887a12873a
-build: api+admin+miniapp 全绿; P0全量+P1五任务(T01审批/T02特单/T03退货/T05调价/T04回包装/T06采购)完成; 冒烟: smoke.mjs+smoke_p1.mjs+smoke_p1b2.mjs
+commit: 86fdaf9aface37e8362bb5d9c2da20d71ba9fee1
+build: api+admin+miniapp 全绿; P0全量+P1八任务(T01~T09除T12)完成; 冒烟: smoke.mjs/p1/p1b2/p1b3 四套

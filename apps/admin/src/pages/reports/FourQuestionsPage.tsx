@@ -87,6 +87,15 @@ const BUCKET_TAG_COLORS: Record<string, string> = {
 };
 
 export default function FourQuestionsPage(): JSX.Element {
+  return (
+    <PageContainer title="老板四问看板" subTitle="今日经营一屏看全（P0-T40）">
+      <FourQuestionsBoard />
+    </PageContainer>
+  );
+}
+
+/** 看板主体（P1-T11 起嵌在报表页「四问看板」Tab 内复用，自带刷新，无 PageContainer 外壳） */
+export function FourQuestionsBoard(): JSX.Element {
   const [data, setData] = useState<FourQuestionsDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -109,15 +118,12 @@ export default function FourQuestionsPage(): JSX.Element {
   const shownBuckets = AR_BUCKET_TABS.filter((b) => toNum(debtBuckets[b.key]) > 0);
 
   return (
-    <PageContainer
-      title="老板四问看板"
-      subTitle="今日经营一屏看全（P0-T40）"
-      extra={[
-        <Button key="reload" type="primary" ghost icon={<ReloadOutlined />} onClick={() => { void load(); }}>
+    <Space direction="vertical" style={{ width: '100%' }} size={16}>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Button type="primary" ghost icon={<ReloadOutlined />} onClick={() => { void load(); }}>
           刷新
-        </Button>,
-      ]}
-    >
+        </Button>
+      </div>
       {error && (
         <Alert
           style={{ marginBottom: 16 }}
@@ -246,10 +252,10 @@ export default function FourQuestionsPage(): JSX.Element {
           </Card>
         </Col>
       </Row>
-      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 16 }}>
+      <Typography.Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
         口径：今日销售＝当日签收订单金额；今日回款＝当日确认收款金额。数据延迟：实时。
         生成时间：{data ? fmtDateTime(data.generatedAt) : '-'}
       </Typography.Text>
-    </PageContainer>
+    </Space>
   );
 }

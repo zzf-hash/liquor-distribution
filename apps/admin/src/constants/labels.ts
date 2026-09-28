@@ -271,6 +271,37 @@ export const PAYROLL_STATUS_META: Record<string, { label: string; color: string 
   CONFIRMED: { label: '已发放', color: 'success' },
 };
 
+/** P1-T10 对账单状态（已生成灰→已推送蓝→客户确认绿 / 异议橙→差异已解绿） */
+export const STATEMENT_STATUS_META: Record<string, { label: string; color: string }> = {
+  GENERATED: { label: '已生成', color: 'default' },
+  SENT: { label: '已推送', color: 'processing' },
+  CONFIRMED: { label: '客户确认', color: 'success' },
+  DISPUTED: { label: '异议', color: 'warning' },
+  RESOLVED: { label: '差异已解', color: 'success' },
+};
+
+export const STATEMENT_STATUS_TABS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'GENERATED', label: '已生成' },
+  { key: 'SENT', label: '已推送' },
+  { key: 'CONFIRMED', label: '客户确认' },
+  { key: 'DISPUTED', label: '异议' },
+  { key: 'RESOLVED', label: '差异已解' },
+];
+
+/** P1-T10 差异四类（客户异议进工作池：漏单/价格/赠品/退货） */
+export const DISPUTE_TYPE_META: Record<string, { label: string; color: string }> = {
+  MISSING_ORDER: { label: '漏单', color: 'error' },
+  PRICE: { label: '价格', color: 'warning' },
+  GIFT: { label: '赠品', color: 'processing' },
+  RETURN: { label: '退货', color: 'purple' },
+};
+
+export const DISPUTE_STATUS_META: Record<string, { label: string; color: string }> = {
+  OPEN: { label: '待处理', color: 'warning' },
+  RESOLVED: { label: '已处理', color: 'success' },
+};
+
 export function labelOf(map: Record<string, string>, key?: string | null, fallback = '-'): string {
   return (key && map[key]) || fallback;
 }

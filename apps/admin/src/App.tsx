@@ -5,7 +5,7 @@ import {
   ProfileOutlined, DatabaseOutlined, AccountBookOutlined, BarChartOutlined,
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
   RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
-  GiftOutlined, MoneyCollectOutlined,
+  GiftOutlined, MoneyCollectOutlined, FileSyncOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -24,7 +24,8 @@ import RebatesPage from './pages/rebates/RebatesPage';
 import PayrollPage from './pages/payroll/PayrollPage';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
-import FourQuestionsPage from './pages/reports/FourQuestionsPage';
+import StatementsPage from './pages/statements/StatementsPage';
+import ReportsPage from './pages/reports/ReportsPage';
 import { ADMIN_ROUTES, MENU_ROLES, ROLE_LABELS } from './constants/roles';
 import { getAuth, clearAuth } from './services/auth';
 import type { Role } from './constants/roles';
@@ -45,6 +46,7 @@ const ICONS: Record<string, ReactNode> = {
   ReconciliationOutlined: <ReconciliationOutlined />,
   GiftOutlined: <GiftOutlined />,
   MoneyCollectOutlined: <MoneyCollectOutlined />,
+  FileSyncOutlined: <FileSyncOutlined />,
 };
 
 // 业务页面已实施的模块；/settings 仍为路由占位
@@ -61,7 +63,8 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/payroll': <PayrollPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,
-  '/reports': <FourQuestionsPage />,
+  '/statements': <StatementsPage />,
+  '/reports': <ReportsPage />,
 };
 
 function Shell(): JSX.Element {

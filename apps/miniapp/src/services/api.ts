@@ -284,3 +284,45 @@ export function saveCart(items: CartItem[]): void {
 export function cartQty(items: CartItem[]): number {
   return items.reduce((s, it) => s + it.qty, 0)
 }
+
+// ───────────────────────── 业务员拜访（P1-T13，rep token：八步骤+定位+水印照片） ─────────────────────────
+
+/** 业务员名下客户（GET /customers，rep token 自动过滤） */
+export interface VisitCustomerDTO {
+  id: string
+  name: string
+  code?: string | null
+  abcLevel?: string | null
+}
+
+/** 八步骤勾选（schema Visit.steps Json，键见页面 VISIT_STEPS） */
+export type VisitSteps = Record<string, boolean>
+
+export interface VisitDTO {
+  id: string
+  repId: string
+  customerId: string
+  customer?: { name: string } | null
+  visitedAt: string
+  location?: string | null
+  photoUrl?: string | null
+  steps?: VisitSteps | null
+  notes?: string | null
+  createdAt: string
+}
+
+export const visitsApi = {
+  customers: () => request<PageResult<VisitCustomerDTO>>('/customers?page=1&pageSize=200'),
+  /** 打卡提交；photoUrl 对象存储上传后续接入，当前以本地临时路径占位（pending: 前缀标识） */
+  create: (input: { customerId: string; location?: string; photoUrl?: string; steps: VisitSteps; notes?: string }) =>
+    request<VisitDTO>('/visits', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>,
+      idemKey: genIdemKey(),
+    }),
+  /** 我的拜访时间线（rep token 只返回自己） */
+  mine: () => request<PageResult<VisitDTO>>('/visits?mine=1'),
+  /** 月度统计（本月 X 次） */
+  stats: (month: string) =>
+    request<{ month: string; count: number }>(`/visits/stats?month=${encodeURIComponent(month)}`),
+}

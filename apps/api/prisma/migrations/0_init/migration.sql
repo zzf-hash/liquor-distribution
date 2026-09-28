@@ -1203,6 +1203,6 @@ BEGIN
     'Stocktake','StocktakeLine','RebateScheme','RebateSettlement','Payroll',
     'Statement','DisputeItem','Visit']
   LOOP
-    EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
+    EXECUTE format('CREATE POLICY tenant_isolation ON %I USING ("tenantId" = current_setting(''app.tenant_id'', true)) WITH CHECK ("tenantId" = current_setting(''app.tenant_id'', true))', t);
   END LOOP;
 END $$;

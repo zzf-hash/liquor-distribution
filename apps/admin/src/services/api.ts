@@ -1013,6 +1013,134 @@ export const rebatesApi = {
     request<RebateSettlementDTO[]>(`/rebates/settlements${qs(params)}`),
 };
 
+// ───────────────────────── 对账中心（P1-T10，月结对账·差异四类） ─────────────────────────
+
+export type StatementStatusDTO = 'GENERATED' | 'SENT' | 'CONFIRMED' | 'DISPUTED' | 'RESOLVED';
+export type DisputeTypeDTO = 'MISSING_ORDER' | 'PRICE' | 'GIFT' | 'RETURN';
+export type DisputeStatusDTO = 'OPEN' | 'RESOLVED';
+
+/** 对账单明细行（lines Json 摘要：期间应收单据号/类型/金额/日期/未结） */
+export interface StatementLineDTO {
+  docNo: string;
+  type?: string | null;
+  total?: Decimalish;
+  settledInPeriod?: Decimalish;
+  open?: Decimalish;
+  generatedAt?: string | null;
+  dueDate?: string | null;
+  dispute?: boolean | null;
+}
+
+export interface DisputeItemDTO {
+  id: string;
+  statementId: string;
+  type: DisputeTypeDTO;
+  content: string;
+  resolution?: string | null;
+  resolvedBy?: string | null;
+  resolvedAt?: string | null;
+  status: DisputeStatusDTO;
+  createdAt: string;
+}
+
+export interface StatementDTO {
+  id: string;
+  statementNo: string;
+  customerId: string;
+  period: string; // YYYY-MM
+  totalCharged: Decimalish; // 当期发生（期间应收 CHARGE）
+  totalSettled: Decimalish; // 当期核销（期间 SETTLE+REBATE_OFFSET）
+  openBalance: Decimalish; // 期末未结（客户当前 open 合计）
+  lines?: StatementLineDTO[];
+  status: StatementStatusDTO;
+  sentAt?: string | null;
+  confirmedAt?: string | null;
+  note?: string | null;
+  createdAt: string;
+  /** 列表/详情接口附带 */
+  customer?: { code: string; name: string } | null;
+  /** 详情接口附带（差异工作池） */
+  disputes?: DisputeItemDTO[];
+}
+
+export const statementsApi = {
+  list: (params: { status?: string; customerId?: string; period?: string }) =>
+    request<StatementDTO[]>(`/statements${qs(params)}`),
+  detail: (id: string) => request<StatementDTO>(`/statements/${id}`),
+  /** 按客户+月份生成（tenant+customer+period 唯一，重复 409）；响应含 lines 摘要 */
+  generate: (input: { customerId: string; period: string }) =>
+    request<StatementDTO>('/statements/generate', { method: 'POST', body: input }),
+  /** GENERATED → SENT（推送后客户 miniapp 可见，可确认或提异议） */
+  send: (id: string) => request<StatementDTO>(`/statements/${id}/send`, { method: 'POST', body: {} }),
+  /** 差异处理（结论必填）；该单全部差异处理完自动 RESOLVED */
+  resolveDispute: (disputeId: string, resolution: string) =>
+    request<{ id: string; status: DisputeStatusDTO }>(`/disputes/${disputeId}/resolve`, {
+      method: 'POST',
+      body: { resolution },
+    }),
+};
+
+// ───────────────────────── 一键报表（P1-T11，月报表/库存表） ─────────────────────────
+
+export interface MonthlyCategoryRowDTO {
+  category: string;
+  amount: Decimalish;
+}
+
+export interface MonthlyRepRowDTO {
+  repId: string;
+  name: string;
+  salesAmount: Decimalish;
+  paymentAmount?: Decimalish | null;
+  orderCount?: number | null;
+}
+
+export interface MonthlyTopProductDTO {
+  productId: string;
+  skuCode: string;
+  name: string;
+  qty: Decimalish;
+  amount: Decimalish;
+}
+
+/** GET /reports/monthly 响应：经营汇总 + 品类/业务员/商品三张表 */
+export interface MonthlyReportDTO {
+  month: string;
+  salesByCategory: MonthlyCategoryRowDTO[];
+  repRanking: MonthlyRepRowDTO[];
+  topProducts: MonthlyTopProductDTO[]; // Top10
+  summary: {
+    charged: Decimalish; // 应收发生（当月签收）
+    collected: Decimalish; // 收款（当月确认）
+    returned: Decimalish; // 退货金额（当月收货）
+    purchased: Decimalish; // 采购金额（当月收货）
+    open?: Decimalish | null; // 期末未结（附注）
+  };
+  generatedAt?: string;
+}
+
+export interface InventoryReportItemDTO {
+  productId: string;
+  skuCode: string;
+  name: string;
+  batchNo: string;
+  onHand: Decimalish;
+  unitCost: Decimalish;
+  amount: Decimalish; // 在库 × 单位成本
+}
+
+/** GET /reports/inventory 响应：批次级在库成本明细 */
+export interface InventoryReportDTO {
+  items: InventoryReportItemDTO[];
+  totalAmount?: Decimalish | null;
+  generatedAt?: string;
+}
+
+export const reportsApi = {
+  monthly: (month: string) => request<MonthlyReportDTO>(`/reports/monthly${qs({ month })}`),
+  inventory: () => request<InventoryReportDTO>('/reports/inventory'),
+};
+
 // ───────────────────────── 绩效工资（P1-T09，D5 回款70/拜访20/新客10·可复算） ─────────────────────────
 
 /** 绩效指标行（GET /performance）；工资表 items 同构，baseSalary/total 为工资表口径 */

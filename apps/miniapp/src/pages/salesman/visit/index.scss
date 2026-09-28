@@ -1,0 +1,314 @@
+@use '../../../styles/tokens' as *;
+
+// 拜访打卡（P1-T13）：表单卡+八步骤勾选芯片+时间线；全部可点元素 ≥ $touch-min 触控红线。
+.visit {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+// 月度统计条
+.visit__stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: $gap-base $gap-lg;
+  margin-bottom: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.visit__stat-label {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.visit__stat-num {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.visit__tip {
+  display: block;
+  padding: 16px 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+}
+
+// 表单卡
+.fcard {
+  padding: $gap-base;
+  margin-bottom: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.fcard__title {
+  display: block;
+  font-size: $font-title;
+  font-weight: 600;
+  color: $color-text;
+  margin-bottom: $gap-base;
+}
+
+.fcard__label {
+  display: block;
+  margin: $gap-base 0 12px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 选择行（客户 Picker 触发行 / 定位触发行）：整行可点 ≥$touch-min
+.fcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.fcard__value {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.fcard__placeholder {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.fcard__arrow {
+  font-size: 40px;
+  color: $color-text-sub;
+  line-height: 1;
+}
+
+// 水印照片：空态虚线拍照块 / 已选预览（正方形 300px 计量）
+.photo {
+  &--empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 300px;
+    height: 300px;
+    border: 2px dashed rgba(138, 127, 122, 0.5);
+    border-radius: $radius-base;
+  }
+}
+
+.photo__add {
+  font-size: 64px;
+  line-height: 1;
+  color: $color-text-sub;
+}
+
+.photo__hint {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.photo__img {
+  width: 300px;
+  height: 300px;
+  border-radius: $radius-base;
+}
+
+.photo__ops {
+  display: flex;
+  gap: $gap-lg;
+  margin-top: 12px;
+}
+
+.photo__op {
+  min-width: 120px;
+  padding: 8px 0;
+  text-align: center;
+  font-size: $font-sub;
+  color: $color-primary;
+}
+
+// 八步骤勾选芯片（两列网格，整块可点）
+.chips {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: $gap-base;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  background: $color-bg;
+  border: 2px solid transparent;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+
+  &--on {
+    background: rgba(139, 30, 36, 0.06);
+    border-color: $color-primary;
+  }
+}
+
+// 勾选框视觉（chip 内小方框，选中实心打勾）
+.chip__box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  font-size: 26px;
+  line-height: 1;
+  color: transparent;
+  border: 2px solid rgba(138, 127, 122, 0.6);
+  border-radius: 8px;
+  box-sizing: border-box;
+
+  &--on {
+    color: #fff;
+    background: $color-primary;
+    border-color: $color-primary;
+  }
+}
+
+.chip__label {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.chip--on .chip__label {
+  font-weight: 600;
+}
+
+// 备注
+.notes {
+  width: 100%;
+  min-height: 140px;
+  padding: $gap-base;
+  font-size: $font-body;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+// 我的拜访时间线：左轨道圆点 + 卡片
+.tl {
+  display: flex;
+  flex-direction: column;
+}
+
+.tl__item {
+  display: flex;
+  gap: $gap-base;
+}
+
+.tl__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  padding-top: 14px;
+}
+
+.tl__dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: $color-primary;
+}
+
+// 圆点下连线（最后一条不画）
+.tl__item + .tl__item .tl__rail::before {
+  content: '';
+  flex: 1;
+  width: 2px;
+  margin-top: -6px;
+  margin-bottom: -$gap-base;
+  background: rgba(138, 127, 122, 0.35);
+}
+
+.tl__card {
+  flex: 1;
+  padding: $gap-base;
+  margin-bottom: $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.tl__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.tl__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.tl__steps {
+  font-size: $font-sub;
+  color: $color-primary;
+}
+
+.tl__time {
+  display: block;
+  margin-top: 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.tl__notes {
+  display: block;
+  margin-top: 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 空态/错误态
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $gap-base;
+  padding: 160px $gap-base;
+}
+
+.state__txt {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  margin-top: $gap-lg;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}

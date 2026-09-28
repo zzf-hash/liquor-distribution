@@ -16,6 +16,7 @@ export const ROLE_LABELS: Record<Role, string> = {
 // P1 新增：审批中心=老板+内勤；特单=F8 全员下单(owner/clerk/rep)；退货=内勤+仓配
 // P1 第二批：调价=老板+内勤(成本价仅老板发起)；回包装/采购=内勤+仓配
 // P1 第三批：盘点=内勤+仓配+老板(仓管盘/内勤核双签)；优惠返利/绩效工资=老板+内勤
+// P1 收尾批：对账=老板+内勤(推送客户/差异处理)；报表=老板+内勤(一键出表)
 export const MENU_ROLES: Record<string, Role[]> = {
   '/orders': ['owner', 'clerk', 'warehouse'],
   '/approvals': ['owner', 'clerk'],
@@ -29,7 +30,8 @@ export const MENU_ROLES: Record<string, Role[]> = {
   '/payroll': ['owner', 'clerk'],
   '/master-data': ['owner', 'clerk'],
   '/receivables': ['owner', 'clerk'],
-  '/reports': ['owner'],
+  '/statements': ['owner', 'clerk'],
+  '/reports': ['owner', 'clerk'],
   '/settings': ['owner'],
 };
 
@@ -41,7 +43,7 @@ export interface RouteDef {
 }
 
 // 五模块路由（task 7bb5e0eb：订单池/主数据/应收/报表 + 配置）+ P1 第一批（审批中心/特单/退货）
-// + P1 第二批（调价/回包装/采购）+ P1 第三批（盘点/优惠返利/绩效工资）
+// + P1 第二批（调价/回包装/采购）+ P1 第三批（盘点/优惠返利/绩效工资）+ P1 收尾批（对账/报表增强）
 export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/orders', name: '订单池', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
   { path: '/approvals', name: '审批中心', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
@@ -55,6 +57,7 @@ export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/payroll', name: '绩效工资', icon: 'MoneyCollectOutlined', taskId: 'P1-T09 D5 三指标·一键工资表' },
   { path: '/master-data', name: '主数据', icon: 'DatabaseOutlined', taskId: 'P0-T10~T13 商品·客户·价格·导入' },
   { path: '/receivables', name: '应收', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 应收·销账·提醒' },
-  { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 老板四问看板' },
+  { path: '/statements', name: '对账', icon: 'FileSyncOutlined', taskId: 'P1-T10 月结对账·差异四类' },
+  { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 四问看板 + P1-T11 月度/库存报表' },
   { path: '/settings', name: '配置', icon: 'SettingOutlined', taskId: 'M0-01 业务规则配置' },
 ];
