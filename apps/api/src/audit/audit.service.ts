@@ -3,6 +3,21 @@ import { createHash } from 'node:crypto';
 import { rawClient } from '../prisma/prisma.service';
 import type { AuthUser } from '../common/current-user.decorator';
 
+/**
+ * 递归稳定序列化(键序无关, 数组保序): 与 idempotency.service 同算法。
+ * 0929 实锤: before/after 是 JSONB, PG 落库时会按「键长/字典序」重排 object 键,
+ * 而 JSON.stringify 保持插入序 → 写入时哈希用的串 与 读取时(键被重排)重算的串不同,
+ * 导致 verifyChain 对「键序被 JSONB 重排」的行误判断链(B2 校验自失效)。
+ * 统一用本函数的规范化串算哈希 → 写/读两端一致, 链校验才可靠。
+ */
+export function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`).join(',')}}`;
+}
+
 // B2: 审计流水 DB 层 append-only + 每租户哈希链
 //   - 应用层: 本服务只 INSERT; PrismaService 禁 update/delete; DB 层 REVOKE(见 migration)
 //   - 哈希链: rowHash = sha256(prevRowHash ‖ tenantId ‖ action ‖ entityType ‖ entityId ‖ before ‖ after ‖ ts)
@@ -85,10 +100,14 @@ export class AuditService {
     await rawClient.$transaction(
       async (tx) => {
         // 链尾加锁, 防并发分叉 (FOR UPDATE)
+        // 列名必须与 schema 一致: 本仓 Prisma 用 camelCase 映射且不设 @map,
+        // PG 物理列是 "rowHash"/"tenantId"/"createdAt"(与 0_init 迁移一致)。
+        // 0929 实锤: 此前写 snake_case 导致 42703 column "row_hash" does not exist,
+        // 每次 audit 追加失败被 log() 吞掉 → 审计链从不落库(B2 失效)。
         const tail: Array<{ rowHash: string }> = await tx.$queryRaw(
-          Prisma.sql`SELECT row_hash AS "rowHash" FROM "AuditLog"
-                     WHERE tenant_id = ${entry.user.tenantId}
-                     ORDER BY created_at DESC, id DESC LIMIT 1 FOR UPDATE`,
+          Prisma.sql`SELECT "rowHash" FROM "AuditLog"
+                     WHERE "tenantId" = ${entry.user.tenantId}
+                     ORDER BY "createdAt" DESC, id DESC LIMIT 1 FOR UPDATE`,
         );
         const prev = tail[0]?.rowHash ?? 'GENESIS';
         const now = new Date();
@@ -102,7 +121,7 @@ export class AuditService {
           ts: now.toISOString(),
         };
         const rowHash = createHash('sha256')
-          .update(prev + '␟' + JSON.stringify(payload))
+          .update(prev + '␟' + stableStringify(payload))
           .digest('hex');
         await tx.auditLog.create({
           data: {
@@ -137,6 +156,6 @@ export class AuditService {
       after: r.after ?? null,
       ts: r.createdAt.toISOString(),
     };
-    return createHash('sha256').update(prev + '␟' + JSON.stringify(payload)).digest('hex');
+    return createHash('sha256').update(prev + '␟' + stableStringify(payload)).digest('hex');
   }
 }
