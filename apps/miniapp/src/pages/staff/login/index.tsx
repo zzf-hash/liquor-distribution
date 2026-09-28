@@ -1,21 +1,30 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { authApi, saveSession } from '../../../services/api'
+import { ROLE_HOME_PAGE, authApi, saveSession } from '../../../services/api'
 import './index.scss'
 
 /**
- * 员工登录（内勤/老板/业务员/仓配统一入口）：
- * - REP → 拜访打卡页（语音报单从打卡页后续任务接线）
- * - OWNER/CLERK/WAREHOUSE → 小程序端暂未开放管理页面，登录保留会话并提示用 Web 后台
- * - CUSTOMER 角色 → 拒绝，引导回首页客户订货通道
+ * 统一登录（P1 全员端）：五角色一个入口，账密登录后按 user.role 自动跳对应首页
+ *   CUSTOMER→客户端订货 / REP→业务员宫格 / WAREHOUSE→拣货工作台
+ *   CLERK→订单池 / OWNER→四问看板
+ * （路由表=services/api.ts ROLE_HOME_PAGE；token 沿用 ld_token，微信授权登录后续版本接入）
  */
-const STAFF_ROLE_NAME: Record<string, string> = {
+const ROLE_NAME: Record<string, string> = {
   OWNER: '老板',
   CLERK: '内勤',
   REP: '业务员',
   WAREHOUSE: '仓配',
+  CUSTOMER: '客户',
 }
+
+const DEMO_ACCOUNTS: Array<{ acc: string; role: string; home: string }> = [
+  { acc: 'owner', role: 'OWNER', home: '四问看板' },
+  { acc: 'clerk', role: 'CLERK', home: '订单池' },
+  { acc: 'rep1', role: 'REP', home: '业务员工作台' },
+  { acc: 'warehouse', role: 'WAREHOUSE', home: '拣货工作台' },
+  { acc: 'cust-c0001', role: 'CUSTOMER', home: '客户订货' },
+]
 
 export default function StaffLoginPage() {
   const [username, setUsername] = useState('')
@@ -32,23 +41,16 @@ export default function StaffLoginPage() {
     try {
       const res = await authApi.login(username.trim(), password)
       const role = res.user?.role ?? ''
-      if (role === 'CUSTOMER') {
-        Taro.showToast({ title: '客户账号请返回首页，走「文字下单」通道', icon: 'none' })
+      const home = ROLE_HOME_PAGE[role]
+      if (!home) {
+        Taro.showToast({ title: `未知角色 ${role}，请联系管理员`, icon: 'none' })
         return
       }
       saveSession(res)
-      const roleName = STAFF_ROLE_NAME[role] ?? role
-      if (role === 'REP') {
-        Taro.showToast({ title: `欢迎，${res.user.name}（${roleName}）`, icon: 'none' })
-        Taro.navigateTo({ url: '/pages/salesman/visit/index' })
-      } else {
-        Taro.showModal({
-          title: `欢迎，${res.user.name}（${roleName}）`,
-          content:
-            '内勤/老板管理后台请在电脑浏览器打开：http://43.134.86.167（账号密码相同）。小程序端管理页面将在后续版本开放。',
-          showCancel: false,
-        })
-      }
+      Taro.showToast({ title: `欢迎，${res.user.name}（${ROLE_NAME[role] ?? role}）`, icon: 'none' })
+      // CUSTOMER 首页是 tabBar 页须 switchTab；员工端首页 reLaunch 清栈
+      if (role === 'CUSTOMER') Taro.switchTab({ url: home })
+      else Taro.reLaunch({ url: home })
     } catch (e) {
       Taro.showToast({ title: e instanceof Error ? e.message : '登录失败', icon: 'none' })
     } finally {
@@ -59,14 +61,14 @@ export default function StaffLoginPage() {
   return (
     <View className='login'>
       <View className='login__hd'>
-        <Text className='login__title'>员工登录</Text>
-        <Text className='login__sub'>业务员/内勤/老板工作入口</Text>
+        <Text className='login__title'>统一登录</Text>
+        <Text className='login__sub'>老板 / 内勤 / 业务员 / 仓配 / 客户，一个入口</Text>
       </View>
 
       <View className='login__form'>
         <Input
           className='ipt'
-          placeholder='员工账号'
+          placeholder='账号'
           value={username}
           onInput={(e) => setUsername(e.detail.value)}
         />
@@ -85,8 +87,18 @@ export default function StaffLoginPage() {
         >
           登 录
         </Button>
-        <Text className='login__tip'>演示：owner / clerk / rep1　密码：demo1234</Text>
-        <Text className='login__tip'>管理后台（电脑浏览器）：http://43.134.86.167</Text>
+      </View>
+
+      <View className='login__demo'>
+        <Text className='login__demo-title'>演示账号（密码均为 demo1234）</Text>
+        {DEMO_ACCOUNTS.map((d) => (
+          <View key={d.acc} className='login__demo-row'>
+            <Text className='login__demo-acc'>{d.acc}</Text>
+            <Text className='login__demo-role'>{ROLE_NAME[d.role]}</Text>
+            <Text className='login__demo-home'>进{d.home}</Text>
+          </View>
+        ))}
+        <Text className='login__demo-tip'>客户也可走首页「文字下单」通道登录</Text>
       </View>
     </View>
   )

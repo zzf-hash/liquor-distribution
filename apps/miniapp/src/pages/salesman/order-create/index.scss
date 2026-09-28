@@ -1,0 +1,111 @@
+@use '../../../styles/shared' as *;
+
+// 搜索行
+.oc__search {
+  display: flex;
+  gap: $gap-base;
+  margin-bottom: $gap-base;
+  align-items: center;
+}
+
+.oc__ipt {
+  flex: 1;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  font-size: $font-body;
+  color: $color-text;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+// 搜索结果行
+.oc__prod {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  padding: 14px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.oc__prod-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.oc__prod-name {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.oc__prod-sub {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.oc__prod-ops {
+  display: flex;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.oc__add {
+  min-width: 120px;
+}
+
+// 已加行 + 步进器
+.oc__line {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  padding: 14px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.oc__line-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.oc__line-ops {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+// 底部合计 + 提交
+.oc__footer {
+  margin-top: 8px;
+}
+
+.oc__total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: $gap-base 8px;
+}
+
+.oc__total-label {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.oc__total-num {
+  font-size: 52px;
+  font-weight: 700;
+  color: $color-primary;
+}

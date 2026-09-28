@@ -24,3 +24,9 @@ $color-text-sub: #8a7f7a;
 $font-title: 40px;
 $font-body: 32px;
 $font-sub: 28px;
+
+// —— 语义色（P1 全员端：状态角标/看板分档，沿用 admin 语义 蓝进行/绿成功/橙警示/红风险/灰终态） ——
+$color-info: #2f6db5;
+$color-ok: #2e6b34;
+$color-warn: #8a5a00;
+$color-danger: #a02228;

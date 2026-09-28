@@ -1,0 +1,316 @@
+import { useState } from 'react'
+import { Button, Input, Picker, Text, View } from '@tarojs/components'
+import Taro, { useDidShow } from '@tarojs/taro'
+import ReasonPopup from '../../../components/reason-popup'
+import {
+  LOGIN_PAGE,
+  UNIT_LABELS,
+  fmtMoney,
+  getUserName,
+  getToken,
+  ordersApi,
+  toNum,
+} from '../../../services/api'
+import type { OrderDetailDTO, OrderLineDTO } from '../../../services/api'
+import './index.scss'
+
+// 回包装品类（与服务端押金单价 cfg 默认对齐：周转箱15/啤酒瓶0.5/白酒盒2）
+const PACKAGE_CATEGORIES: string[] = ['周转箱', '啤酒瓶', '白酒盒']
+
+const SIGN_TYPES: Array<{ key: 'E_SIGN' | 'PAPER'; label: string }> = [
+  { key: 'E_SIGN', label: '电子签（当场确认）' },
+  { key: 'PAPER', label: '纸单回录（拍纸质单，回仓录入）' },
+]
+
+interface SignLine {
+  line: OrderLineDTO
+  net: number
+  actual: string
+}
+
+/** 每行净可签量（扣红字冲销，口径与服务端 sign() netByLine 一致） */
+function netLines(lines: OrderLineDTO[]): SignLine[] {
+  const reversals = new Map<string, number>()
+  for (const l of lines) {
+    if (l.reversalOfId) reversals.set(l.reversalOfId, (reversals.get(l.reversalOfId) ?? 0) + toNum(l.qty))
+  }
+  return lines
+    .filter((l) => !l.reversalOfId)
+    .map((l) => {
+      const net = toNum(l.qty) + (reversals.get(l.id) ?? 0)
+      return { line: l, net, actual: String(net) }
+    })
+    .filter((s) => s.net > 0)
+}
+
+/**
+ * 签收页（P1 全员端，仓配；订单参数传入）：逐行实收（默认=净量，差额即拒收量回冲库存）、
+ * 签收类型（电子签/纸单回录）、回包装品类+数量动态行、签名文本（选填）→ POST /orders/:id/sign；
+ * 整单拒收单独按钮（POST :id/reject 输原因）。
+ */
+export default function WarehouseSignPage() {
+  const [id, setId] = useState('')
+  const [orderNo, setOrderNo] = useState('')
+  const [order, setOrder] = useState<OrderDetailDTO | null>(null)
+  const [signLines, setSignLines] = useState<SignLine[]>([])
+  const [typeIdx, setTypeIdx] = useState(0)
+  const [signerName, setSignerName] = useState('')
+  const [signature, setSignature] = useState('')
+  const [packages, setPackages] = useState<Array<{ category: string; qty: string }>>([])
+  const [showReject, setShowReject] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useDidShow(() => {
+    if (!getToken()) {
+      Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    const pages = Taro.getCurrentPages()
+    const cur = pages[pages.length - 1]
+    const q = (cur as { options?: Record<string, string> })?.options ?? {}
+    const paramId = q.id ?? ''
+    const paramNo = decodeURIComponent(q.no ?? '')
+    setOrderNo(paramNo)
+    setSignerName((prev) => prev || getUserName())
+    if (paramId && paramId !== id) {
+      setId(paramId)
+      void load(paramId)
+    }
+  })
+
+  async function load(orderId: string) {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await ordersApi.detail(orderId)
+      setOrder(res)
+      setSignLines(netLines(res.lines ?? []))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载订单失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function setActual(i: number, v: string) {
+    setSignLines((prev) => prev.map((s, idx) => (idx === i ? { ...s, actual: v } : s)))
+  }
+
+  function setPackage(idx: number, patch: Partial<{ category: string; qty: string }>) {
+    setPackages((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
+  }
+
+  async function submit() {
+    if (!order || submitting) return
+    const lines: Array<{ orderLineId: string; actualQty: number }> = []
+    for (let i = 0; i < signLines.length; i++) {
+      const s = signLines[i]
+      const actual = Number(s.actual)
+      if (!Number.isFinite(actual) || actual < 0 || actual > s.net) {
+        Taro.showToast({ title: `${s.line.productName} 实收须在 0~${s.net} 之间`, icon: 'none' })
+        return
+      }
+      lines.push({ orderLineId: s.line.id, actualQty: Number(actual.toFixed(3)) })
+    }
+    const returnPackages = packages
+      .map((p) => ({ category: p.category, qty: Math.trunc(Number(p.qty)) }))
+      .filter((p) => Number.isFinite(p.qty) && p.qty > 0)
+    const type = SIGN_TYPES[typeIdx]?.key ?? 'E_SIGN'
+    const rejectedTotal = signLines.reduce((s2, s) => s2 + (s.net - Number(s.actual || 0)), 0)
+    if (rejectedTotal > 0) {
+      const ok = await new Promise<boolean>((resolve) => {
+        Taro.showModal({
+          title: '存在拒收数量',
+          content: `共拒收 ${rejectedTotal} 件，确认提交？拒收部分将自动回冲库存。`,
+          confirmText: '确认提交',
+          confirmColor: '#8b1e24',
+          success: (r) => resolve(Boolean(r.confirm)),
+          fail: () => resolve(false),
+        })
+      })
+      if (!ok) return
+    }
+    setSubmitting(true)
+    try {
+      const res = await ordersApi.sign(order.id, {
+        type,
+        signerName: signerName.trim() || undefined,
+        signatureData: signature.trim() || undefined,
+        returnPackages: returnPackages.length ? returnPackages : undefined,
+        lines,
+      })
+      Taro.showToast({
+        title: res.status === 'REJECTED' ? '已按整单拒收处理' : `签收成功 ${fmtMoney(res.acceptedAmount)}`,
+        icon: 'success',
+      })
+      setTimeout(() => Taro.navigateBack(), 800)
+    } catch (e) {
+      Taro.showToast({ title: e instanceof Error ? e.message : '签收失败', icon: 'none' })
+      setSubmitting(false)
+    }
+  }
+
+  async function reject(reason: string) {
+    if (!order || submitting) return
+    setSubmitting(true)
+    try {
+      await ordersApi.reject(order.id, reason)
+      Taro.showToast({ title: '已整单拒收', icon: 'success' })
+      setShowReject(false)
+      setTimeout(() => Taro.navigateBack(), 600)
+    } catch (e) {
+      Taro.showToast({ title: e instanceof Error ? e.message : '拒收失败', icon: 'none' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (error) {
+    return (
+      <View className='page'>
+        <View className='state'>
+          <Text className='state__txt'>{error}</Text>
+          <Button className='btn-primary' onClick={() => Taro.navigateBack()}>返回</Button>
+        </View>
+      </View>
+    )
+  }
+  if (loading || !order) {
+    return (
+      <View className='page'>
+        <Text className='tip'>正在加载订单…</Text>
+      </View>
+    )
+  }
+
+  return (
+    <View className='page'>
+      <View className='topbar'>
+        <Text className='topbar__title'>签收 {order.orderNo || orderNo}</Text>
+      </View>
+
+      {/* 逐行实收 */}
+      <View className='card'>
+        <Text className='card__title'>实收数量（默认=净量，改小即拒收）</Text>
+        {signLines.map((s, i) => {
+          const rejected = s.net - Number(s.actual || 0)
+          return (
+            <View key={s.line.id} className='sline'>
+              <View className='sline__row'>
+                <Text className='sline__name'>{s.line.productName}{s.line.isGift ? '（赠）' : ''}</Text>
+                <Text className='sline__net'>净 {s.net}{UNIT_LABELS[s.line.unit] ?? s.line.unit}</Text>
+              </View>
+              <View className='sline__ops'>
+                <Text className='sline__label'>实收</Text>
+                <Input
+                  className='sline__ipt'
+                  type='number'
+                  value={s.actual}
+                  onInput={(e) => setActual(i, e.detail.value)}
+                />
+                <Text className={`sline__rej ${rejected > 0 ? 'sline__rej--on' : ''}`}>
+                  {rejected > 0 ? `拒收 ${rejected}` : '足额'}
+                </Text>
+              </View>
+            </View>
+          )
+        })}
+        {signLines.length === 0 && <Text className='tip'>订单没有可签收的商品行</Text>}
+      </View>
+
+      {/* 签收类型与签名 */}
+      <View className='card'>
+        <Text className='card__title'>签收方式</Text>
+        <Picker
+          mode='selector'
+          range={SIGN_TYPES.map((t) => t.label)}
+          value={typeIdx}
+          onChange={(e) => setTypeIdx(Number(e.detail.value))}
+        >
+          <View className='frow'>
+            <Text className='frow__label'>类型</Text>
+            <Text className='frow__value'>{SIGN_TYPES[typeIdx]?.label}</Text>
+            <Text className='frow__arrow'>›</Text>
+          </View>
+        </Picker>
+        <View className='frow'>
+          <Text className='frow__label'>签收人</Text>
+          <Input
+            className='sign__ipt'
+            placeholder='客户签收人姓名'
+            value={signerName}
+            onInput={(e) => setSignerName(e.detail.value)}
+          />
+        </View>
+        <View className='frow'>
+          <Text className='frow__label'>签名文本</Text>
+          <Input
+            className='sign__ipt'
+            placeholder='选填，如“已验收 王老板”'
+            value={signature}
+            onInput={(e) => setSignature(e.detail.value)}
+          />
+        </View>
+      </View>
+
+      {/* 回包装动态行 */}
+      <View className='card'>
+        <Text className='card__title'>回包装回填（选填，落押金台账）</Text>
+        {packages.map((p, i) => (
+          <View key={i} className='pkgrow'>
+            <Picker
+              mode='selector'
+              range={PACKAGE_CATEGORIES}
+              value={Math.max(0, PACKAGE_CATEGORIES.indexOf(p.category))}
+              onChange={(e) => setPackage(i, { category: PACKAGE_CATEGORIES[Number(e.detail.value)] ?? p.category })}
+            >
+              <View className='pkgrow__cat'>
+                <Text className='pkgrow__cat-txt'>{p.category}</Text>
+                <Text className='frow__arrow'>›</Text>
+              </View>
+            </Picker>
+            <Input
+              className='pkgrow__ipt'
+              type='number'
+              placeholder='数量'
+              value={p.qty}
+              onInput={(e) => setPackage(i, { qty: e.detail.value })}
+            />
+            <Text className='pkgrow__del' onClick={() => setPackages((prev) => prev.filter((_, idx) => idx !== i))}>删除</Text>
+          </View>
+        ))}
+        <Button
+          className='btn-inline btn-inline--ghost'
+          onClick={() => setPackages((prev) => [...prev, { category: PACKAGE_CATEGORIES[0], qty: '' }])}
+        >
+          ＋ 添加回包装
+        </Button>
+      </View>
+
+      <Button
+        className='btn-primary'
+        loading={submitting}
+        disabled={submitting || signLines.length === 0}
+        onClick={() => { void submit() }}
+      >
+        提交签收
+      </Button>
+      <Button className='btn-danger sign__reject' disabled={submitting} onClick={() => setShowReject(true)}>
+        整单拒收
+      </Button>
+      <Text className='tip'>签收即生成应收；拒收部分自动回冲库存，请与客户当面点清</Text>
+
+      <ReasonPopup
+        visible={showReject}
+        title={`整单拒收 ${order.orderNo || orderNo}`}
+        confirmText='确认拒收'
+        danger
+        placeholder='拒收原因（必填，如破损/临期/客户拒收）'
+        onSubmit={(text) => { void reject(text) }}
+        onClose={() => setShowReject(false)}
+      />
+    </View>
+  )
+}

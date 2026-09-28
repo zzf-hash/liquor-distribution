@@ -1,0 +1,101 @@
+@use '../../../styles/shared' as *;
+
+.ocard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+
+  & + & {
+    margin-top: 12px;
+  }
+}
+
+.od__no {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.od__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.od__total-label {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.od__total {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.od__cancel-reason {
+  font-size: $font-sub;
+  color: $color-danger;
+  text-align: right;
+  flex: 1;
+}
+
+// 预检结论行（✓ 绿 / ✗ 红）
+.od__check {
+  font-size: $font-sub;
+  font-weight: 600;
+
+  &--ok {
+    color: $color-ok;
+  }
+
+  &--bad {
+    color: $color-danger;
+  }
+}
+
+// 行明细
+.oline {
+  padding: 12px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+
+  &--reversal {
+    opacity: 0.55;
+  }
+}
+
+.oline__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.oline__name {
+  font-size: $font-body;
+  color: $color-text;
+  font-weight: 600;
+  flex: 1;
+}
+
+.oline__amount {
+  font-size: $font-body;
+  color: $color-text;
+  font-weight: 600;
+}
+
+.oline__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 操作按钮间距
+.od__op {
+  margin-top: $gap-base;
+}

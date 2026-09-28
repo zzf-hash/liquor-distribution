@@ -1,0 +1,71 @@
+@use '../../../styles/shared' as *;
+
+// 审批卡：头部（点行展开）+ 金额/提示行 + 展开详情 + 操作
+.appr__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $gap-base;
+  min-height: $touch-min;
+}
+
+.appr__head-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.appr__title {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.appr__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.appr__arrow {
+  font-size: 32px;
+  color: $color-text-sub;
+  line-height: 1;
+}
+
+.appr__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-top: 8px;
+}
+
+.appr__amount {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+
+  &--none {
+    font-size: $font-body;
+    color: $color-text-sub;
+    font-weight: 400;
+  }
+}
+
+.appr__detail {
+  margin-top: $gap-base;
+  padding: 8px $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.appr__ops {
+  display: flex;
+  gap: $gap-base;
+  margin-top: $gap-base;
+}
+
+.appr__ops .btn-inline {
+  flex: 1;
+}

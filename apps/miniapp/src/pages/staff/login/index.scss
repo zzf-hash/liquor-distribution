@@ -8,7 +8,7 @@
 }
 
 .login__hd {
-  padding: 96px 8px 64px;
+  padding: 64px 8px 48px;
   text-align: center;
 }
 
@@ -65,9 +65,51 @@
   }
 }
 
-.login__tip {
+// 演示账号提示卡片（P1 全员端：五角色演示通道）
+.login__demo {
+  margin-top: $gap-lg;
+  padding: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.login__demo-title {
+  display: block;
+  font-size: $font-sub;
+  font-weight: 600;
+  color: $color-text;
+  margin-bottom: 12px;
+}
+
+.login__demo-row {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  padding: 8px 0;
+}
+
+.login__demo-acc {
+  flex: 1;
+  font-size: $font-sub;
+  color: $color-text;
+  font-family: monospace;
+}
+
+.login__demo-role {
+  flex-shrink: 0;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.login__demo-home {
+  flex-shrink: 0;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.login__demo-tip {
+  display: block;
   margin-top: 8px;
-  text-align: center;
   font-size: $font-sub;
   color: $color-text-sub;
 }

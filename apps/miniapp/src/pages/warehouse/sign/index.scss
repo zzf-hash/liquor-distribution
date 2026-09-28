@@ -1,0 +1,128 @@
+@use '../../../styles/shared' as *;
+
+// 签收行：品名+净量 / 实收输入+拒收提示
+.sline {
+  padding: 12px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.sline__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-bottom: 8px;
+}
+
+.sline__name {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.sline__net {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.sline__ops {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  min-height: $touch-min;
+}
+
+.sline__label {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex-shrink: 0;
+}
+
+.sline__ipt {
+  width: 176px;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  text-align: center;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.sline__rej {
+  flex: 1;
+  text-align: right;
+  font-size: $font-sub;
+  color: $color-text-sub;
+
+  &--on {
+    color: $color-danger;
+    font-weight: 600;
+  }
+}
+
+// 签收人/签名输入
+.sign__ipt {
+  flex: 1;
+  min-height: $touch-min;
+  padding: 0 8px;
+  font-size: $font-body;
+  color: $color-text;
+  text-align: right;
+  background: transparent;
+}
+
+// 回包装动态行
+.pkgrow {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  margin-bottom: $gap-base;
+}
+
+.pkgrow__cat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.pkgrow__cat-txt {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.pkgrow__ipt {
+  width: 160px;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  font-size: $font-body;
+  color: $color-text;
+  text-align: center;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.pkgrow__del {
+  flex: 1;
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  font-size: $font-sub;
+  color: $color-danger;
+}
+
+.sign__reject {
+  margin-top: $gap-base;
+}

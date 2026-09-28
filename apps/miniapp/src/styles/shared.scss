@@ -1,0 +1,490 @@
+/**
+ * 员工端共享组件样式（P1 全员端 L3）：按钮/状态角标/tab/表单行/卡片等，
+ * 供 boss/clerk/warehouse/salesman 各页 `@use '../styles/shared' as *` 复用，
+ * 页面私有样式仍写在各自 index.scss。颜色/字号一律引用 tokens（唯一定义点）。
+ * 触控红线：所有可点类（btn/tab/frow/stepper 等）≥ $touch-min。
+ */
+// 转发 tokens（变量+自身 CSS 类一并暴露），页面只 @use 本文件即可同时拿到令牌与公共类
+@forward './tokens';
+@use './tokens' as *;
+
+// ───────────────────────── 页面容器 ─────────────────────────
+
+.page {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+.tip {
+  display: block;
+  padding: 16px 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+}
+
+// 顶部工作台跳转行（左标题 + 右宫格入口）
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: $gap-base;
+}
+
+.topbar__title {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.topbar__link {
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-info;
+}
+
+// ───────────────────────── 卡片与键值行 ─────────────────────────
+
+.card {
+  padding: $gap-base;
+  margin-bottom: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.card__title {
+  display: block;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  margin-bottom: $gap-base;
+}
+
+.card__more {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  font-weight: 400;
+}
+
+.kv {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $gap-base;
+  padding: 10px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.kv__k {
+  flex-shrink: 0;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.kv__v {
+  font-size: $font-sub;
+  color: $color-text;
+  text-align: right;
+  word-break: break-all;
+}
+
+// 大数字指标（看板两大数等）
+.metric {
+  flex: 1;
+  padding: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+}
+
+.metric__label {
+  display: block;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.metric__num {
+  display: block;
+  margin-top: 8px;
+  font-size: 52px;
+  font-weight: 700;
+  color: $color-primary;
+  line-height: 1.2;
+}
+
+.metric__sub {
+  display: block;
+  margin-top: 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// ───────────────────────── 按钮 ─────────────────────────
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}
+
+// 次操作：白底描边
+.btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-primary;
+  background: $color-card;
+  border: 2px solid $color-primary;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: rgba(139, 30, 36, 0.06);
+  }
+}
+
+// 风险操作：红描边
+.btn-danger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-danger;
+  background: $color-card;
+  border: 2px solid $color-danger;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: rgba(160, 34, 40, 0.06);
+  }
+}
+
+// 行内小操作（列表行里的 确认/发运/签收 等）：高度仍 ≥$touch-min
+.btn-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  min-width: 176px;
+  padding: 0 $gap-base;
+  font-size: $font-sub;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+
+  &--ghost {
+    color: $color-primary;
+    background: rgba(139, 30, 36, 0.06);
+  }
+
+  &--danger {
+    background: $color-danger;
+  }
+}
+
+// ───────────────────────── 状态角标（admin 语义：蓝进行/绿成功/橙警示/红风险/灰终态） ─────────────────────────
+
+.tag {
+  display: inline-block;
+  padding: 4px 16px;
+  border-radius: 999px;
+  font-size: $font-sub;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tag--info {
+  color: $color-info;
+  background: rgba(47, 109, 181, 0.1);
+}
+
+.tag--ok {
+  color: $color-ok;
+  background: rgba(46, 107, 52, 0.1);
+}
+
+.tag--warn {
+  color: $color-warn;
+  background: rgba(138, 90, 0, 0.1);
+}
+
+.tag--danger {
+  color: $color-danger;
+  background: rgba(160, 34, 40, 0.1);
+}
+
+.tag--muted {
+  color: $color-text-sub;
+  background: rgba(138, 127, 122, 0.12);
+}
+
+// ───────────────────────── tab 条（横向可滚动） ─────────────────────────
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: $gap-base;
+  overflow-x: auto;
+}
+
+.tabs__btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  min-height: $touch-min;
+  padding: 8px 28px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  background: $color-card;
+  border: 2px solid transparent;
+  border-radius: 999px;
+  box-sizing: border-box;
+  line-height: 1.3;
+
+  &--on {
+    color: $color-primary;
+    border-color: $color-primary;
+    font-weight: 600;
+  }
+}
+
+// ───────────────────────── 表单行（选择器触发行 / 输入 / 文本域） ─────────────────────────
+
+.frow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  margin-bottom: $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+}
+
+.frow__label {
+  flex-shrink: 0;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.frow__value {
+  font-size: $font-body;
+  color: $color-text;
+  text-align: right;
+}
+
+.frow__placeholder {
+  font-size: $font-body;
+  color: $color-text-sub;
+  text-align: right;
+}
+
+.frow__arrow {
+  font-size: 40px;
+  color: $color-text-sub;
+  line-height: 1;
+}
+
+.ipt {
+  min-height: $touch-min;
+  width: 100%;
+  padding: 0 $gap-base;
+  margin-bottom: $gap-base;
+  font-size: $font-body;
+  color: $color-text;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.tarea {
+  width: 100%;
+  min-height: 140px;
+  padding: $gap-base;
+  margin-bottom: $gap-base;
+  font-size: $font-body;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+// 数量步进器（加购/实收数量）
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.stepper__btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: $touch-min;
+  height: $touch-min;
+  font-size: 44px;
+  line-height: 1;
+  color: $color-primary;
+  background: rgba(139, 30, 36, 0.06);
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: rgba(139, 30, 36, 0.14);
+  }
+}
+
+.stepper__val {
+  min-width: 96px;
+  text-align: center;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+// ───────────────────────── 空态/错误态 / 宫格首页 ─────────────────────────
+
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $gap-base;
+  padding: 120px $gap-base;
+}
+
+.state__txt {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+// 宫格首页：端工作台（2 列磁贴，整块可点 ≥88px 计量红线）
+.grid-home {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+.grid-home__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 32px 8px $gap-base;
+}
+
+.grid-home__hi {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.grid-home__out {
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-decoration: underline;
+}
+
+.grid-home__sub {
+  display: block;
+  padding: 0 8px $gap-base;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.grid-home__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: $gap-base;
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+  min-height: 176px;
+  padding: $gap-base;
+  background: $color-card;
+  border: none;
+  border-radius: $radius-base;
+  line-height: 1.3;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: rgba(139, 30, 36, 0.06);
+  }
+}
+
+.tile__icon {
+  font-size: 64px;
+  line-height: 1.2;
+}
+
+.tile__title {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.tile__desc {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}

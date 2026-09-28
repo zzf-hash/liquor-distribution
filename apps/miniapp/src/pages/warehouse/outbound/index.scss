@@ -1,0 +1,63 @@
+@use '../../../styles/shared' as *;
+
+.obd__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-bottom: 8px;
+}
+
+.obd__no {
+  font-size: $font-body;
+  font-weight: 700;
+  color: $color-text;
+  flex: 1;
+}
+
+.obd__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.obd__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// FIFO 批次行
+.fifo {
+  padding: 12px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.fifo__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.fifo__name {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.fifo__qty {
+  font-size: $font-body;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.fifo__sub {
+  display: block;
+  margin-top: 4px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}

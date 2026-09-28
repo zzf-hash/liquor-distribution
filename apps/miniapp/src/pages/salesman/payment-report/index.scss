@@ -1,0 +1,19 @@
+@use '../../../styles/shared' as *;
+
+// 金额/凭证输入（frow 内右对齐）
+.pr__ipt {
+  flex: 1;
+  min-height: $touch-min;
+  padding: 0 8px;
+  font-size: $font-body;
+  color: $color-text;
+  text-align: right;
+  background: transparent;
+}
+
+.pr__note {
+  display: block;
+  margin-top: 12px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}

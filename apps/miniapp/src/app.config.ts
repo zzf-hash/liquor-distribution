@@ -1,7 +1,7 @@
 import type { AppRole } from './config/app-role'
 
 // 四端复用：页面按端分组注册，编译时按 APP_ROLE 决定首页与页面集合
-// （task d0974541；业务员/仓配/老板端页面在后续里程碑挂入）
+// （task d0974541；P1 全员端起各员工端页面全部挂入，登录统一按 role 分发）
 
 export const CUSTOMER_PAGES = [
   'pages/index/index',
@@ -13,21 +13,51 @@ export const CUSTOMER_PAGES = [
   'pages/customer/receivables/index',
 ] as const
 
-// 业务员端页面（P1-T13 起挂入）：拜访打卡、语音报单（T12 草稿入口）等；
-// 随本构建一并注册编译，独立业务员端入口（首页/tabBar 按 APP_ROLE 切换）后续任务接入。
+// 业务员端页面（P1-T12/T13 + P1 全员端补齐 home/customers/order-create/payment-report/performance）
 export const SALESMAN_PAGES = [
+  'pages/salesman/home/index',
   'pages/salesman/visit/index',
   'pages/salesman/voice-order/index',
+  'pages/salesman/customers/index',
+  'pages/salesman/order-create/index',
+  'pages/salesman/payment-report/index',
+  'pages/salesman/performance/index',
+] as const
+
+// 内勤端页面（P1 全员端）：订单池/收款/应收
+export const CLERK_PAGES = [
+  'pages/clerk/home/index',
+  'pages/clerk/orders/index',
+  'pages/clerk/order-detail/index',
+  'pages/clerk/payments/index',
+  'pages/clerk/receivables/index',
+] as const
+
+// 仓配端页面（P1 全员端）：拣货/发运/签收
+export const WAREHOUSE_PAGES = [
+  'pages/warehouse/home/index',
+  'pages/warehouse/outbounds/index',
+  'pages/warehouse/outbound/index',
+  'pages/warehouse/delivering/index',
+  'pages/warehouse/sign/index',
+] as const
+
+// 老板端页面（P1 全员端）：看板/审批（订单池复用 clerk/orders）
+export const BOSS_PAGES = [
+  'pages/boss/home/index',
+  'pages/boss/dashboard/index',
+  'pages/boss/approvals/index',
 ] as const
 
 export const RESERVED_PAGES: Record<Exclude<AppRole, 'customer'>, string[]> = {
   salesman: [...SALESMAN_PAGES],
-  warehouse: [],
-  boss: [],
+  clerk: [...CLERK_PAGES],
+  warehouse: [...WAREHOUSE_PAGES],
+  boss: [...BOSS_PAGES],
 }
 
 const pageConfig = {
-  pages: [...CUSTOMER_PAGES, ...SALESMAN_PAGES],
+  pages: [...CUSTOMER_PAGES, ...SALESMAN_PAGES, ...CLERK_PAGES, ...WAREHOUSE_PAGES, ...BOSS_PAGES],
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#8b1e24',

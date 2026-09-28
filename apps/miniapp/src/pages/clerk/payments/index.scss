@@ -1,0 +1,58 @@
+@use '../../../styles/shared' as *;
+
+// 金额/凭证输入（frow 内右对齐）
+.pay__ipt {
+  flex: 1;
+  min-height: $touch-min;
+  padding: 0 8px;
+  font-size: $font-body;
+  color: $color-text;
+  text-align: right;
+  background: transparent;
+}
+
+// 待确认收款卡
+.pcard {
+  padding: $gap-base 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+}
+
+.pcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-bottom: 8px;
+}
+
+.pcard__no {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.pcard__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.pcard__amount {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.pcard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.pcard .btn-inline {
+  margin-top: 8px;
+}

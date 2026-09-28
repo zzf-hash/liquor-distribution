@@ -1,0 +1,49 @@
+@use '../../../styles/shared' as *;
+
+.ar__note {
+  display: block;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.arcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-bottom: 8px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.arcard__doc {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.arcard__open {
+  font-size: $font-body;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.arcard__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.arcard__due {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.arcard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}

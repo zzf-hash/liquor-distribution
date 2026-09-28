@@ -1,0 +1,50 @@
+@use '../../../styles/shared' as *;
+
+// 四指标 2×2 网格
+.pf__grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: $gap-base;
+  margin-bottom: $gap-base;
+}
+
+// 团队排行行
+.pf__rank {
+  display: flex;
+  align-items: center;
+  gap: $gap-base;
+  padding: 12px 0;
+
+  & + & {
+    border-top: 1px solid rgba(138, 127, 122, 0.15);
+  }
+
+  &--me {
+    .pf__rank-name,
+    .pf__rank-amount,
+    .pf__rank-no {
+      color: $color-primary;
+      font-weight: 700;
+    }
+  }
+}
+
+.pf__rank-no {
+  width: 44px;
+  text-align: center;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex-shrink: 0;
+}
+
+.pf__rank-name {
+  flex: 1;
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.pf__rank-amount {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}

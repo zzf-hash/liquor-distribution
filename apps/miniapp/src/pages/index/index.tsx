@@ -68,7 +68,7 @@ export default function Index() {
           className='home__staff-entry'
           onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}
         >
-          员工入口（业务员/内勤/老板）
+          员工入口（业务员/内勤/仓配/老板）
         </Text>
       </View>
     </View>

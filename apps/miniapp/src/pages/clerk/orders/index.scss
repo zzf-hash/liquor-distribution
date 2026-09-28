@@ -1,0 +1,37 @@
+@use '../../../styles/shared' as *;
+
+// 订单池行：单号+状态 / 客户+金额 / 来源摘要
+.ocard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+
+  & + & {
+    margin-top: 12px;
+  }
+}
+
+.ocard__no {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.ocard__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.ocard__amount {
+  font-size: $font-title;
+  font-weight: 700;
+  color: $color-text;
+}
+
+.ocard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}

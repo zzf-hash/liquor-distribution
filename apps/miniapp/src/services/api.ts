@@ -7,9 +7,12 @@ const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api
 
 const TOKEN_KEY = 'ld_token'
 const USER_KEY = 'ld_user'
+const ROLE_KEY = 'ld_role'
+const UID_KEY = 'ld_uid'
 const CART_KEY = 'ld_cart'
 
-export const LOGIN_PAGE = '/pages/customer/login/index'
+// P1 全员端：登录入口统一到员工登录页（五角色共用，按 role 分发首页）
+export const LOGIN_PAGE = '/pages/staff/login/index'
 
 // ───────────────────────── 展示格式化（Decimal 序列化可能是 string|number） ─────────────────────────
 
@@ -72,6 +75,13 @@ export function genIdemKey(): string {
   return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 }
 
+/** UUID 幂等键（出库复核/收款上报）：优先 crypto.randomUUID（H5/新基础库），weapp 旧内核回退拼装 */
+export function uuid(): string {
+  const c: Crypto | undefined = typeof crypto !== 'undefined' ? crypto : undefined
+  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
+  return genIdemKey()
+}
+
 // ───────────────────────── 会话（ld_token） ─────────────────────────
 
 export interface LoginResult {
@@ -91,14 +101,36 @@ export function getUserName(): string {
   return String(Taro.getStorageSync(USER_KEY) ?? '')
 }
 
+/** 登录角色（大写枚举：OWNER/CLERK/REP/WAREHOUSE/CUSTOMER），员工端按钮显隐用 */
+export function getRole(): string {
+  return String(Taro.getStorageSync(ROLE_KEY) ?? '')
+}
+
+export function getUserId(): string {
+  return String(Taro.getStorageSync(UID_KEY) ?? '')
+}
+
 export function saveSession(login: LoginResult): void {
   Taro.setStorageSync(TOKEN_KEY, login.token)
   Taro.setStorageSync(USER_KEY, login.user?.name ?? '')
+  Taro.setStorageSync(ROLE_KEY, login.user?.role ?? '')
+  Taro.setStorageSync(UID_KEY, login.user?.id ?? '')
 }
 
 export function clearSession(): void {
   Taro.removeStorageSync(TOKEN_KEY)
   Taro.removeStorageSync(USER_KEY)
+  Taro.removeStorageSync(ROLE_KEY)
+  Taro.removeStorageSync(UID_KEY)
+}
+
+/** 角色首页路由表（统一登录后按 role 自动跳转） */
+export const ROLE_HOME_PAGE: Record<string, string> = {
+  CUSTOMER: '/pages/customer/products/index',
+  REP: '/pages/salesman/home/index',
+  WAREHOUSE: '/pages/warehouse/outbounds/index',
+  CLERK: '/pages/clerk/orders/index',
+  OWNER: '/pages/boss/dashboard/index',
 }
 
 // ───────────────────────── 请求通道 ─────────────────────────
@@ -178,6 +210,36 @@ export const PRICE_TYPE_LABELS: Record<string, string> = {
   MANUAL: '手工价',
 }
 
+// 订单状态（枚举对齐后端 OrderStatus；标签=statemachine/order-state.ts 口径）
+export const ORDER_STATUS_LABELS: Record<string, string> = {
+  PENDING_CONFIRM: '待确认',
+  CONFIRMED: '已确认',
+  OUTBOUND: '已出库',
+  DELIVERING: '配送中',
+  SIGNED: '已签收',
+  SETTLED: '已销账',
+  CANCELLED: '已取消',
+  REJECTED: '已拒收',
+}
+
+// 状态配色档（admin 语义：蓝进行/绿成功/红风险/灰终态）
+export const ORDER_STATUS_TONES: Record<string, string> = {
+  PENDING_CONFIRM: 'warn',
+  CONFIRMED: 'info',
+  OUTBOUND: 'info',
+  DELIVERING: 'info',
+  SIGNED: 'ok',
+  SETTLED: 'ok',
+  CANCELLED: 'muted',
+  REJECTED: 'danger',
+}
+
+export const ORDER_SOURCE_LABELS: Record<string, string> = {
+  CLERK: '内勤录入',
+  REP: '业务员代下',
+  CUSTOMER: '客户自助',
+}
+
 export interface ShopProductDTO {
   productId: string
   name: string
@@ -230,6 +292,40 @@ export const ordersApi = {
       body: { source: 'CUSTOMER', lines },
       idemKey: genIdemKey(),
     }),
+  // ── 员工端（P1 全员端）──
+  /** 订单池（clerk/boss/warehouse）：按状态 tab 过滤，q 搜索单号/客户名 */
+  staffList: (params: { status?: string; q?: string; page?: number; pageSize?: number }) => {
+    const qs: string[] = []
+    if (params.status) qs.push(`status=${params.status}`)
+    if (params.q) qs.push(`q=${encodeURIComponent(params.q)}`)
+    if (params.page) qs.push(`page=${params.page}`)
+    if (params.pageSize) qs.push(`pageSize=${params.pageSize}`)
+    return request<PageResult<StaffOrderRowDTO>>(`/orders${qs.length ? `?${qs.join('&')}` : ''}`)
+  },
+  /** 订单详情（行明细 + precheck + 客户信息 + 出库/签收/应收挂载） */
+  detail: (id: string) => request<OrderDetailDTO>(`/orders/${id}`),
+  /** 确认（待确认→已确认；信用复核不过 422 抛 ApiError，body.data 带复核数据） */
+  confirm: (id: string) => request<Record<string, unknown>>(`/orders/${id}/confirm`, { method: 'POST', body: {} }),
+  cancel: (id: string, reason: string) =>
+    request<Record<string, unknown>>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
+  /** 特批放行（老板本人；type=ORDER_SPECIAL） */
+  approveSpecial: (id: string, reason: string, type: 'CREDIT_RELEASE' | 'PRICE_SPECIAL' | 'ORDER_SPECIAL' = 'ORDER_SPECIAL') =>
+    request<Record<string, unknown>>(`/orders/${id}/approve-special`, { method: 'POST', body: { type, reason } }),
+  /** 发运（OUTBOUND→DELIVERING，仓配） */
+  deliver: (id: string) => request<Record<string, unknown>>(`/orders/${id}/deliver`, { method: 'POST', body: {} }),
+  /** 签收（逐行实收 + 签收类型 + 回包装；服务端算差额回冲与应收） */
+  sign: (id: string, body: SignBody) =>
+    request<SignResultDTO>(`/orders/${id}/sign`, { method: 'POST', body: body as unknown as Record<string, unknown> }),
+  /** 整单拒收（配送中，需原因） */
+  reject: (id: string, reason: string) =>
+    request<Record<string, unknown>>(`/orders/${id}/reject`, { method: 'POST', body: { reason } }),
+  /** 业务员代下单（source=REP；价格由服务端取价引擎解析） */
+  repCreate: (input: { customerId: string; lines: Array<{ productId: string; unit: ShopUnit; qty: number }> }) =>
+    request<CreateOrderResultDTO>('/orders', {
+      method: 'POST',
+      body: { customerId: input.customerId, source: 'REP', lines: input.lines },
+      idemKey: genIdemKey(),
+    }),
 }
 
 // ───────────────────────── 待结单据（文案红线：只说"待结金额"） ─────────────────────────
@@ -253,6 +349,9 @@ export interface CustomerReceivableDTO {
 export const receivablesApi = {
   /** 客户 token 只返回自己的未归档单据；"已结"（open<=0）由后端支持后自动出现在 items 里 */
   mine: () => request<PageResult<CustomerReceivableDTO>>('/receivables'),
+  /** 内勤应收台账（owner/clerk token 全量）：bucket 分档 过滤，行形状与 mine 相同 */
+  list: (bucket?: string) =>
+    request<PageResult<CustomerReceivableDTO>>(`/receivables${bucket ? `?bucket=${bucket}&pageSize=200` : '?pageSize=200'}`),
 }
 
 // ───────────────────────── 购物车（本地 state + storage 持久化，key=productId+unit） ─────────────────────────
@@ -370,4 +469,299 @@ export const draftsApi = {
       method: 'POST',
       body: { source: input.source, text: input.text },
     }),
+}
+
+// ───────────────────────── 员工端·订单行/详情（P1 全员端，契约对齐 apps/api OrdersService） ─────────────────────────
+
+/** 订单池列表行（GET /orders 员工视角：完整 salesOrder 字段 + lineCount） */
+export interface StaffOrderRowDTO {
+  id: string
+  orderNo: string
+  status: string
+  totalAmount: Decimalish
+  customerId: string
+  customerName: string
+  source: string
+  lineCount?: number
+  createdAt: string
+  deliveryDate?: string | null
+  addressSnapshot?: string | null
+  specialApproved?: boolean
+}
+
+export interface OrderLineDTO {
+  id: string
+  productId: string
+  productName: string
+  specText?: string | null
+  unit: string
+  qty: Decimalish
+  unitPrice: Decimalish
+  amount: Decimalish
+  priceType?: string
+  isGift?: boolean
+  /** 红字冲销行：指向被冲销的原行（负数量） */
+  reversalOfId?: string | null
+}
+
+/** 审单预检（Order.precheck JSON 的展示视图，字段宽进严出） */
+export interface PrecheckView {
+  customer?: { ok?: boolean; reason?: string } & Record<string, unknown>
+  credit?: {
+    ok?: boolean
+    limit?: number
+    openAr?: number
+    inTransit?: number
+    available?: number
+    need?: number
+  } & Record<string, unknown>
+  inventory?: Array<{ productName?: string; ok?: boolean; onHand?: number; occupied?: number; need?: number }>
+  minOrder?: { ok?: boolean; amount?: number; min?: number }
+}
+
+export interface OrderDetailDTO {
+  id: string
+  orderNo: string
+  status: string
+  statusLabel?: string | null
+  source: string
+  totalAmount: Decimalish
+  addressSnapshot?: string | null
+  deliveryDate?: string | null
+  createdAt: string
+  cancelReason?: string | null
+  specialApproved?: boolean
+  precheck?: Record<string, unknown> | null
+  customer: { id: string; code?: string | null; name: string; phone?: string | null; termsDays?: number | null; settlement?: string | null }
+  lines: OrderLineDTO[]
+  outbounds?: Array<{ outboundNo: string; status: string; lines?: Array<{ qty: Decimalish; batch?: { batchNo?: string } | null }> }>
+  signature?: Record<string, unknown> | null
+  receivables?: Array<Record<string, unknown>>
+}
+
+export interface SignBody {
+  type: 'E_SIGN' | 'PAPER'
+  signerName?: string
+  signatureData?: string
+  /** 回包装回填（品类+数量，落押金台账） */
+  returnPackages?: Array<{ category: string; qty: number }>
+  /** 逐行实收（默认=净量；缺省行服务端按净量计） */
+  lines?: Array<{ orderLineId: string; actualQty: number }>
+}
+
+export interface SignResultDTO {
+  orderNo: string
+  status: 'SIGNED' | 'REJECTED'
+  acceptedAmount: number
+  receivableGenerated?: boolean
+}
+
+// ───────────────────────── 老板端·四问看板（GET /dashboard/four-questions） ─────────────────────────
+
+export interface FourQuestionsDTO {
+  salesToday: { amount: number; orderCount: number }
+  collectedToday: { amount: number; paymentCount: number }
+  debt: {
+    total: number
+    buckets: Record<ArBucket, number>
+    topDebtors: Array<{ customerId: string; name: string; open: number }>
+  }
+  lowStock: Array<{ productId: string; skuCode?: string; name: string; onHand: number; occupied: number; available: number }>
+  repRanking: Array<{ userId: string; name: string; salesAmount: number; orderCount: number; paymentAmount: number }>
+  generatedAt: string
+}
+
+export const dashboardApi = {
+  fourQuestions: () => request<FourQuestionsDTO>('/dashboard/four-questions'),
+}
+
+// ───────────────────────── 老板端·审批中心（GET /approvals · POST /approvals/:id/decide） ─────────────────────────
+
+export const APPROVAL_LINE_LABELS: Record<string, string> = {
+  CREDIT_RELEASE: '信用放行',
+  PRICE_SPECIAL: '价格特批',
+  PRICE_CHANGE: '调价审批',
+  PURCHASE: '采购审批',
+  EXPENSE: '费用审批',
+  RETURN: '退货审批',
+  STOCKTAKE: '盘点调账',
+}
+
+export const APPROVAL_STATUS_LABELS: Record<string, string> = {
+  PENDING: '待审批',
+  APPROVED: '已通过',
+  REJECTED: '已驳回',
+  EXPIRED_24H: '已过期',
+}
+
+export interface ApprovalItemDTO {
+  id: string
+  line: string
+  entityType: string
+  entityId: string
+  title: string
+  amount: number | null
+  reason: string
+  payload?: Record<string, unknown> | null
+  applicant: { id: string; name: string; role: string } | null
+  status: string
+  createdAt: string
+  approverHint?: string
+}
+
+export const approvalsApi = {
+  list: (status?: 'PENDING' | 'APPROVED' | 'REJECTED' | 'EXPIRED_24H') =>
+    request<PageResult<ApprovalItemDTO>>(`/approvals${status ? `?status=${status}&pageSize=50` : '?pageSize=50'}`),
+  /** 审批决定（意见必填；金额路由由服务端硬校验） */
+  decide: (id: string, action: 'approve' | 'reject', opinion: string) =>
+    request<Record<string, unknown>>(`/approvals/${id}/decide`, { method: 'POST', body: { action, opinion } }),
+}
+
+// ───────────────────────── 仓配端·出库工作台（GET /orders/outbounds · POST confirm） ─────────────────────────
+
+/** FIFO 建议批次行（qty=最小单位拣货量） */
+export interface OutboundLineDTO {
+  id?: string
+  qty: Decimalish
+  batch?: { batchNo?: string } | null
+  orderLine?: { productName: string; unit?: string; conversionRate?: number; qty?: Decimalish } | null
+}
+
+export interface OutboundRowDTO {
+  id: string
+  outboundNo: string
+  status: string
+  createdAt: string
+  order: { orderNo: string; customerName: string; addressSnapshot?: string | null; status?: string; deliveryDate?: string | null }
+  lines: OutboundLineDTO[]
+}
+
+export const outboundsApi = {
+  /** status=PICKING 待拣货复核 / CONFIRMED 已出库；不传=全量（详情按 outboundNo 前端查找） */
+  list: (status?: string) =>
+    request<PageResult<OutboundRowDTO>>(`/orders/outbounds${status ? `?status=${status}&pageSize=100` : '?pageSize=100'}`),
+  /** 复核确认出库（Idempotency-Key=uuid；重试不双写） */
+  confirm: (outboundNo: string) =>
+    request<Record<string, unknown>>(`/orders/outbounds/${encodeURIComponent(outboundNo)}/confirm`, {
+      method: 'POST',
+      body: {},
+      idemKey: uuid(),
+    }),
+}
+
+// ───────────────────────── 收款（POST /payments 幂等 · GET /payments?status=） ─────────────────────────
+
+export const PAYMENT_METHODS: string[] = ['现金', '转账', '微信', '支付宝']
+
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  REPORTED: '待确认',
+  CONFIRMED: '已销账',
+  CANCELLED: '已冲正',
+}
+
+export interface PaymentRowDTO {
+  id: string
+  paymentNo: string
+  amount: Decimalish
+  method?: string | null
+  voucher?: string | null
+  note?: string | null
+  status: string
+  createdAt: string
+  confirmedAt?: string | null
+  customer: { name: string }
+}
+
+export const paymentsApi = {
+  /** 收款登记/上报（rep→REPORTED 待确认；clerk/owner→即确认 FIFO 销账） */
+  report: (input: { customerId: string; amount: number; method?: string; voucher?: string; note?: string }) =>
+    request<Record<string, unknown>>('/payments', { method: 'POST', body: input as unknown as Record<string, unknown>, idemKey: uuid() }),
+  /** 注意：该接口 data 直接返回数组（非 {items} 分页） */
+  list: (status?: string) =>
+    request<PaymentRowDTO[]>(`/payments${status ? `?status=${status}` : ''}`),
+  confirm: (id: string) =>
+    request<Record<string, unknown>>(`/payments/${id}/confirm`, { method: 'POST', body: {} }),
+}
+
+// ───────────────────────── 客户（GET /customers，rep token 自动过滤名下） ─────────────────────────
+
+export const SETTLEMENT_LABELS: Record<string, string> = { CASH: '现结', MONTHLY: '月结' }
+
+export interface CustomerRowDTO {
+  id: string
+  code?: string | null
+  name: string
+  phone?: string | null
+  address?: string | null
+  settlement?: string | null
+  termsDays?: number | null
+  abcLevel?: string | null
+  status?: string | null
+  salesperson?: { id: string; name: string } | null
+}
+
+export const customersApi = {
+  list: (params?: { q?: string; page?: number; pageSize?: number }) => {
+    const qs: string[] = []
+    if (params?.q) qs.push(`q=${encodeURIComponent(params.q)}`)
+    qs.push(`page=${params?.page ?? 1}`)
+    qs.push(`pageSize=${params?.pageSize ?? 200}`)
+    return request<PageResult<CustomerRowDTO>>(`/customers?${qs.join('&')}`)
+  },
+}
+
+// ───────────────────────── 商品搜索与取价（rep 代下单：/products?q= + /prices/resolve） ─────────────────────────
+
+export interface ProductRowDTO {
+  id: string
+  skuCode?: string | null
+  name: string
+  specText?: string | null
+  baseUnit?: string | null
+  minUnit?: string | null
+  packSize?: number | null
+  status?: string | null
+}
+
+export interface ResolvedPriceDTO {
+  price: Decimalish
+  priceType: string
+  priceRowId?: string
+  validFrom?: string | null
+}
+
+export const productsApi = {
+  search: (q?: string) =>
+    request<PageResult<ProductRowDTO>>(`/products${q ? `?q=${encodeURIComponent(q)}&pageSize=50` : '?pageSize=50'}`),
+}
+
+export const pricesApi = {
+  /** 取价引擎（客户专属价>终端>二批>一批>零售）；无生效价时 data 可能为 null */
+  resolve: (customerId: string, productId: string, unit?: string) =>
+    request<ResolvedPriceDTO | null>(
+      `/prices/resolve?customerId=${encodeURIComponent(customerId)}&productId=${encodeURIComponent(productId)}${unit ? `&unit=${unit}` : ''}`,
+    ),
+}
+
+// ───────────────────────── 业务员绩效（GET /performance?month=，rep 项：回款/新客/拜访/提成） ─────────────────────────
+
+export interface PerfItemDTO {
+  repId: string
+  name: string
+  paymentAmount: number
+  newCustomers: number
+  visitCount: number
+  visitTarget?: number
+  returnDeduction: number
+  commission: number
+}
+
+export interface PerfDTO {
+  month: string
+  items: PerfItemDTO[]
+  generatedAt: string
+}
+
+export const performanceApi = {
+  monthly: (month: string) => request<PerfDTO>(`/performance?month=${encodeURIComponent(month)}`),
 }

@@ -1,0 +1,57 @@
+@use '../../../styles/shared' as *;
+
+// 搜索行
+.sc__search {
+  display: flex;
+  gap: $gap-base;
+  margin-bottom: $gap-base;
+  align-items: center;
+}
+
+.sc__ipt {
+  flex: 1;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  font-size: $font-body;
+  color: $color-text;
+  background: $color-card;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+// 客户卡
+.ccard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+
+  & + & {
+    margin-top: 12px;
+  }
+}
+
+.ccard__name {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+  flex: 1;
+}
+
+.ccard__call {
+  font-size: $font-sub;
+  color: $color-info;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ccard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.ccard__phone {
+  font-size: $font-sub;
+  color: $color-text;
+}

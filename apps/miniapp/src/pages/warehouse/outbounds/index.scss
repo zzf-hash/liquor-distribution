@@ -1,0 +1,44 @@
+@use '../../../styles/shared' as *;
+
+// 拣货任务卡
+.obcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+  margin-bottom: 8px;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.obcard__no {
+  font-size: $font-body;
+  font-weight: 700;
+  color: $color-text;
+  flex: 1;
+}
+
+.obcard__cust {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.obcard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.obcard__addr {
+  flex: 1;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.obcard__go {
+  font-size: $font-sub;
+  color: $color-info;
+  font-weight: 600;
+}
