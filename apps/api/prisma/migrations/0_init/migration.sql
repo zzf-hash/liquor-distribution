@@ -119,6 +119,15 @@ CREATE TYPE "DisputeType" AS ENUM ('MISSING_ORDER', 'PRICE', 'GIFT', 'RETURN');
 CREATE TYPE "DisputeStatus" AS ENUM ('OPEN', 'RESOLVED');
 
 -- CreateEnum
+CREATE TYPE "DraftSource" AS ENUM ('VOICE', 'PHOTO', 'TEXT');
+
+-- CreateEnum
+CREATE TYPE "DraftStatus" AS ENUM ('PENDING_REVIEW', 'CONFIRMED', 'DISCARDED');
+
+-- CreateEnum
+CREATE TYPE "AliasKind" AS ENUM ('PRODUCT', 'CUSTOMER');
+
+-- CreateEnum
 CREATE TYPE "ImportKind" AS ENUM ('PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE');
 
 -- CreateEnum
@@ -744,6 +753,44 @@ CREATE TABLE "Visit" (
 );
 
 -- CreateTable
+CREATE TABLE "OrderDraft" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "draftNo" TEXT NOT NULL,
+    "source" "DraftSource" NOT NULL,
+    "rawText" TEXT,
+    "photoUrl" TEXT,
+    "customerId" TEXT,
+    "customerHint" TEXT,
+    "items" JSONB NOT NULL,
+    "confidence" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "ambiguities" JSONB,
+    "engine" TEXT,
+    "status" "DraftStatus" NOT NULL DEFAULT 'PENDING_REVIEW',
+    "convertedOrderId" TEXT,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "OrderDraft_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "AliasEntry" (
+    "id" TEXT NOT NULL,
+    "tenantId" TEXT NOT NULL,
+    "kind" "AliasKind" NOT NULL,
+    "key" TEXT NOT NULL,
+    "targetId" TEXT NOT NULL,
+    "source" TEXT NOT NULL DEFAULT 'MANUAL',
+    "hitCount" INTEGER NOT NULL DEFAULT 0,
+    "createdById" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "AliasEntry_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
 CREATE TABLE "AuditLog" (
     "id" TEXT NOT NULL,
     "tenantId" TEXT NOT NULL,
@@ -1006,6 +1053,18 @@ CREATE INDEX "Visit_tenantId_repId_visitedAt_idx" ON "Visit"("tenantId", "repId"
 CREATE INDEX "Visit_tenantId_customerId_idx" ON "Visit"("tenantId", "customerId");
 
 -- CreateIndex
+CREATE INDEX "OrderDraft_tenantId_status_createdAt_idx" ON "OrderDraft"("tenantId", "status", "createdAt");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "OrderDraft_tenantId_draftNo_key" ON "OrderDraft"("tenantId", "draftNo");
+
+-- CreateIndex
+CREATE INDEX "AliasEntry_tenantId_kind_idx" ON "AliasEntry"("tenantId", "kind");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "AliasEntry_tenantId_kind_key_key" ON "AliasEntry"("tenantId", "kind", "key");
+
+-- CreateIndex
 CREATE INDEX "AuditLog_tenantId_createdAt_idx" ON "AuditLog"("tenantId", "createdAt");
 
 -- CreateIndex
@@ -1190,7 +1249,7 @@ REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ApprovalRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "ReturnLine" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "PackageRecord" FROM PUBLIC;
 REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "StocktakeLine" FROM PUBLIC;
-REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "Visit" FROM PUBLIC; -- 拜访打卡不可篡改
+REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "Visit" FROM PUBLIC;
 
 DO $$
 DECLARE t text;
@@ -1201,8 +1260,8 @@ BEGIN
     'ImportRowError','IdempotencyRecord','SystemConfig','SpecialOrder','SpecialOrderLine',
     'ReturnOrder','ReturnLine','PriceChangeRequest','PackageRecord','PurchaseOrder','PurchaseLine',
     'Stocktake','StocktakeLine','RebateScheme','RebateSettlement','Payroll',
-    'Statement','DisputeItem','Visit']
+    'Statement','DisputeItem','Visit','OrderDraft','AliasEntry']
   LOOP
-    EXECUTE format('CREATE POLICY tenant_isolation ON %I USING ("tenantId" = current_setting(''app.tenant_id'', true)) WITH CHECK ("tenantId" = current_setting(''app.tenant_id'', true))', t);
+    EXECUTE format('CREATE POLICY tenant_isolation ON %I USING (tenant_id = current_setting(''app.tenant_id'', true)) WITH CHECK (tenant_id = current_setting(''app.tenant_id'', true))', t);
   END LOOP;
 END $$;

@@ -28,6 +28,7 @@ import { PerformanceModule } from './modules/performance/performance.controller'
 import { StatementsModule } from './modules/statements/statements.controller';
 import { ReportsModule } from './modules/reports/reports.controller';
 import { VisitsModule } from './modules/visits/visits.controller';
+import { DraftsModule } from './modules/drafts/drafts.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 
 @Module({
@@ -54,6 +55,7 @@ import { ShopModule } from './modules/shop/shop.controller';
     StatementsModule,
     ReportsModule,
     VisitsModule,
+    DraftsModule,
     ImportsModule,
     UsersModule,
     HealthModule,

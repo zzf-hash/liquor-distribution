@@ -1060,6 +1060,67 @@ model Visit {
   @@index([tenantId, customerId])
 }
 
+// ═══════════ P1-T12 语音/照片转单 (D16/Q13 硬约束) ═══════════
+// 红线: 结果永远是「可编辑草稿」, 不得直接生成出库指令——confirm 只能落到
+//       PENDING_CONFIRM 订单(状态机白名单保证无绕行); 低置信度强提示强制人工编辑
+// 引擎: 本地 qwen3.8-27b (vLLM :18020) 文本解析; ASR 客户端侧/OCR 后续接入(rawText 兜底人工)
+// 词典: 别名→商品 / 电话→客户(来电反查), 确认转单时自动学习(AUTO_LEARNED)
+enum DraftSource {
+  VOICE // 语音(客户端 ASR 转写文本)
+  PHOTO // 拍照(图存对象存储, OCR/人工辅助填充)
+  TEXT  // 文字粘贴(微信单等)
+}
+
+enum DraftStatus {
+  PENDING_REVIEW // 待人工确认(默认态)
+  CONFIRMED      // 已转正式订单(仅 PENDING_CONFIRM)
+  DISCARDED
+}
+
+model OrderDraft {
+  id           String       @id @default(cuid())
+  tenantId     String
+  draftNo      String
+  source       DraftSource
+  rawText      String? // 原文(转写文本/粘贴)
+  photoUrl     String? // 照片(OCR 未接入期人工看图辅助)
+  customerId   String? // 来电反查/人工选定
+  customerHint String? // LLM 从文本提取的客户线索(如"张三店")
+  items        Json // [{productName, productId?, qty, unit, unitPrice?, priceHint?, aliasMatched?}]
+  confidence   Float        @default(0) // 0-1, 低于阈值前端强提示
+  ambiguities  Json? // 未解析项列表(强提示人工处理)
+  engine       String? // 解析引擎标识(qwen3.8-27b / manual)
+  status       DraftStatus @default(PENDING_REVIEW)
+  convertedOrderId String?
+  createdById  String
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([tenantId, draftNo])
+  @@index([tenantId, status, createdAt])
+}
+
+// 别名词典(Q13: 按品类/客户积累): 商品别名/简称/口语 → productId; 客户电话/简称 → customerId
+enum AliasKind {
+  PRODUCT
+  CUSTOMER
+}
+
+model AliasEntry {
+  id         String    @id @default(cuid())
+  tenantId   String
+  kind       AliasKind
+  key        String // 别名/电话/简称(小写规范化)
+  targetId   String
+  source     String    @default("MANUAL") // MANUAL / AUTO_LEARNED(确认草稿时学习)
+  hitCount   Int       @default(0)
+  createdById String
+  createdAt  DateTime  @default(now())
+
+  @@unique([tenantId, kind, key])
+  @@index([tenantId, kind])
+}
+
 // ───────────────────────── P0-T03 审计日志 (B2 哈希链) ─────────────────────────
 
 model AuditLog {
