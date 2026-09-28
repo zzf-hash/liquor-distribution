@@ -87,3 +87,14 @@
   font-size: 24px;
   color: $color-text-sub;
 }
+
+// 员工入口：次要文字链，≥触控红线，居中不抢客户主路径视觉
+.home__staff-entry {
+  display: block;
+  margin-top: 24px;
+  padding: 24px 0; // 补足触控热区（24px tip + 24px padding ≈ 88px 计量）
+  text-align: center;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-decoration: underline;
+}

@@ -6,6 +6,7 @@ import type { AppRole } from './config/app-role'
 export const CUSTOMER_PAGES = [
   'pages/index/index',
   'pages/customer/login/index',
+  'pages/staff/login/index',
   'pages/customer/products/index',
   'pages/customer/cart/index',
   'pages/customer/orders/index',

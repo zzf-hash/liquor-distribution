@@ -64,6 +64,12 @@ export default function Index() {
 
       <View className='home__footer'>
         <Text className='home__footer-tip'>下单后由商家确认送货，首次下单预计3分钟内完成</Text>
+        <Text
+          className='home__staff-entry'
+          onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}
+        >
+          员工入口（业务员/内勤/老板）
+        </Text>
       </View>
     </View>
   )
