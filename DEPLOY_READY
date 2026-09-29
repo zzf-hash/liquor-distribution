@@ -1,2 +1,2 @@
-commit: d1bc019e30ce907ea95425b5e426bd6214d49919
-build: api镜像Dockerfile修复——COPY packages/shared整包(tsconfig+src), 此前只拷package.json导致tsc -p tsconfig.json报TS5058构建失败; 含fcbab26查询DTO@Type修复(GET page/pageSize字符串400)
+commit: 142d33e90f52a4803f08e2969a01edfeb836c0e7
+build: api+web镜像(服务器构建): 订单创建500修复(142d33e 租户ALS上下文)实单验证201 SO20260929-0002; admin登录mock关闭(7dfcb9c)容器内无mock-token; health/login/products/migrate/27路由全绿; 增量= d1bc019..142d33e
