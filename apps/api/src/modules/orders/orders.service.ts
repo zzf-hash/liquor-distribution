@@ -218,6 +218,7 @@ export class OrdersService {
 
     const order = await this.prisma.salesOrder.create({
       data: {
+        tenantId: user.tenantId, // 显式租户(双保险: 中间件注入失败也不至 Argument missing)
         orderNo,
         customerId,
         customerName: customer.name,
