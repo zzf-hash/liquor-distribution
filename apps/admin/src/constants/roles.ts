@@ -34,6 +34,7 @@ export const MENU_ROLES: Record<string, Role[]> = {
   '/receivables': ['owner', 'clerk'],
   '/statements': ['owner', 'clerk'],
   '/reports': ['owner', 'clerk'],
+  '/stock-alert': ['owner', 'clerk'],
   '/settings': ['owner'],
 };
 
@@ -63,5 +64,6 @@ export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/receivables', name: '应收', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 应收·销账·提醒' },
   { path: '/statements', name: '对账', icon: 'FileSyncOutlined', taskId: 'P1-T10 月结对账·差异四类' },
   { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 四问看板 + P1-T11 月度/库存报表' },
+  { path: '/stock-alert', name: '库存预警', icon: 'AlertOutlined', taskId: 'P2 每日库存报表+动态阈值预警+自动报货' },
   { path: '/settings', name: '配置', icon: 'SettingOutlined', taskId: 'M0-01 业务规则配置' },
 ];

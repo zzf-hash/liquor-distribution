@@ -122,14 +122,14 @@ export class ApprovalsService {
     const approved = dto.action === 'approve';
     await this.prisma.$transaction(async (tx) => {
       await tx.approvalRecord.update({ where: { id }, data: { status: approved ? 'APPROVED' : 'REJECTED', approverId: user.id, decidedAt: new Date() } });
-      await this.applySideEffects(tx, user, record, approved);
+      await this.applySideEffects(tx, user, record, approved, dto.opinion);
     });
     await this.audit.log({ user, action: 'APPROVAL_DECIDE', entityType: 'ApprovalRecord', entityId: id, before: { status: 'PENDING' }, after: { status: approved ? 'APPROVED' : 'REJECTED', line: record.line, entityId: record.entityId, opinion: dto.opinion }, ip });
     return { id, approved, line: record.line, entityType: record.entityType, entityId: record.entityId };
   }
 
   /** 线内联动副作用: 审批结果回写业务单据 */
-  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake'>, user: AuthUser, record: { line: string; entityType: string; entityId: string }, approved: boolean): Promise<void> {
+  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake' | 'restockRequest' | 'dailyStockReport'>, user: AuthUser, record: { line: string; entityType: string; entityId: string; tenantId: string }, approved: boolean, opinion?: string): Promise<void> {
     if (record.entityType === 'SPECIAL_ORDER') {
       await tx.specialOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
     } else if (record.entityType === 'RETURN') {
@@ -140,6 +140,18 @@ export class ApprovalsService {
       await tx.priceChangeRequest.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
     } else if (record.entityType === 'PURCHASE') {
       await tx.purchaseOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+      // 自动报货单回链: 审批结果同步 RestockRequest(pending→SUBMITTED→APPROVED/DISMISSED); snapshot.autoRestock 标记
+      const pur = await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { note: true } });
+      if (pur?.note?.includes('自动报货 RQ')) {
+        const reqId = pur.note.match(/RQ\d{8}-\d{4}/)?.[0];
+        if (reqId) {
+          const rr = await tx.restockRequest.findFirst({ where: { tenantId: record.tenantId, requestId: reqId }, select: { id: true } });
+          if (rr) {
+            await tx.restockRequest.update({ where: { id: rr.id }, data: { status: approved ? 'APPROVED' : 'DISMISSED', dismissedBy: approved ? null : user.id, dismissReason: approved ? null : `审批驳回: ${opinion ?? ''}` } });
+            await tx.dailyStockReport.updateMany({ where: { restockId: rr.id }, data: { restockStatus: approved ? 'DONE' : 'DISMISSED' } });
+          }
+        }
+      }
     } else if (record.entityType === 'STOCKTAKE') {
       // 盘点差异: 批准→RECONCILED(可调账); 驳回→COUNTED(重盘)
       await tx.stocktake.update({ where: { id: record.entityId }, data: { status: approved ? 'RECONCILED' : 'COUNTED' } });

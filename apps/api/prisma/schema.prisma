@@ -23,13 +23,15 @@ model Tenant {
   code      String   @unique
   createdAt DateTime @default(now())
 
-  users        User[]
-  products     Product[]
-  customers    Customer[]
-  orders       SalesOrder[]
-  receivables  Receivable[]
-  payments     Payment[]
-  auditLogs    AuditLog[]
+  users         User[]
+  products      Product[]
+  customers     Customer[]
+  orders        SalesOrder[]
+  receivables   Receivable[]
+  payments      Payment[]
+  auditLogs     AuditLog[]
+  stockReports  DailyStockReport[]
+  restocks      RestockRequest[]
 }
 
 enum Role {
@@ -125,6 +127,8 @@ model Product {
   orderLines    OrderLine[]
   priceChanges  PriceChangeRequest[]
   purchaseLines PurchaseLine[]
+  stockReports  DailyStockReport[]
+  restocks      RestockRequest[]
 
   @@unique([tenantId, skuCode])
   @@index([tenantId, name])
@@ -1229,11 +1233,88 @@ model IdempotencyRecord {
 model SystemConfig {
   id        String   @id @default(cuid())
   tenantId  String
-  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold
+  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold / inventory_alert_config
   value     Json
   note      String?
   updatedBy String
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, key])
+}
+
+// ───────────────────────── P2 库存预警 + 自动报货 (每日库存报表/动态阈值/内勤确认制) ─────────────────────────
+
+enum StockAlertLevel {
+  OK       // 库存充足
+  LOW      // 库存 ≤ 动态阈值(窗口日均净销×安全天数)
+  OUT      // 库存 = 0 或负
+}
+
+// 每日库存快照(报表落库, 当日重复生成幂等覆盖; 阈值口径: 近 windowDays 日出库−退货回冲 的日均净销×安全天数)
+model DailyStockReport {
+  id             String           @id @default(cuid())
+  tenantId       String
+  reportDate     DateTime         @db.Date
+  productId      String
+  onHand         Decimal          @db.Decimal(14, 3) // 最小单位(流水投影)
+  baseQty        Decimal          @db.Decimal(14, 3) // 折主单位
+  sold3d         Decimal          @db.Decimal(14, 3) // 近3日净销(最小单位)
+  sold7d         Decimal          @db.Decimal(14, 3) // 近7日净销
+  soldWindow     Decimal          @db.Decimal(14, 3) // 近 windowDays 净销
+  dailyAvg       Decimal          @db.Decimal(14, 3) // soldWindow/windowDays
+  thresholdQty   Decimal          @db.Decimal(14, 3) // 动态阈值 = ceil(dailyAvg×safetyDays)
+  inTransitQty   Decimal          @db.Decimal(14, 3) @default(0) // 未收货采购在途
+  suggestedQty   Decimal          @db.Decimal(14, 3) @default(0) // 建议报货量(最小单位, ≥0)
+  level          StockAlertLevel  @default(OK)
+  stockValue     Decimal          @db.Decimal(14, 2) @default(0) // 成本口径库存金额
+  restockStatus  String? // PENDING_CLERK / SUBMITTED / DISMISSED / DONE(报货单状态联动)
+  restockId      String? @unique // 关联 RestockRequest(一对一: 一行快照至多一张报货单)
+  createdAt      DateTime         @default(now())
+
+  tenant   Tenant           @relation(fields: [tenantId], references: [id])
+  product  Product          @relation(fields: [productId], references: [id])
+  restock  RestockRequest?  @relation(fields: [restockId], references: [id])
+
+  @@unique([tenantId, reportDate, productId])
+  @@index([tenantId, reportDate, level])
+}
+
+// 自动报货单: 日切扫描预警生成(PENDING_CLERK) → 内勤确认提交(PURCHASE 审批线, 固定老板审)
+// → 驳回 DISMISSED(次日重新评估可再生成); 防重: 同商品存在待确认/在途的自动单则不再生成
+enum RestockStatus {
+  PENDING_CLERK // 待内勤确认
+  SUBMITTED     // 已提交审批(PURCHASE 线)
+  APPROVED      // 审批通过(采购单转 APPROVED)
+  DISMISSED     // 内勤忽略或老板驳回
+  CANCELLED     // 转正式采购单后被替换(保留溯源)
+}
+
+model RestockRequest {
+  id            String        @id @default(cuid())
+  tenantId      String
+  requestId     String // 业务号 RQ{yyyymmdd}-{seq}
+  productId     String
+  qty           Decimal       @db.Decimal(14, 3) // 建议报货量(最小单位)
+  baseQty       Decimal       @db.Decimal(14, 3) // 折主单位(整箱向上取整)
+  onHand        Decimal       @db.Decimal(14, 3) // 生成时库存
+  thresholdQty  Decimal       @db.Decimal(14, 3) // 生成时阈值
+  dailyAvg      Decimal       @db.Decimal(14, 3) // 生成时日均净销
+  windowDays    Int // 生成时窗口(溯源)
+  status        RestockStatus @default(PENDING_CLERK)
+  purchaseId    String? // 转出的采购单
+  approvalId    String? // PURCHASE 审批记录
+  snapshot      Json? // 生成时快照(近几日销量明细等, 溯源用)
+  dismissedBy   String?
+  dismissReason String?
+  createdById   String? // 系统生成=null
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  tenant  Tenant            @relation(fields: [tenantId], references: [id])
+  product Product           @relation(fields: [productId], references: [id])
+  report  DailyStockReport? // 反向: DailyStockReport.restockId → 本表(一对一)
+
+  @@unique([tenantId, requestId])
+  @@index([tenantId, status])
+  @@index([tenantId, productId, status])
 }

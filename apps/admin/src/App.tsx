@@ -6,6 +6,7 @@ import {
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
   RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
   GiftOutlined, MoneyCollectOutlined, FileSyncOutlined, AudioOutlined,
+  AlertOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -27,6 +28,7 @@ import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
 import StatementsPage from './pages/statements/StatementsPage';
 import ReportsPage from './pages/reports/ReportsPage';
+import StockAlertPage from './pages/stock-alert/StockAlertPage';
 import { ADMIN_ROUTES, MENU_ROLES, ROLE_LABELS } from './constants/roles';
 import { getAuth, clearAuth } from './services/auth';
 import type { Role } from './constants/roles';
@@ -68,6 +70,7 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/receivables': <ReceivablesPage />,
   '/statements': <StatementsPage />,
   '/reports': <ReportsPage />,
+  '/stock-alert': <StockAlertPage />,
 };
 
 function Shell(): JSX.Element {

@@ -31,6 +31,7 @@ import { ReportsModule } from './modules/reports/reports.controller';
 import { VisitsModule } from './modules/visits/visits.controller';
 import { DraftsModule } from './modules/drafts/drafts.controller';
 import { ShopModule } from './modules/shop/shop.controller';
+import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { ShopModule } from './modules/shop/shop.controller';
     ImportsModule,
     UsersModule,
     HealthModule,
+    StockAlertModule,
   ],
   providers: [
     PrismaService,

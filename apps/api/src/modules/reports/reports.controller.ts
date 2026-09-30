@@ -69,6 +69,7 @@ export class ReportsController {
   @Get('inventory')
   async inventory(@CurrentUser() user: AuthUser): Promise<unknown> {
     const batches = await this.prisma.batchStock.findMany({
+      where: { tenantId: user.tenantId },
       include: { product: { select: { skuCode: true, name: true, category: true } }, ledger: true },
       orderBy: [{ productId: 'asc' }, { createdAt: 'asc' }],
     });
