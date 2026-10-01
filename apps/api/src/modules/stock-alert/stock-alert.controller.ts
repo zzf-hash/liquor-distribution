@@ -5,6 +5,7 @@ import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { StockAlertService } from './stock-alert.service';
+import { ApprovalsModule } from '../approvals/approvals.controller';
 import type { AlertConfig } from './stock-alert.service';
 
 // ═══════════════ P2 库存预警 + 自动报货 ═══════════════
@@ -162,6 +163,7 @@ export class StockAlertDailyTask implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
+  imports: [ApprovalsModule], // StockAlertService 注入 ApprovalsService(确认链路提审用)
   controllers: [StockAlertController],
   providers: [StockAlertService, SystemConfigReader, StockAlertDailyTask],
   exports: [StockAlertService, StockAlertDailyTask],
