@@ -1,2 +1,2 @@
-commit: 142d33e90f52a4803f08e2969a01edfeb836c0e7
-build: api+web镜像(服务器构建): 订单创建500修复(142d33e 租户ALS上下文)实单验证201 SO20260929-0002; admin登录mock关闭(7dfcb9c)容器内无mock-token; health/login/products/migrate/27路由全绿; 增量= d1bc019..142d33e
+commit: dc7114a
+build: api+web镜像(服务器构建) 库存预警P2上线: DailyStockReport/RestockRequest新表(迁移20261001000000_stock_alert_restock已应用) /api/stock-alert/* 六路由注册 07:30日切 内勤确认制报货单; 冒烟=health/login/scan(8 SKU)/report/config全绿 前端asset含stock-alert; 本commit修StockAlertModule DI链(ApprovalsModule+PurchasesModule imports + PurchasesModule exports); 增量= 142d33e..dc7114a
