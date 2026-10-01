@@ -70,5 +70,5 @@ export class PurchasesController {
   }
 }
 
-@Module({ imports: [ApprovalsModule], controllers: [PurchasesController], providers: [PurchasesService] })
+@Module({ imports: [ApprovalsModule], controllers: [PurchasesController], providers: [PurchasesService], exports: [PurchasesService] })
 export class PurchasesModule {}
