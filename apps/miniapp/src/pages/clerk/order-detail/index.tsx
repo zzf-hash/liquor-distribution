@@ -91,6 +91,20 @@ export default function ClerkOrderDetailPage() {
     }
   }
 
+  async function makeOutbound() {
+    if (!order || submitting) return
+    setSubmitting(true)
+    try {
+      await ordersApi.outbound(order.id)
+      Taro.showToast({ title: '已生成拣货单', icon: 'success' })
+      void load(order.id)
+    } catch (e) {
+      Taro.showToast({ title: e instanceof Error ? e.message : '生成拣货单失败', icon: 'none' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
   async function submitPopupText(kind: Exclude<PopupKind, null>, text: string) {
     if (!order || submitting) return
     setSubmitting(true)
@@ -274,6 +288,16 @@ export default function ClerkOrderDetailPage() {
               onClick={() => { void confirm() }}
             >
               确认订单
+            </Button>
+          )}
+          {st === 'CONFIRMED' && !(order.outbounds ?? []).length && (
+            <Button
+              className='btn-primary'
+              loading={submitting}
+              disabled={submitting}
+              onClick={() => { void makeOutbound() }}
+            >
+              生成拣货单（出库）
             </Button>
           )}
           <Button

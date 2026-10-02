@@ -306,6 +306,8 @@ export const ordersApi = {
   detail: (id: string) => request<OrderDetailDTO>(`/orders/${id}`),
   /** 确认（待确认→已确认；信用复核不过 422 抛 ApiError，body.data 带复核数据） */
   confirm: (id: string) => request<Record<string, unknown>>(`/orders/${id}/confirm`, { method: 'POST', body: {} }),
+  /** 生成拣货单（CONFIRMED→出库单 PICKING，FIFO 批次建议；仓配端拣货工作台接管） */
+  outbound: (id: string) => request<Record<string, unknown>>(`/orders/${id}/outbound`, { method: 'POST', body: {} }),
   cancel: (id: string, reason: string) =>
     request<Record<string, unknown>>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
   /** 特批放行（老板本人；type=ORDER_SPECIAL） */
