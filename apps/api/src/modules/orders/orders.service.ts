@@ -25,7 +25,8 @@ export interface CreateLineDto {
 }
 
 export interface CreateOrderDto {
-  customerId: string;
+  /** P1-5: CUSTOMER 角色禁传(服务端强制取 token 身份); CLERK/REP 必传 */
+  customerId?: string;
   source: 'CLERK' | 'REP' | 'CUSTOMER';
   lines: CreateLineDto[];
   addressOverride?: string;
@@ -125,6 +126,8 @@ export class OrdersService {
       if (!customerId) throw new ForbiddenException('请联系业务员或内勤处理');
       dto.source = 'CUSTOMER';
     }
+    // P1-5: customerId 可选化(CUSTOMER 取 token); CLERK/REP 代下单必须显式指定客户
+    if (!customerId) throw new BadRequestException('customerId 必传(代下单场景)');
     const customer = await this.prisma.customer.findUnique({
       where: { id: customerId },
       include: { salesperson: { select: { id: true, name: true } } },

@@ -15,7 +15,8 @@ class LineDto {
 }
 
 class CreateOrderBody implements CreateOrderDto {
-  @IsString() customerId!: string;
+  // P1-5: CUSTOMER 端不传(身份取 token), CLERK/REP 代下单必传 → 可选 + service 层按角色校验
+  @IsOptional() @IsString() customerId?: string;
   @IsEnum(['CLERK', 'REP', 'CUSTOMER']) source!: 'CLERK' | 'REP' | 'CUSTOMER';
   @IsArray() @ValidateNested({ each: true }) @Type(() => LineDto) lines!: LineDto[];
   @IsOptional() @IsString() addressOverride?: string;
