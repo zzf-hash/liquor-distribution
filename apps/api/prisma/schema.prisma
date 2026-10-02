@@ -1318,3 +1318,27 @@ model RestockRequest {
   @@index([tenantId, status])
   @@index([tenantId, productId, status])
 }
+
+// TelemetryEvent: 轻量内建遥测(零外部依赖)。
+// - API 每请求落一行(方法/路径/状态/耗时), 慢请求与 4xx/5xx 是主要消费对象
+// - 三端(小程序/admin/web)前端错误经 POST /telemetry/events 上报汇入同一张表
+// 保留策略: 由每日 07:30 StockAlertDailyTask 顺带清理 30 天前数据, 防表膨胀。
+model TelemetryEvent {
+  id        String   @id @default(cuid())
+  source    String // api | miniapp | admin
+  kind      String // request | error | custom
+  name      String // 事件名: request =request_method_path, error=错误摘要, custom=调用方定义
+  level     String   @default("info") // info | warn | error
+  path      String?
+  method    String?
+  status    Int?
+  durationMs Int?
+  userId    String?
+  role      String?
+  detail    Json? // 堆栈/额外上下文(requestId, userAgent, page…)
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([source, kind, createdAt])
+  @@index([level, createdAt])
+}

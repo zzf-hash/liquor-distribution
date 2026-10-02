@@ -1,9 +1,11 @@
 // 真接口通道：统一 fetch 封装（{code:0,data} 信封 / 401 跳登录 / 幂等键）+ 各资源类型化方法。
 // 接口契约对齐 apps/api：products/customers/prices(L3 自研) + orders/receivables/payments/imports/users。
 import { clearAuth, getAuth } from './auth';
+import { reportError } from './telemetry';
 import type { Decimalish } from '../utils/format';
 
 const BASE_URL: string = import.meta.env.VITE_API_BASE || '/api';
+export { BASE_URL };
 
 export interface ApiEnvelope<T> {
   code: number;
@@ -55,7 +57,10 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     headers,
     body: opts.formData ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined),
     signal: opts.signal,
-  });
+  }).catch((e: unknown) => {
+    reportError('request_network_fail', { path, method: opts.method ?? 'GET', reason: String(e).slice(0, 300) });
+    throw new ApiError('网络连接失败，请检查网络后重试', -1, -1, null);
+  }) as Response;
 
   // B1：token 过期/被吊销（禁用即时生效）→ 清会话回登录页
   if (res.status === 401) {
@@ -71,6 +76,12 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     envelope = null;
   }
   if (!res.ok || !envelope || envelope.code !== 0) {
+    // 4xx/5xx 全量上报（远程可观测）
+    reportError(`request_${res.status}_${path}`, {
+      method: opts.method ?? 'GET',
+      apiCode: envelope?.code ?? res.status,
+      message: envelope?.message,
+    }, res.status >= 500 ? 'error' : 'warn');
     throw new ApiError(
       envelope?.message || `请求失败（HTTP ${res.status}）`,
       res.status,

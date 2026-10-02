@@ -2,8 +2,10 @@
 // 信封约定与 admin 一致（{code:0,data}）；token 存 Taro storage 'ld_token'；
 // BASE 从环境变量读（构建时 TARO_APP_API_BASE 注入），默认本机开发后端。
 import Taro from '@tarojs/taro'
+import { reportError, trackEvent } from './telemetry'
 
 const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api'
+export { BASE }
 
 const TOKEN_KEY = 'ld_token'
 const USER_KEY = 'ld_user'
@@ -160,7 +162,8 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     })
     statusCode = res.statusCode
     envelope = (res.data ?? null) as ApiEnvelope<T> | null
-  } catch {
+  } catch (e) {
+    reportError('request_network_fail', { path, method: opts.method ?? 'GET' }, 'error')
     throw new ApiError('网络连接失败，请检查网络后重试', -1, -1, null)
   }
 
@@ -177,6 +180,14 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
     throw new ApiError('登录已过期，请重新登录', 401, 401, null)
   }
   if (statusCode < 200 || statusCode >= 300 || !envelope || envelope.code !== 0) {
+    // 4xx/5xx 全量上报(除登录 401 属正常尝试)——远程可观测, 不用再等用户贴日志
+    if (!(statusCode === 401 && path === '/auth/login')) {
+      reportError(`request_${statusCode}_${path}`, {
+        method: opts.method ?? 'GET',
+        apiCode: envelope?.code ?? statusCode,
+        message: envelope?.message,
+      }, statusCode >= 500 ? 'error' : 'warn')
+    }
     throw new ApiError(
       envelope?.message || `请求失败（HTTP ${statusCode}）`,
       statusCode,
@@ -291,7 +302,7 @@ export const ordersApi = {
       method: 'POST',
       body: { source: 'CUSTOMER', lines },
       idemKey: genIdemKey(),
-    }),
+    }).then((r) => { trackEvent('customer_order_created', { orderNo: r.orderNo, lines: lines.length }); return r }),
   // ── 员工端（P1 全员端）──
   /** 订单池（clerk/boss/warehouse）：按状态 tab 过滤，q 搜索单号/客户名 */
   staffList: (params: { status?: string; q?: string; page?: number; pageSize?: number }) => {

@@ -5,6 +5,8 @@ import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { StockAlertService } from './stock-alert.service';
+import { TelemetryService } from '../../common/telemetry.service';
+import { TelemetryModule } from '../../common/telemetry.controller';
 import { ApprovalsModule } from '../approvals/approvals.controller';
 import { PurchasesModule } from '../purchases/purchases.controller';
 import type { AlertConfig } from './stock-alert.service';
@@ -117,7 +119,7 @@ export class StockAlertDailyTask implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger('StockAlertDaily');
   private timer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly svc: StockAlertService, private readonly cfgReader: SystemConfigReader) {}
+  constructor(private readonly svc: StockAlertService, private readonly cfgReader: SystemConfigReader, private readonly telemetry: TelemetryService) {}
 
   onModuleInit(): void {
     this.scheduleNext();
@@ -148,6 +150,11 @@ export class StockAlertDailyTask implements OnModuleInit, OnModuleDestroy {
     } catch (e) {
       this.logger.error(`daily stock scan failed: ${String(e).slice(0, 300)}`);
     }
+    // 遥测保留期清理(30天): 借每日定时器顺带执行, 失败不影响主任务
+    try {
+      const pruned = await this.telemetry.prune();
+      if (pruned > 0) this.logger.log(`telemetry pruned ${pruned} rows`);
+    } catch { /* 遥测清理失败静默 */ }
   }
 
   async runAllTenants(): Promise<Array<{ tenantId: string; reportDate: string; rows: number; alerts: number; created: number } | { tenantId: string; error: string }>> {
@@ -164,7 +171,7 @@ export class StockAlertDailyTask implements OnModuleInit, OnModuleDestroy {
 }
 
 @Module({
-  imports: [ApprovalsModule, PurchasesModule], // ApprovalsService(提审) + PurchasesService(转采购单)
+  imports: [ApprovalsModule, PurchasesModule, TelemetryModule], // ApprovalsService(提审) + PurchasesService(转采购单) + TelemetryService(保留期清理)
   controllers: [StockAlertController],
   providers: [StockAlertService, SystemConfigReader, StockAlertDailyTask],
   exports: [StockAlertService, StockAlertDailyTask],

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PrismaModule } from './prisma/prisma.module';
+import { TelemetryModule } from './common/telemetry.controller';
+import { TelemetryInterceptor } from './common/telemetry.interceptor';
 import { NotifyModule } from './common/notify.module';
 import { PrismaService } from './prisma/prisma.service';
 import { AuthModule } from './modules/auth/auth.module';
@@ -63,12 +65,14 @@ import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
     UsersModule,
     HealthModule,
     StockAlertModule,
+    TelemetryModule, // 内建遥测: 请求埋点 + 三端错误上报
   ],
   providers: [
     PrismaService,
     // 全局守卫链: 认证(B1+租户上下文) → 角色守卫(P0-02 RBAC)
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_INTERCEPTOR, useClass: TelemetryInterceptor }, // 请求遥测(先于 Response 包装, 记原始耗时)
     { provide: APP_INTERCEPTOR, useClass: ResponseInterceptor },
   ],
 })
