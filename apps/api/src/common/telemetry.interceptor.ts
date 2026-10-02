@@ -35,7 +35,7 @@ export class TelemetryInterceptor implements NestInterceptor {
     );
   }
 
-  private write(req: Request, status: number, started: number, path: string): void {
+  private write(req: Request & { user?: { id?: string; role?: string } }, status: number, started: number, path: string): void {
     const durationMs = Date.now() - started;
     const level = status >= 500 || (status === 0 && durationMs > SLOW_MS) ? 'error' : status >= 400 || durationMs > SLOW_MS ? 'warn' : 'info';
     this.telemetry.record({
