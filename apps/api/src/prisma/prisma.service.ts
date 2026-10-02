@@ -15,7 +15,9 @@ const APPEND_ONLY_MODELS = new Set<string>([
   'InventoryLedger', // B4
   'ReceivableLedger', // B4
   'SignatureRecord', // P1-6 签收凭证 append-only
-  'ApprovalRecord',
+  // 'ApprovalRecord' 移除(P1 修复): 审批单有状态流转(PENDING→APPROVED/REJECTED/EXPIRED_24H),
+  //   decide/expireStale 必须 update; 防篡改由 AuditLog 哈希链兜底, 审批结果本身需可写。
+  //   原黑名单与 P1 审批中心(f4e1076)自相矛盾, 冒烟未炸仅因当时无超24h待审单。
   'ImportRowError',
 ]);
 
