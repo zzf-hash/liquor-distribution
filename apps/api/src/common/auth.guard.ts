@@ -16,6 +16,8 @@ export class AuthGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const req = context.switchToHttp().getRequest();
     if (req.path === '/api/health' || req.path === '/api/auth/login') return true;
+    // 遥测上报免鉴权(未登录崩溃也要能报; DTO 严格校验+字段截断+批量≤20 收敛滥用)
+    if (req.path === '/api/telemetry/events' && req.method === 'POST') return true;
     const header: string | undefined = req.headers['authorization'];
     if (!header?.startsWith('Bearer ')) throw new UnauthorizedException('未登录');
     let payload: { sub: string; tv: number };
