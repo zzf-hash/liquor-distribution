@@ -103,7 +103,10 @@ export class PurchasesService {
       // 事务内抢占(2026-10 审查修复: 状态检查在事务外, 并发收货双倍入库且无幂等键)
       const claimed = await tx.purchaseOrder.updateMany({ where: { id, status: validFrom }, data: { status: 'RECEIVED', receivedAt: new Date() } });
       if (claimed.count === 0) throw new ConflictException('采购单状态已变化(可能已收货), 请刷新后重试');
-      for (const l of p.lines) {
+      // P1-29: COST 价版本以 validFrom 做唯一键, 循环内逐行 new Date() 同毫秒必撞 P2002 整单失败;
+      // 改为基准时间+行序号错开
+      const costBaseMs = Date.now();
+      for (const [i, l] of p.lines.entries()) {
         let batch = await tx.batchStock.findFirst({ where: { productId: l.productId, batchNo: l.batchNo } });
         if (!batch) {
           batch = await tx.batchStock.create({
@@ -113,14 +116,31 @@ export class PurchasesService {
               unitCost: l.unitCost, isInitial: false,
             },
           });
+        } else {
+          // P1-30: 并入已有批次时按移动加权(R7)重算 unitCost——原实现从不更新,
+          // 价涨后盘点差异金额/库存估值长期按旧成本
+          const groups = await tx.inventoryLedger.groupBy({ by: ['direction'], where: { batchId: batch.id }, _sum: { qty: true } });
+          const onHand = groups.reduce((s, g) => s + (g.direction === 'IN' ? Number(g._sum.qty ?? 0) : -Number(g._sum.qty ?? 0)), 0);
+          const prevCost = Number(batch.unitCost);
+          const totalQty = onHand + Number(l.qty);
+          const newCost = onHand <= 0 || prevCost === 0 ? Number(l.unitCost) : (onHand * prevCost + Number(l.qty) * Number(l.unitCost)) / totalQty;
+          batch = await tx.batchStock.update({ where: { id: batch.id }, data: { unitCost: new Prisma.Decimal(newCost.toFixed(4)) } });
         }
         await tx.inventoryLedger.create({
           data: { tenantId: user.tenantId, productId: l.productId, batchId: batch.id, direction: 'IN', qty: l.qty, refType: 'PURCHASE_IN', refNo: p.purNo, note: `采购入库 ${p.purNo}`, createdBy: user.id },
         });
-        // 成本价录入 → COST 价新版本(D08: 版本化, 最小单位口径)
-        await tx.price.create({
-          data: { tenantId: user.tenantId, productId: l.productId, unit: 'MIN', levelType: 'COST', price: l.unitCost, validFrom: new Date(), approvalRef: `CG-${p.purNo}`, note: '采购成本录入', createdBy: user.id },
-        });
+        // 成本价录入 → COST 价新版本(D08: 版本化, 最小单位口径); P2002 顺延重试防跨单同毫秒
+        let costCreated = false;
+        for (let offset = 0; offset < 3 && !costCreated; offset++) {
+          try {
+            await tx.price.create({
+              data: { tenantId: user.tenantId, productId: l.productId, unit: 'MIN', levelType: 'COST', price: l.unitCost, validFrom: new Date(costBaseMs + i + offset), approvalRef: `CG-${p.purNo}`, note: '采购成本录入', createdBy: user.id },
+            });
+            costCreated = true;
+          } catch (e) {
+            if ((e as { code?: string }).code !== 'P2002' || offset === 2) throw e;
+          }
+        }
         batches.push({ productId: l.productId, batchNo: l.batchNo, qty: Number(l.qty) });
       }
     });
