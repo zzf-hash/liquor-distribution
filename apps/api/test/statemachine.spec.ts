@@ -136,32 +136,28 @@ describe('订单状态机 (OrderStatus)', () => {
 });
 
 describe('出库单状态机 (OutboundState)', () => {
-  const ALL = ['PICKING', 'CONFIRMED', 'VOIDED'] as const satisfies readonly OutboundState[];
+  // P1-16: VOIDED 移除(Prisma 枚举无此值), 作废=删除拣货单, 状态机对齐 schema
+  const ALL = ['PICKING', 'CONFIRMED'] as const satisfies readonly OutboundState[];
 
-  it('主链: 拣货→复核(终态) / 拣货→作废(终态)', () => {
+  it('主链: 拣货→复核(终态); 无作废状态位', () => {
     expect(OUTBOUND_TRANSITIONS.PICKING).toContain('CONFIRMED');
-    expect(OUTBOUND_TRANSITIONS.PICKING).toContain('VOIDED');
+    expect(OUTBOUND_TRANSITIONS.PICKING).not.toContain('VOIDED');
     expect(OUTBOUND_TRANSITIONS.CONFIRMED).toEqual([]);
-    expect(OUTBOUND_TRANSITIONS.VOIDED).toEqual([]);
   });
 
   it('硬约束: 已复核(CONFIRMED)后禁任何变更(库存流水 append-only)', () => {
     expect(OUTBOUND_TRANSITIONS.CONFIRMED).toEqual([]);
-    expect(() => assertOutboundTransition('CONFIRMED', 'VOIDED')).toThrow(ConflictException);
     expect(() => assertOutboundTransition('CONFIRMED', 'PICKING')).toThrow(ConflictException);
     expect(() => assertOutboundTransition('CONFIRMED', 'CONFIRMED')).toThrow(ConflictException);
   });
 
-  it('作废只发生在拣货阶段(未复核); 作废终态不可逆', () => {
-    expect(OUTBOUND_TRANSITIONS.PICKING).toContain('VOIDED');
-    expect(OUTBOUND_TRANSITIONS.VOIDED).toEqual([]);
-    expect(() => assertOutboundTransition('VOIDED', 'PICKING')).toThrow(ConflictException);
-    expect(() => assertOutboundTransition('VOIDED', 'CONFIRMED')).toThrow(ConflictException);
+  it('非法状态值被白名单拦截(含 VOIDED 残留写入路径)', () => {
+    expect(() => assertOutboundTransition('PICKING', 'VOIDED' as never)).toThrow(ConflictException);
+    expect(() => assertOutboundTransition('VOIDED' as never, 'PICKING' as never)).toThrow(ConflictException);
   });
 
   it('合法路径不抛错', () => {
     expect(() => assertOutboundTransition('PICKING', 'CONFIRMED')).not.toThrow();
-    expect(() => assertOutboundTransition('PICKING', 'VOIDED')).not.toThrow();
   });
 
   it('标签覆盖全部状态', () => {
