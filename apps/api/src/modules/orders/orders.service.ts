@@ -117,8 +117,14 @@ export class OrdersService {
   }
 
   // ─────────────── P0-T20 三入口下单 + P0-T21 审单预检 ───────────────
-  async create(dto: CreateOrderDto, user: AuthUser, ip?: string): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult }> {
+  async create(dto: CreateOrderDto, user: AuthUser, idemKey?: string, ip?: string): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult; replay?: boolean }> {
     if (!dto.lines?.length) throw new BadRequestException('订单至少一行商品');
+    // 下单接入幂等基座(2026-10 审查修复: 此前后端不消费 Idempotency-Key, 防重复下单只剩前端布尔位;
+    // 客户端 miniapp api.ts orders.create 与 admin 均已随请求携带)。快照在 CUSTOMER source 改写前,
+    // 保证 check 与落库两侧指纹一致。
+    const idemPayload = { ...dto } as unknown as Record<string, unknown>;
+    const dup = await this.idem.check(user, 'orders.create', idemKey ?? '', idemPayload);
+    if (dup) return { ...(dup.summary as { id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult }), replay: true };
     // P1-5: 客户身份一律取自 token
     let customerId = dto.customerId;
     if (user.role === 'CUSTOMER') {
@@ -158,6 +164,8 @@ export class OrdersService {
       let priceType: string;
       let priceVersion: string;
       if (l.isGift) {
+        // 2026-10 审查修复: isGift 与 priceOverride 同权(0 元直接改订单金额), 限定内勤/老板
+        if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可标记赠品行');
         price = new Prisma.Decimal(0); priceType = 'MANUAL'; priceVersion = 'gift'; // 赠品 0 价参与库存扣减, 不占信用(D02)
       } else if (l.priceOverride !== undefined) {
         if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可手工价');
@@ -219,37 +227,54 @@ export class OrdersService {
     const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: `SO${today}` } } })) + 1;
     const orderNo = `SO${today}-${String(seq).padStart(4, '0')}`;
 
-    const order = await this.prisma.salesOrder.create({
-      data: {
-        tenantId: user.tenantId, // 显式租户(双保险: 中间件注入失败也不至 Argument missing)
-        orderNo,
-        customerId,
-        customerName: customer.name,
-        salespersonId: customer.salespersonId, // D5: 下单时点 owner 快照
-        source: dto.source,
-        signMode: customer.signMode,
-        status: 'PENDING_CONFIRM',
-        totalAmount: new Prisma.Decimal(totalAmount),
-        addressSnapshot: dto.addressOverride ?? customer.address,
-        deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : undefined,
-        precheck: precheck as never,
-        specialApproved,
-        createdById: user.id,
-      } as never,
-    });
-    await this.prisma.orderLine.createMany({
-      data: lineData.map((l) => ({ ...l, orderId: order.id })) as never,
+    // 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单)
+    const order = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.salesOrder.create({
+        data: {
+          tenantId: user.tenantId, // 显式租户(双保险: 中间件注入失败也不至 Argument missing)
+          orderNo,
+          customerId,
+          customerName: customer.name,
+          salespersonId: customer.salespersonId, // D5: 下单时点 owner 快照
+          source: dto.source,
+          signMode: customer.signMode,
+          status: 'PENDING_CONFIRM',
+          totalAmount: new Prisma.Decimal(totalAmount),
+          addressSnapshot: dto.addressOverride ?? customer.address,
+          deliveryDate: dto.deliveryDate ? new Date(dto.deliveryDate) : undefined,
+          precheck: precheck as never,
+          specialApproved,
+          createdById: user.id,
+        } as never,
+      });
+      await tx.orderLine.createMany({
+        data: lineData.map((l) => ({ ...l, orderId: created.id })) as never,
+      });
+      if (specialApproved) {
+        await tx.approvalRecord.create({
+          data: {
+            tenantId: user.tenantId, line: 'CREDIT_RELEASE', entityType: 'ORDER', entityId: created.id,
+            title: `信用放行 ${orderNo} ¥${totalAmount}`, amount: new Prisma.Decimal(totalAmount),
+            reason: dto.specialReason!, applicantId: user.id, approverId: user.id,
+            status: 'APPROVED', decidedAt: new Date(),
+          },
+        });
+      }
+      // 幂等记录与订单同事务(参照 confirmOutbound; complete() 的 tx 参数类型不符故内联)
+      if (idemKey) {
+        await tx.idempotencyRecord.create({
+          data: {
+            tenantId: user.tenantId, key: idemKey, endpoint: 'orders.create',
+            requestHash: IdempotencyService.requestHash('orders.create', idemPayload),
+            responseSummary: { id: created.id, orderNo: created.orderNo, status: created.status, totalAmount, precheck } as never,
+            createdBy: user.id,
+          },
+        });
+      }
+      return created;
     });
 
     if (specialApproved) {
-      await this.prisma.approvalRecord.create({
-        data: {
-          tenantId: user.tenantId, line: 'CREDIT_RELEASE', entityType: 'ORDER', entityId: order.id,
-          title: `信用放行 ${orderNo} ¥${totalAmount}`, amount: new Prisma.Decimal(totalAmount),
-          reason: dto.specialReason!, applicantId: user.id, approverId: user.id,
-          status: 'APPROVED', decidedAt: new Date(),
-        },
-      });
       await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalAmount, reason: dto.specialReason } , ip });
     }
     await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount, precheck }, ip });
@@ -310,10 +335,13 @@ export class OrdersService {
     if (!order) throw new NotFoundException('订单不存在');
     const from = order.status as OrderStatus;
     assertOrderTransition(from, to); // P0-C 白名单, 非法 409
-    const updated = await this.prisma.salesOrder.update({
-      where: { id: orderId },
+    // 条件更新抢占(2026-10 审查修复: check-then-act 并发下确认/取消互踩, 后写覆盖前者)
+    const claimed = await this.prisma.salesOrder.updateMany({
+      where: { id: orderId, status: from },
       data: { status: to, ...extra } as never,
     });
+    if (claimed.count === 0) throw new ConflictException('订单状态已变化, 请刷新后重试');
+    const updated = await this.prisma.salesOrder.findUnique({ where: { id: orderId } });
     await this.audit.log({ user, action: auditAction, entityType: 'Order', entityId: orderId, before: { status: from }, after: { status: to }, ip });
     return updated;
   }
@@ -440,6 +468,30 @@ export class OrdersService {
     assertOutboundTransition(outbound.status as OutboundState, 'CONFIRMED'); // P0-C 白名单, 非法 409
     assertOrderTransition(outbound.order.status as OrderStatus, 'OUTBOUND');
     await this.prisma.$transaction(async (tx) => {
+      // 抢占式条件更新(2026-10 审查修复: 状态检查在事务外+update 无状态守卫, 并发不同 key 双写 OUT 流水双扣库存)
+      const claimedOrder = await tx.salesOrder.updateMany({
+        where: { id: outbound.orderId, status: 'CONFIRMED' },
+        data: { status: 'OUTBOUND', outboundAt: new Date() },
+      });
+      if (claimedOrder.count === 0) throw new ConflictException('订单状态已变化, 请刷新后重试');
+      const claimed = await tx.outbound.updateMany({
+        where: { id: outbound.id, status: 'PICKING' },
+        data: { status: 'CONFIRMED', checkerId: user.id, confirmedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new ConflictException('出库单已被确认, 请勿重复提交');
+      // P1-7 出库确认前逐行复核现存量, 不足则拒绝(防止下单后库存被耗尽 → 负库存)
+      for (const l of outbound.lines) {
+        const rows = await tx.inventoryLedger.findMany({
+          where: { productId: l.orderLine.productId },
+          select: { direction: true, qty: true },
+        });
+        const onHand = rows.reduce((s, r) => s + (r.direction === 'IN' ? Number(r.qty) : -Number(r.qty)), 0);
+        if (onHand < Number(l.qty)) {
+          throw new ConflictException(
+            `商品 ${l.orderLine.productName} 现有库存不足(现存 ${onHand}, 出库需 ${Number(l.qty)}), 已取消本次出库`,
+          );
+        }
+      }
       for (const l of outbound.lines) {
         await tx.inventoryLedger.create({
           data: {
@@ -449,8 +501,6 @@ export class OrdersService {
           },
         });
       }
-      await tx.outbound.update({ where: { id: outbound.id }, data: { status: 'CONFIRMED', checkerId: user.id, confirmedAt: new Date() } });
-      await tx.salesOrder.update({ where: { id: outbound.orderId }, data: { status: 'OUTBOUND', outboundAt: new Date() } });
       // 幂等记录与出库流水同事务原子落(不可用 idem.complete: 其 tx 参数是 PrismaService, 而此处须 Prisma.TransactionClient)
       await tx.idempotencyRecord.create({
         data: { tenantId: user.tenantId, key: idemKey, endpoint: 'outbound.confirm', requestHash: h, createdBy: user.id,
@@ -504,11 +554,13 @@ export class OrdersService {
       netByLine.set(l.id, { line: l, net: Number(l.qty) + reversed });
     }
     let acceptedAmount = 0;
+    let anyAccepted = false;
     const rejections: Array<{ productId: string; batchId: string | null; qty: number }> = [];
     const perLine = body.lines?.length ? new Map(body.lines.map((l) => [l.orderLineId, l.actualQty])) : null;
     for (const { line, net } of netByLine.values()) {
       const actual = perLine ? (perLine.get(line.id) ?? net) : net;
       if (actual < 0 || actual > net) throw new BadRequestException(`行 ${line.productName} 实收须在 [0, ${net}]`);
+      if (actual > 0) anyAccepted = true;
       acceptedAmount += Number(line.unitPrice) * actual;
       const rejectedQty = net - actual;
       if (rejectedQty > 0) {
@@ -523,9 +575,19 @@ export class OrdersService {
         }
       }
     }
-    const allRejected = acceptedAmount <= 0 && netByLine.size > 0;
+    // 整单拒收按"所有行实收数量为 0"判定(2026-10 审查修复: 原按 acceptedAmount<=0 金额判定,
+    // 全赠品订单(单价全 0)正常签收也会被误判成整单拒收→全量回冲+状态 REJECTED)
+    const allRejected = netByLine.size > 0 && !anyAccepted;
+    const signedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      // 抢占式状态推进: 并发签收/拒收/重复请求只有一个能提交(check-then-act 竞态修复),
+      // 否则 sign×reject 并发会同时落"应收+全量回冲"两套矛盾数据
+      const claimed = await tx.salesOrder.updateMany({
+        where: { id: orderId, status: 'DELIVERING' },
+        data: { status: allRejected ? 'REJECTED' : 'SIGNED', signedAt },
+      });
+      if (claimed.count === 0) throw new ConflictException('订单状态已变化(可能已被签收/拒收), 请刷新后重试');
       // 签收凭证 append-only(P1-6)
       await tx.signatureRecord.create({
         data: {
@@ -545,16 +607,10 @@ export class OrdersService {
           });
         }
       }
-      // 拒收回冲库存(不可变流水 IN, refType=REJECT_RETURN)
-      for (const r of rejections) {
-        if (!r.batchId) continue;
-        await tx.inventoryLedger.create({
-          data: { tenantId: user.tenantId, productId: r.productId, batchId: r.batchId, direction: 'IN', qty: new Prisma.Decimal(r.qty), refType: 'REJECT_RETURN', refNo: order.orderNo, note: '签收拒收回冲', createdBy: user.id },
-        });
-      }
       if (allRejected) {
-        // 整单拒收: 全量回冲 + 状态 REJECTED
-        for (const { line, net } of netByLine.values()) {
+        // 整单拒收: 全量回冲出库量(2026-10 审查修复: 原 rejections 逐行回冲与全量回冲两段都执行,
+        // 同批货 IN 流水写两遍→库存凭空翻倍)
+        for (const { line } of netByLine.values()) {
           const outLines = order.outbounds.flatMap((o) => o.lines).filter((ol) => ol.orderLineId === line.id);
           for (const ol of outLines) {
             await tx.inventoryLedger.create({
@@ -562,11 +618,16 @@ export class OrdersService {
             });
           }
         }
-        await tx.salesOrder.update({ where: { id: orderId }, data: { status: 'REJECTED', signedAt: new Date() } });
         return;
       }
+      // 部分拒收回冲(不可变流水 IN, refType=REJECT_RETURN)
+      for (const r of rejections) {
+        if (!r.batchId) continue;
+        await tx.inventoryLedger.create({
+          data: { tenantId: user.tenantId, productId: r.productId, batchId: r.batchId, direction: 'IN', qty: new Prisma.Decimal(r.qty), refType: 'REJECT_RETURN', refNo: order.orderNo, note: '签收拒收回冲', createdBy: user.id },
+        });
+      }
       // T23/D4: 签收完成 = 应收生成时点; 到期日 = 生成日 + 账期天数(现结=0)
-      const signedAt = new Date();
       const dueDate = dayjs(signedAt).add(order.customer.termsDays ?? 0, 'day').endOf('day').toDate();
       await tx.receivable.create({
         data: {
@@ -576,7 +637,6 @@ export class OrdersService {
           ledger: { create: { tenantId: user.tenantId, direction: 'CHARGE', amount: new Prisma.Decimal(acceptedAmount), note: `签收生成 ${order.orderNo}`, createdBy: user.id } },
         } as never,
       });
-      await tx.salesOrder.update({ where: { id: orderId }, data: { status: 'SIGNED', signedAt } });
     });
 
     await this.audit.log({
@@ -593,6 +653,12 @@ export class OrdersService {
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status !== 'DELIVERING') throw new ConflictException('仅配送中订单可拒收');
     await this.prisma.$transaction(async (tx) => {
+      // 抢占式条件更新: 与 sign() 并发时只有一个能提交, 杜绝"应收+全量回冲"双落
+      const claimed = await tx.salesOrder.updateMany({
+        where: { id: orderId, status: 'DELIVERING' },
+        data: { status: 'REJECTED', cancelReason: reason, signedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new ConflictException('订单状态已变化(可能已被签收/拒收), 请刷新后重试');
       for (const o of order.outbounds) {
         for (const ol of o.lines) {
           const line = order.lines.find((l) => l.id === ol.orderLineId);
@@ -602,7 +668,6 @@ export class OrdersService {
           });
         }
       }
-      await tx.salesOrder.update({ where: { id: orderId }, data: { status: 'REJECTED', cancelReason: reason, signedAt: new Date() } });
     });
     await this.audit.log({ user, action: AuditAction.REJECT, entityType: 'Order', entityId: orderId, before: { status: order.status }, after: { status: 'REJECTED', reason }, ip });
     return { orderNo: order.orderNo, status: 'REJECTED' };
