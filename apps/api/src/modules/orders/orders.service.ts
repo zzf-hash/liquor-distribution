@@ -296,7 +296,8 @@ export class OrdersService {
       const mineIds = mine.map((c) => c.id);
       where.customerId = q.customerId ? (mineIds.includes(q.customerId) ? q.customerId : '__none__') : { in: mineIds };
     } else if (user.role === 'CUSTOMER') {
-      where.customerId = user.customerId;
+      // P1-9: 未绑定客户的 CUSTOMER 账号强制空集, 防退化为全租户可见
+      where.customerId = user.customerId ?? '__none__';
     }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.salesOrder.findMany({
@@ -311,6 +312,16 @@ export class OrdersService {
     return { items: items.map((o) => ({ ...o, lineCount: o.lines.length, lines: undefined })), total };
   }
 
+  /** P1-10 行范围全入口收敛: detail/cancel/confirm/reverseLine 均校验 CUSTOMER=本人, REP=自己名下客户 */
+  private async assertOrderScope(user: AuthUser, customerId: string): Promise<void> {
+    if (user.role === 'CUSTOMER') {
+      if (customerId !== user.customerId) throw new ForbiddenException('无权操作该订单');
+    } else if (user.role === 'REP' && user.dataScope === 'OWN_CUSTOMERS') {
+      const mine = await this.prisma.customer.findFirst({ where: { id: customerId, salespersonId: user.id }, select: { id: true } });
+      if (!mine) throw new ForbiddenException('仅可操作自己名下客户的订单');
+    }
+  }
+
   async detail(user: AuthUser, id: string): Promise<unknown> {
     const order = await this.prisma.salesOrder.findUnique({
       where: { id },
@@ -322,7 +333,7 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    if (user.role === 'CUSTOMER' && order.customerId !== user.customerId) throw new ForbiddenException('无权查看该订单');
+    this.assertOrderScope(user, order.customerId);
     // 应收按应用层关联(sourceType='ORDER' && sourceDocNo=orderNo), schema FK 已移除
     const receivables = await this.prisma.receivable.findMany({
       where: { tenantId: order.tenantId, sourceType: 'ORDER', sourceDocNo: order.orderNo },
@@ -334,6 +345,7 @@ export class OrdersService {
   private async transition(user: AuthUser, orderId: string, to: OrderStatus, extra: Prisma.SalesOrderUpdateInput, auditAction: string, ip?: string): Promise<unknown> {
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('订单不存在');
+    await this.assertOrderScope(user, order.customerId);
     const from = order.status as OrderStatus;
     assertOrderTransition(from, to); // P0-C 白名单, 非法 409
     // 条件更新抢占(2026-10 审查修复: check-then-act 并发下确认/取消互踩, 后写覆盖前者)
@@ -351,6 +363,7 @@ export class OrdersService {
   async confirm(user: AuthUser, orderId: string, ip?: string): Promise<unknown> {
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
     if (!order) throw new NotFoundException('订单不存在');
+    await this.assertOrderScope(user, order.customerId);
     if (order.status !== 'PENDING_CONFIRM') throw new ConflictException('仅待确认订单可确认');
     const credit = await this.creditProjection(order.customerId);
     const customer = await this.prisma.customer.findUnique({ where: { id: order.customerId } });
@@ -368,9 +381,16 @@ export class OrdersService {
     if (!body.reason?.trim()) throw new BadRequestException('特批必须填写理由');
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId } });
     if (!order) throw new NotFoundException('订单不存在');
+    // P1-11: 类型映射原写反(ORDER_SPECIAL→PRICE_SPECIAL), 且不限订单状态——已出库/已拒收的单也能被"特批"
+    if (!['PENDING_CONFIRM', 'CONFIRMED'].includes(order.status)) {
+      throw new ConflictException('仅待确认/已确认订单可特批');
+    }
+    const lineMap: Record<string, 'CREDIT_RELEASE' | 'PRICE_SPECIAL'> = {
+      CREDIT_RELEASE: 'CREDIT_RELEASE', PRICE_SPECIAL: 'PRICE_SPECIAL', ORDER_SPECIAL: 'PRICE_SPECIAL',
+    };
     await this.prisma.approvalRecord.create({
       data: {
-        tenantId: user.tenantId, line: body.type === 'ORDER_SPECIAL' ? 'PRICE_SPECIAL' : 'CREDIT_RELEASE',
+        tenantId: user.tenantId, line: lineMap[body.type] ?? 'CREDIT_RELEASE',
         entityType: 'ORDER', entityId: orderId,
         title: `特批 ${order.orderNo} ${body.type}`, 
         amount: body.amount !== undefined ? new Prisma.Decimal(body.amount) : undefined,
@@ -394,6 +414,7 @@ export class OrdersService {
     if (!reason?.trim()) throw new BadRequestException('冲销必须填写原因');
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
     if (!order) throw new NotFoundException('订单不存在');
+    await this.assertOrderScope(user, order.customerId);
     if (!['PENDING_CONFIRM', 'CONFIRMED'].includes(order.status)) {
       throw new ConflictException('订单已出库, 改单走拒收/签收差额路径(配送中协商), 禁止直接冲销');
     }
