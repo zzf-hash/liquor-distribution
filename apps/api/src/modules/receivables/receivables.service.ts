@@ -69,7 +69,7 @@ export class ReceivablesService {
     };
     const rows = await this.prisma.receivable.findMany({
       where,
-      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'REVERSAL'] } } } },
+      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'REVERSAL'] } } } },
       orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // FIFO 顺序即列表顺序
     });
     const mapped: ArRow[] = rows.map((r) => {
@@ -126,14 +126,22 @@ export class ReceivablesService {
     const payment0 = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment0) throw new NotFoundException('收款单不存在');
     assertPaymentTransition(payment0.status as PaymentState, 'CONFIRMED'); // P0-C 状态机: 非法转换 409
+    // 条件更新抢占(2026-10 审查修复: 并发确认双份 SETTLE/WAIVE 流水, 重复核销)
+    const claim = async (extra: Record<string, unknown>): Promise<void> => {
+      const claimed = await this.prisma.payment.updateMany({
+        where: { id: paymentId, status: payment0.status },
+        data: { status: 'CONFIRMED', confirmedAt: new Date(), ...extra },
+      });
+      if (claimed.count === 0) throw new ConflictException('收款单状态已变化(可能已确认), 请刷新后重试');
+    };
     if (payment0.kind === 'WAIVE') {
       if (user.role !== 'OWNER') throw new ForbiddenException('抹零审批仅老板可执行(D7)');
-      await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', confirmedAt: new Date() } });
+      await claim({});
       await this.audit.log({ user, action: AuditAction.WAIVE_APPROVE, entityType: 'Payment', entityId: paymentId, before: { status: payment0.status }, after: { status: 'CONFIRMED' }, ip });
       return this.applyWaive(user, paymentId, payment0.receivableId!, ip);
     }
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可确认收款');
-    await this.prisma.payment.update({ where: { id: paymentId }, data: { status: 'CONFIRMED', enteredById: user.id, confirmedAt: new Date() } });
+    await claim({ enteredById: user.id });
     await this.audit.log({ user, action: AuditAction.PAYMENT_CONFIRM, entityType: 'Payment', entityId: paymentId, before: { status: payment0.status }, after: { status: 'CONFIRMED' }, ip });
     return this.settleFifo(user, paymentId, ip);
   }
@@ -307,12 +315,17 @@ export class ReceivablesService {
     if (!payment) throw new NotFoundException('收款单不存在');
     assertPaymentTransition(payment.status as PaymentState, 'CANCELLED'); // P0-C: 已冲正/终态 409
     await this.prisma.$transaction(async (tx) => {
+      // 条件更新抢占(2026-10 审查修复: 并发冲正双写 REVERSAL)
+      const claimed = await tx.payment.updateMany({
+        where: { id: paymentId, status: payment.status },
+        data: { status: 'CANCELLED', note: `${payment.note ?? ''} | 冲正: ${reason}` },
+      });
+      if (claimed.count === 0) throw new ConflictException('收款单状态已变化(可能已冲正), 请刷新后重试');
       for (const l of payment.ledger.filter((x) => x.direction === 'SETTLE')) {
         await tx.receivableLedger.create({
           data: { tenantId: user.tenantId, receivableId: l.receivableId, paymentId, direction: 'REVERSAL', amount: l.amount, note: `冲正 ${payment.paymentNo}: ${reason}`, createdBy: user.id },
         });
       }
-      await tx.payment.update({ where: { id: paymentId }, data: { status: 'CANCELLED', note: `${payment.note ?? ''} | 冲正: ${reason}` } });
     });
     await this.audit.log({ user, action: AuditAction.PAYMENT_REVERSE, entityType: 'Payment', entityId: paymentId, before: { status: payment.status }, after: { status: 'CANCELLED', reason }, ip });
     return { paymentNo: payment.paymentNo, status: 'CANCELLED' };

@@ -106,7 +106,8 @@ export class OrdersService {
   private async creditProjection(customerId: string): Promise<{ openAr: number; inTransit: number }> {
     const ars = await this.prisma.receivable.findMany({
       where: { customerId, disputeFlag: false },
-      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET'] } } } },
+      // P1-8: 核销口径须含 RETURN_CREDIT/WAIVE/WRITEOFF——漏算会低估已核销额→误拦新单
+      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF'] } } } },
     });
     const openAr = ars.reduce((s, r) => s + Number(r.total) - r.ledger.reduce((x, l) => x + Number(l.amount), 0), 0);
     const inTransitOrders = await this.prisma.salesOrder.aggregate({
