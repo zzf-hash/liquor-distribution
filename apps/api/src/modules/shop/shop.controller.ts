@@ -23,7 +23,9 @@ export class ShopController {
       select: {
         id: true, name: true, specText: true, baseUnit: true, minUnit: true, packSize: true,
         customerPrice: { where: { customerId: user.customerId, ...valid }, orderBy: { validFrom: 'desc' }, take: 1 },
-        prices: { where: { ...valid, levelType: { in: ['TERMINAL', 'TIER2', 'TIER1', 'RETAIL'] } }, orderBy: [{ levelType: 'asc' }, { validFrom: 'desc' }] },
+        // P1-28: 过滤 unit='BASE' 对齐下单取价维度(原实现 BASE/MIN 两套价都取回, find 可能命中
+        // 瓶价却按箱价展示, 且客户端以 unit='BASE' 下单被 resolvePrice 422 拒)
+        prices: { where: { ...valid, unit: 'BASE', levelType: { in: ['TERMINAL', 'TIER2', 'TIER1', 'RETAIL'] } }, orderBy: [{ levelType: 'asc' }, { validFrom: 'desc' }] },
       },
       take: 100,
     });
