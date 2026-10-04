@@ -124,6 +124,24 @@ export class StocktakesService {
       // 事务内抢占(2026-10 审查修复: 状态检查在事务外, 并发调账双倍写 ADJUST 流水且无幂等键)
       const claimed = await tx.stocktake.updateMany({ where: { id, status: 'RECONCILED' }, data: { status: 'ADJUSTED', adjustedAt: new Date() } });
       if (claimed.count === 0) throw new ConflictException('盘点单状态已变化(可能已调账), 请刷新后重试');
+      // P1-27: 盘点不冻结库存——建单→实盘→核对→调账期间批次可能发生出入库,
+      // 按陈旧快照落账会把流水打成负数/重复盘盈。调账前按当前流水复核每行快照, 漂移即拒绝重盘
+      const batchIds = [...new Set(st.lines.map((l) => l.batchId))];
+      const groups = await tx.inventoryLedger.groupBy({
+        by: ['batchId', 'direction'],
+        where: { batchId: { in: batchIds } },
+        _sum: { qty: true },
+      });
+      const current = new Map<string, number>();
+      for (const g of groups) {
+        current.set(g.batchId, (current.get(g.batchId) ?? 0) + (g.direction === 'IN' ? Number(g._sum.qty ?? 0) : -Number(g._sum.qty ?? 0)));
+      }
+      for (const l of st.lines) {
+        const nowQty = current.get(l.batchId) ?? 0;
+        if (Math.abs(nowQty - Number(l.systemQty)) > 0.0001) {
+          throw new ConflictException(`批次 ${l.batchId} 盘点期间发生出入库(当前现存量 ${nowQty} ≠ 盘点快照 ${Number(l.systemQty)}), 本单已失效请重新盘点`);
+        }
+      }
       for (const l of st.lines) {
         const diff = Number(l.countedQty) - Number(l.systemQty);
         if (Math.abs(diff) <= 0.0001) continue;
