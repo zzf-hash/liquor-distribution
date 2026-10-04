@@ -167,6 +167,29 @@ export class CustomersService {
     });
     if (!before) throw new NotFoundException('客户不存在');
 
+    const role = String(user.role);
+
+    // P0-13 权限分层：风控字段（信用额度/起订额/结算/账期/归属/禁改 code）仅 OWNER/CLERK；
+    // REP 只能改自己名下客户的非风控资料字段
+    const SENSITIVE_FIELDS: (keyof UpdateCustomerDto)[] = [
+      'creditLimit',
+      'minOrderAmount',
+      'settlement',
+      'termsDays',
+      'salespersonId',
+      'signMode',
+      'receivingWindow',
+    ];
+    const touchesSensitive = SENSITIVE_FIELDS.some((f) => dto[f] !== undefined);
+    if (touchesSensitive && role !== 'OWNER' && role !== 'CLERK') {
+      throw new ForbiddenException(
+        '信用额度/起订额/结算方式/账期/归属业务员/签收方式为风控字段，仅老板/内勤可修改',
+      );
+    }
+    if (role === 'REP' && before.salespersonId !== user.id) {
+      throw new ForbiddenException('业务员只能修改自己名下客户的资料');
+    }
+
     // 月结口径：无论改结算方式还是账期，落库后的组合必须满足 月结→termsDays>0
     const settlement = dto.settlement ?? before.settlement;
     const termsDays = dto.termsDays ?? before.termsDays;
