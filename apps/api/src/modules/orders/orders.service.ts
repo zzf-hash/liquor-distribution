@@ -196,12 +196,20 @@ export class OrdersService {
       });
     }
 
+    // P1-15: deliveryDate 无格式校验, 非法串 new Date()=Invalid Date 落库/序列化 500 → 显式 400
+    if (dto.deliveryDate !== undefined) {
+      const d = new Date(dto.deliveryDate);
+      if (Number.isNaN(d.getTime())) throw new BadRequestException('deliveryDate 格式非法(须为 ISO 日期)');
+    }
     // 四要素②③④: 信用 / 库存 / 起送量
     const credit = await this.creditProjection(customerId);
     const limit = Number(customer.creditLimit);
-    // 现结客户额度=0 款到发货(D07): 现结下单即拦截提示先收款
-    const creditNeed = customer.settlement === 'CASH' ? totalAmount : totalAmount;
-    const creditOk = creditNeed <= limit - credit.openAr - credit.inTransit;
+    // P1-12: 现结客户额度=0 款到发货(D07)——原三元两分支相同是死代码, 款到发货未实现;
+    // 现结客户信用需求按全额计且不参与"额度充足"豁免: 额度=0 时必须收款/特批才能过
+    const creditNeed = customer.settlement === 'CASH' ? totalAmount + credit.openAr + credit.inTransit : totalAmount;
+    const creditOk = customer.settlement === 'CASH'
+      ? creditNeed <= limit // 现结: 全额+在途必须被额度覆盖(额度0则恒 false, 款到发货)
+      : creditNeed <= limit - credit.openAr - credit.inTransit;
     const stock = await this.stockProjection(productIds);
     const inventory = productIds.map((pid) => {
       const s = stock.get(pid) ?? { onHand: 0, occupied: 0 };
