@@ -34,8 +34,7 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   defaultSupplier: '默认供应商',
 };
 
-/** 出库消耗: OUT 且 refType=OUTBOUND; 其余 OUT 流水(红字冲销 REVERSAL_OUT 等)同为库存减少, 一并计入净销消耗 */
-const SALE_OUT_TYPES = new Set(['OUTBOUND']);
+/** 出库消耗: OUT 且 refType=OUTBOUND; 回冲型(IN)抵减销量(判定按 direction, 见 netSales) */
 
 @Injectable()
 export class StockAlertService {
@@ -79,15 +78,17 @@ export class StockAlertService {
     return next;
   }
 
-  /** 单商品近N日净销(最小单位): OUT(REJECT_RETURN/RETURN_IN 等回冲型)记 −1, OUTBOUND 记 +1, PURCHASE_IN/INITIAL 忽略 */
+  /** 单商品近N日净销(最小单位): OUT(REJECT_RETURN/RETURN_IN 等回冲型)记 −1, OUTBOUND 记 +1, PURCHASE_IN/INITIAL 忽略
+   * #22: 回冲型抵减判定按 direction 实际方向——回冲流水是 IN 方向(refType=RETURN_IN/REJECT_RETURN/REVERSAL_IN), 原 OUT+永假过滤导致退货永不抵减销量 */
   private async netSales(tenantId: string, productIds: string[], sinceMap: Map<number, Date>): Promise<Map<string, Map<number, number>>> {
     const rows = await this.prisma.inventoryLedger.findMany({
-      where: { tenantId, productId: { in: productIds }, direction: 'OUT', createdAt: { gte: new Date(Math.min(...[...sinceMap.values()].map((d) => d.getTime()))) }, refType: { in: ['OUTBOUND', 'REJECT_RETURN', 'RETURN_IN', 'ADJUST', 'REVERSAL_IN'] } },
-      select: { productId: true, qty: true, refType: true, createdAt: true },
+      where: { tenantId, productId: { in: productIds }, createdAt: { gte: new Date(Math.min(...[...sinceMap.values()].map((d) => d.getTime()))) }, refType: { in: ['OUTBOUND', 'REJECT_RETURN', 'RETURN_IN', 'ADJUST', 'REVERSAL_IN'] } },
+      select: { productId: true, qty: true, direction: true, refType: true, createdAt: true },
     });
     const out = new Map<string, Map<number, number>>();
     for (const r of rows) {
-      const sign = SALE_OUT_TYPES.has(r.refType) ? 1 : -1; // 回冲型 OUT(退货入回冲/红字) = 库存增加 → 抵减销量
+      // 库存减少(OUT) = 销量消耗 +1; 库存增加(IN 的回冲/调整) = 抵减销量 −1
+      const sign = r.direction === 'OUT' ? 1 : -1;
       const m = out.get(r.productId) ?? new Map<number, number>();
       for (const [days, since] of sinceMap) {
         if (r.createdAt >= since) m.set(days, (m.get(days) ?? 0) + sign * Number(r.qty));
@@ -122,11 +123,8 @@ export class StockAlertService {
     await this.autoSubmitStale(); // 内勤确认制兜底: 超24h未确认的报货单自动提审
     const windowMax = Math.max(cfg.windowDays, ...Object.values(cfg.perProduct ?? {}).map((p) => p.windowDays ?? 0), 7);
 
-    // 1. 全量在售商品 + 批次(成本/效期) + 库存投影
-    const [products, batches] = await Promise.all([
-      this.prisma.product.findMany({ where: { tenantId, status: 'ON_SALE' } }),
-      this.prisma.batchStock.findMany({ where: { tenantId, product: { status: 'ON_SALE' } }, select: { productId: true, unitCost: true, expiryDate: true } }),
-    ]);
+    // 1. 全量在售商品 + 库存投影
+    const products = await this.prisma.product.findMany({ where: { tenantId, status: 'ON_SALE' } });
     if (products.length === 0) return { reportDate, rows: 0, alerts: 0, created: 0 };
 
     const sinceMap = new Map<number, Date>([
@@ -146,8 +144,14 @@ export class StockAlertService {
       const cur = onHandMap.get(g.productId) ?? 0;
       onHandMap.set(g.productId, cur + (g.direction === 'IN' ? 1 : -1) * Number(g._sum.qty ?? 0));
     }
+    // #31: 估值取"最新批次", 按入库时间排序保证结果稳定
+    const costBatches = await this.prisma.batchStock.findMany({
+      where: { tenantId, product: { status: 'ON_SALE' } },
+      orderBy: { createdAt: 'desc' },
+      select: { productId: true, unitCost: true },
+    });
     const costMap = new Map<string, number>();
-    for (const b of batches) costMap.set(b.productId, Number(b.unitCost)); // 移动加权简化: 取最新批次成本
+    for (const b of costBatches) if (!costMap.has(b.productId)) costMap.set(b.productId, Number(b.unitCost));
 
     // 2. 逐商品算阈值/等级/建议量
     const now = new Date();
@@ -157,7 +161,8 @@ export class StockAlertService {
       if (per?.enabled === false) continue;
       const win = Math.max(1, per?.windowDays ?? cfg.windowDays);
       const s = salesMap.get(p.id) ?? new Map<number, number>();
-      const soldWindow = Math.max(0, s.get(win) ?? 0);
+      // #23: 商品级窗口须有对应销量数据, 否则回退 7 日口径(非 3/7/max 窗口原取不到值, soldWindow=0 → 预警静默关死)
+      const soldWindow = Math.max(0, s.get(win) ?? (win !== 3 && win !== 7 && win !== windowMax ? (s.get(7) ?? 0) * (win / 7) : s.get(win) ?? 0));
       const dailyAvg = soldWindow / win;
       const onHand = onHandMap.get(p.id) ?? 0;
       const threshold = Math.ceil(dailyAvg * cfg.safetyDays);
@@ -185,10 +190,19 @@ export class StockAlertService {
     }
 
     // 3. 幂等落库: 当日已有 → 覆盖(delete+createMany, 无外键入向引用先删)
-    await this.prisma.$transaction(async (tx) => {
-      await tx.dailyStockReport.deleteMany({ where: { tenantId, reportDate: today.toDate(), restockId: null } });
-      await tx.dailyStockReport.createMany({ data: rows.map(({ _packSize, _name, _sku, ...r }) => r) });
-    });
+    // #24: 同日并发重跑会撞 reportDate 唯一键 → 事务内先删后建, 冲突重试一次
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.dailyStockReport.deleteMany({ where: { tenantId, reportDate: today.toDate(), restockId: null } });
+          await tx.dailyStockReport.createMany({ data: rows.map(({ _packSize, _name, _sku, ...r }) => r) });
+        });
+        break;
+      } catch (e) {
+        const isUnique = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';
+        if (!isUnique || attempt >= 1) throw e;
+      }
+    }
 
     // 4. 预警品建报货单(防重: 该商品已有待确认/在途报货单 → 跳过)
     let created = 0;
