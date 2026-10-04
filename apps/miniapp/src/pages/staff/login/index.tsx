@@ -18,14 +18,6 @@ const ROLE_NAME: Record<string, string> = {
   CUSTOMER: '客户',
 }
 
-const DEMO_ACCOUNTS: Array<{ acc: string; role: string; home: string }> = [
-  { acc: 'owner', role: 'OWNER', home: '四问看板' },
-  { acc: 'clerk', role: 'CLERK', home: '订单池' },
-  { acc: 'rep1', role: 'REP', home: '业务员工作台' },
-  { acc: 'warehouse', role: 'WAREHOUSE', home: '拣货工作台' },
-  { acc: 'cust-c0001', role: 'CUSTOMER', home: '客户订货' },
-]
-
 export default function StaffLoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -90,15 +82,7 @@ export default function StaffLoginPage() {
       </View>
 
       <View className='login__demo'>
-        <Text className='login__demo-title'>演示账号（密码均为 demo1234）</Text>
-        {DEMO_ACCOUNTS.map((d) => (
-          <View key={d.acc} className='login__demo-row'>
-            <Text className='login__demo-acc'>{d.acc}</Text>
-            <Text className='login__demo-role'>{ROLE_NAME[d.role]}</Text>
-            <Text className='login__demo-home'>进{d.home}</Text>
-          </View>
-        ))}
-        <Text className='login__demo-tip'>客户也可走首页「文字下单」通道登录</Text>
+        <Text className='login__demo-tip'>账号密码由管理员分发（正式微信授权登录后续版本接入）</Text>
       </View>
     </View>
   )

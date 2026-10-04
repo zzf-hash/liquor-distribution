@@ -44,15 +44,17 @@ export default function CustomerCartPage() {
 
   async function checkout() {
     if (submitting || cart.length === 0) return
-    const confirm = await Taro.showModal({
-      title: '确认提交订单',
-      content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。提交后商家会尽快确认安排送货。`,
-      confirmText: '提交订单',
-      cancelText: '再看看',
-    })
-    if (!confirm.confirm) return
+    // 2026-10 审查修复: submitting 置位提前到弹窗之前(原实现弹窗期间可再次点结算触发第二次提交;
+    // 后端已接幂等键, 此处为前端双保险)
     setSubmitting(true)
     try {
+      const confirm = await Taro.showModal({
+        title: '确认提交订单',
+        content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。提交后商家会尽快确认安排送货。`,
+        confirmText: '提交订单',
+        cancelText: '再看看',
+      })
+      if (!confirm.confirm) return
       const res = await ordersApi.create(
         cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty })),
       )

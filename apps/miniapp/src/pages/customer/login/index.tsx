@@ -5,8 +5,8 @@ import { authApi, saveSession } from '../../../services/api'
 import './index.scss'
 
 /**
- * 客户登录（P0-T50）：账密演示通道（seed 演示账号 cust-c0001 / demo1234），
- * 正式微信授权登录后续版本接入。仅 CUSTOMER 角色可进客户端，登录成功切到「订货」tab。
+ * 客户登录（P0-T50）：商家分发的账号密码登录（正式微信授权登录后续版本接入）。
+ * 仅 CUSTOMER 角色可进客户端，登录成功切到「订货」tab。
  */
 export default function CustomerLoginPage() {
   const [username, setUsername] = useState('')
@@ -65,7 +65,6 @@ export default function CustomerLoginPage() {
         >
           登 录
         </Button>
-        <Text className='login__tip'>演示账号：cust-c0001　密码：demo1234</Text>
       </View>
     </View>
   )
