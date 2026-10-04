@@ -27,6 +27,10 @@ export class PriceChangesService {
     if (!product) throw new NotFoundException('商品不存在');
     const effective = new Date(dto.effectiveDate);
     if (Number.isNaN(effective.getTime())) throw new BadRequestException('生效日格式错');
+    // #25: 调价不允许回溯生效——生效日早于今天会在 effectuate 时插入一条 validFrom 在历史区间的版本,
+    // 被取价引擎的"最新 validFrom"静默淹没(或错误改写历史口径订单的取价)。退改须走新调价单。
+    const todayStart = dayjs().startOf('day').toDate();
+    if (effective < todayStart) throw new BadRequestException('生效日不能早于今天(不允许回溯调价)');
     // 旧价快照: 当前最新生效价
     const oldRow = await this.prisma.price.findFirst({
       where: { productId: dto.productId, unit: dto.unit, levelType: dto.levelType as never, validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },

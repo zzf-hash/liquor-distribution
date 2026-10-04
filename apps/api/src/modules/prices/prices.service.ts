@@ -67,6 +67,13 @@ export class PricesService {
       throw new ForbiddenException('成本价仅老板可维护');
     }
     const { validFrom, validTo } = this.parseRange(dto);
+    // #26: CLERK 直改五级价绕过调价审批——直接建版本时 validFrom 不得是当下/过去(即时生效),
+    // 即时改价必须走调价审批(PRICE_CHANGE 线); 未来生效版本仅限已批调价的计划落地(须带审批单号)。
+    if (validFrom.getTime() <= Date.now() && !dto.approvalRef) {
+      throw new ForbiddenException(
+        '即时生效的价格版本必须携带审批单号(approvalRef); 调价请走调价审批流程(调价单→审批→一键生效)',
+      );
+    }
     const dup = await this.prisma.price.findFirst({
       where: {
         tenantId: user.tenantId,
@@ -170,7 +177,12 @@ export class PricesService {
     });
     if (dup) throw new ConflictException('该商品×计价单位在该生效日已有专属价版本');
 
-    // §3 专属价必须带审批单号：缺失不阻断，但把警告写进 note 待商户确认（导入模板口径）
+    // #26: 客户专属价同理——即时生效必须带审批单号(原 WARN-not-blocking 路径关闭, 专属价绕审批面堵死)
+    if (validFrom.getTime() <= Date.now() && !dto.approvalRef) {
+      throw new ForbiddenException(
+        '即时生效的客户专属价必须携带审批单号(approvalRef); 调价请走调价审批流程',
+      );
+    }
     const note = dto.approvalRef
       ? dto.note
       : [dto.note, '[警告] 无审批单号（专属价原则上须带审批单号）'].filter(Boolean).join('｜');
