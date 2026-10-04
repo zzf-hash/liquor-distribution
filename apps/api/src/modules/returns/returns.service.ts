@@ -29,23 +29,32 @@ export class ReturnsService {
     if (order.signedAt && dayjs().diff(dayjs(order.signedAt), 'hour') > 48) {
       throw new ConflictException('已超过签收后 48h 退货窗口(D13), 需走人工调账');
     }
-    // R4 上限校验: 每行累计退货 ≤ 原行净量(扣红字)
+    // R4 上限校验: 每行累计退货 ≤ 原行净量(扣红字); 同请求重复 orderLineId 先合并防绕过
+    const merged = new Map<string, number>();
+    for (const l of dto.lines) {
+      merged.set(l.orderLineId, (merged.get(l.orderLineId) ?? 0) + l.qty);
+    }
+    // #18 上限扣减已拒收量: 签收时拒收(整单拒收回冲/红字冲销)过的货不能再退
+    const rejectedByLine = new Map<string, number>();
+    for (const l of order.lines) {
+      if (l.reversalOfId) rejectedByLine.set(l.reversalOfId, (rejectedByLine.get(l.reversalOfId) ?? 0) - Number(l.qty));
+    }
     const netByLine = new Map<string, number>();
     for (const l of order.lines) {
       if (l.reversalOfId) continue;
       const reversed = order.lines.filter((r) => r.reversalOfId === l.id).reduce((s, r) => s + Number(r.qty), 0);
-      netByLine.set(l.id, Number(l.qty) + reversed);
+      netByLine.set(l.id, Number(l.qty) + reversed + (rejectedByLine.get(l.id) ?? 0));
     }
     const returnedByLine = new Map<string, number>();
     for (const r of order.returns.filter((x) => x.status !== 'CANCELLED')) {
       for (const l of r.lines) returnedByLine.set(l.orderLineId, (returnedByLine.get(l.orderLineId) ?? 0) + Number(l.qty));
     }
-    for (const l of dto.lines) {
-      const net = netByLine.get(l.orderLineId);
-      if (net === undefined) throw new BadRequestException(`行 ${l.orderLineId} 不属于原订单`);
-      if (l.qty <= 0) throw new BadRequestException('退货数量须大于 0');
-      const already = returnedByLine.get(l.orderLineId) ?? 0;
-      if (already + l.qty > net + 0.0001) throw new BadRequestException(`行退货累计 ${already + l.qty} 超过原行净量 ${net}(R4 只能多不能少的上限=原量)`);
+    for (const [orderLineId, qty] of merged) {
+      const net = netByLine.get(orderLineId);
+      if (net === undefined) throw new BadRequestException(`行 ${orderLineId} 不属于原订单`);
+      if (qty <= 0) throw new BadRequestException('退货数量须大于 0');
+      const already = returnedByLine.get(orderLineId) ?? 0;
+      if (already + qty > net + 0.0001) throw new BadRequestException(`行退货累计 ${already + qty} 超过原行净量 ${net}(R4 只能多不能少的上限=原量)`);
     }
     const seq = (await this.prisma.returnOrder.count({ where: { returnNo: { startsWith: `RT${dayjs().format('YYYYMMDD')}` } } })) + 1;
     const created = await this.prisma.returnOrder.create({
@@ -92,11 +101,11 @@ export class ReturnsService {
     return r;
   }
 
-  /** R4: 追加退货行(数量只增)——仅 PENDING_REVIEW/APPROVED 且未收货 */
+  /** R4: 追加退货行(数量只增)——仅 PENDING_REVIEW(未收货); APPROVED 不可追加(追加量未过审批) */
   async appendLines(user: AuthUser, id: string, lines: Array<{ orderLineId: string; qty: number }>): Promise<unknown> {
     const r = await this.prisma.returnOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!r) throw new NotFoundException('退货单不存在');
-    if (r.status !== 'PENDING_REVIEW' && r.status !== 'APPROVED') throw new ConflictException('已收货的退货单不可追加(R4)');
+    if (r.status !== 'PENDING_REVIEW') throw new ConflictException('仅待审批退货单可追加(R4); 已审批/已收货的退货单不可追加');
     const order = await this.prisma.salesOrder.findUnique({ where: { id: r.sourceOrderId }, include: { lines: true, returns: { include: { lines: true } } } });
     if (!order) throw new NotFoundException('原订单不存在');
     const netByLine = new Map<string, { net: number; productId: string }>();
@@ -174,7 +183,17 @@ export class ReturnsService {
     const r = await this.prisma.returnOrder.findUnique({ where: { id } });
     if (!r) throw new NotFoundException('退货单不存在');
     if (r.status !== 'PENDING_REVIEW') throw new ConflictException('仅待审批退货可取消');
-    await this.prisma.returnOrder.update({ where: { id }, data: { status: 'CANCELLED' } });
+    await this.prisma.$transaction(async (tx) => {
+      // 条件更新抢占(2026-10 审查修复: 并发取消/审批通过互斥)
+      const claimed = await tx.returnOrder.updateMany({ where: { id, status: 'PENDING_REVIEW' }, data: { status: 'CANCELLED' } });
+      if (claimed.count === 0) throw new ConflictException('退货单状态已变化, 请刷新后重试');
+      // 同步撤审(2026-10 审查修复: 原实现审批单仍 PENDING, 老板事后批一张已取消的退货
+      // 会被 applySideEffects"复活"成 APPROVED 并照常回冲库存/冲减应收)
+      await tx.approvalRecord.updateMany({
+        where: { entityType: 'RETURN', entityId: id, status: 'PENDING' },
+        data: { status: 'REJECTED', decidedAt: new Date() },
+      });
+    });
     await this.audit.log({ user, action: 'RETURN_CANCEL', entityType: 'RETURN', entityId: id });
     return { id, status: 'CANCELLED' };
   }
