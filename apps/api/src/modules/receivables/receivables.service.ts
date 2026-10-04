@@ -59,20 +59,26 @@ export class ReceivablesService {
     return Number.isFinite(v) ? v : dflt;
   }
 
-  async list(user: AuthUser, q: { bucket?: AgingBucket; customerId?: string; page?: number; pageSize?: number; archived?: 'only' | 'all' }): Promise<{ items: ArRow[]; total: number }> {
-    const page = Math.max(1, q.page ?? 1);
-    const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 50));
+  /** 全量应收行(不分页): list 分页与 summary/reminders 聚合共用 */
+  private async rows(user: AuthUser, q: { bucket?: AgingBucket; customerId?: string; archived?: 'only' | 'all' }): Promise<ArRow[]> {
+    let customerIdFilter: Prisma.ReceivableWhereInput['customerId'] = q.customerId;
+    if (user.role === 'CUSTOMER') customerIdFilter = user.customerId;
+    else if (user.role === 'REP') {
+      const mine = await this.prisma.customer.findMany({ where: { salespersonId: user.id }, select: { id: true } });
+      const mineIds = mine.map((c) => c.id);
+      customerIdFilter = q.customerId ? (mineIds.includes(q.customerId) ? q.customerId : '__none__') : { in: mineIds };
+    }
     const where: Prisma.ReceivableWhereInput = {
-      customerId: user.role === 'CUSTOMER' ? user.customerId : q.customerId,
+      customerId: customerIdFilter,
       // T32: 客户侧强制只见未归档; 内勤默认未归档, archived=all 审计查全量, only 查已归档
       archivedAt: user.aud === 'customer' ? null : q.archived === 'all' ? undefined : q.archived === 'only' ? { not: null } : null,
     };
-    const rows = await this.prisma.receivable.findMany({
+    const all = await this.prisma.receivable.findMany({
       where,
       include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'REVERSAL'] } } } },
-      orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // FIFO 顺序即列表顺序
+      orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
     });
-    const mapped: ArRow[] = rows.map((r) => {
+    const mapped: ArRow[] = all.map((r) => {
       const { settled, open } = this.arOpen(r);
       const { daysOverdue, bucket } = this.bucketOf(r.dueDate, r.disputeFlag);
       return {
@@ -80,13 +86,20 @@ export class ReceivablesService {
         total: Number(r.total), settled, open, dueDate: dayjs(r.dueDate).format('YYYY-MM-DD'), daysOverdue, disputeFlag: r.disputeFlag, bucket,
       };
     }).filter((r) => r.open > 0.0001); // 未核销
-    const items = q.bucket ? mapped.filter((r) => r.bucket === q.bucket) : mapped;
+    return q.bucket ? mapped.filter((r) => r.bucket === q.bucket) : mapped;
+  }
+
+  async list(user: AuthUser, q: { bucket?: AgingBucket; customerId?: string; page?: number; pageSize?: number; archived?: 'only' | 'all' }): Promise<{ items: ArRow[]; total: number }> {
+    const page = Math.max(1, q.page ?? 1);
+    const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 50));
+    const items = await this.rows(user, q);
     return { items: items.slice((page - 1) * pageSize, page * pageSize), total: items.length };
   }
 
   /** 看板欠款汇总(争议款单列, D11) */
   async summary(user: AuthUser): Promise<Record<string, number>> {
-    const { items } = await this.list(user, {});
+    // P1-7: 原实现复用 list() 的第一页切片, 未结超 50 条时欠款总额严重低估
+    const items = await this.rows(user, {});
     const out: Record<string, number> = { not_due: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90p: 0, disputed: 0 };
     for (const r of items) out[r.bucket] += r.open;
     out.total = items.reduce((s, r) => s + r.open, 0);
@@ -101,6 +114,19 @@ export class ReceivablesService {
     if (dup) return { replay: true, summary: dup.summary };
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
+    // P1-9: REP 只能为自己名下客户上报收款(原实现可冒名上报刷他人业绩/污染他人客户账目)
+    if (user.role === 'REP' && customer.salespersonId !== user.id) {
+      throw new ForbiddenException('仅可为自己名下客户上报收款');
+    }
+    // P1-8: 收款金额不超过客户未结合计——无预收模型, 超收部分会"消失"于账外且对账永远对不齐
+    const openArs = await this.prisma.receivable.findMany({
+      where: { customerId: dto.customerId, disputeFlag: false },
+      include: { ledger: true },
+    });
+    const totalOpen = openArs.reduce((s, r) => s + Math.max(0, this.arOpen(r).open), 0);
+    if (dto.amount > totalOpen + 0.0001) {
+      throw new BadRequestException(`收款金额 ¥${dto.amount.toFixed(2)} 超过客户未结合计 ¥${totalOpen.toFixed(2)}, 请核对(暂不支持预收挂账)`);
+    }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
     const payDay = dayjs().format('YYYYMMDD');
     let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
@@ -161,23 +187,26 @@ export class ReceivablesService {
   private async settleFifo(user: AuthUser, paymentId: string, ip?: string): Promise<unknown> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('收款单不存在');
-    const ars = await this.prisma.receivable.findMany({
-      where: { customerId: payment.customerId, disputeFlag: false },
-      include: { ledger: true },
-      orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // D4 FIFO 唯一算法
-    });
+    // P1-5 收尾: 应收 open 快照与核销写入同一事务(原快照在事务外, 与退货冲减/抹零/坏账并发可超核销)
+    let settled: Array<{ receivableId: string; sourceDocNo: string; amount: number; fullySettled: boolean }> = [];
     let remain = Number(payment.amount);
-    const settled: Array<{ receivableId: string; sourceDocNo: string; amount: number; fullySettled: boolean }> = [];
-    for (const ar of ars) {
-      if (remain <= 0.0001) break;
-      const { open } = this.arOpen(ar);
-      if (open <= 0.0001) continue;
-      const take = Math.min(open, remain);
-      remain -= take;
-      const fully = open - take <= 0.0001;
-      settled.push({ receivableId: ar.id, sourceDocNo: ar.sourceDocNo, amount: take, fullySettled: fully });
-    }
     await this.prisma.$transaction(async (tx) => {
+      const ars = await tx.receivable.findMany({
+        where: { customerId: payment.customerId, disputeFlag: false },
+        include: { ledger: true },
+        orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }], // D4 FIFO 唯一算法
+      });
+      settled = [];
+      remain = Number(payment.amount);
+      for (const ar of ars) {
+        if (remain <= 0.0001) break;
+        const { open } = this.arOpen(ar);
+        if (open <= 0.0001) continue;
+        const take = Math.min(open, remain);
+        remain -= take;
+        const fully = open - take <= 0.0001;
+        settled.push({ receivableId: ar.id, sourceDocNo: ar.sourceDocNo, amount: take, fullySettled: fully });
+      }
       for (const s of settled) {
         await tx.receivableLedger.create({
           data: { tenantId: user.tenantId, receivableId: s.receivableId, paymentId, direction: 'SETTLE', amount: new Prisma.Decimal(s.amount), note: `FIFO 核销 ${payment.paymentNo}`, createdBy: user.id },
@@ -258,13 +287,16 @@ export class ReceivablesService {
   private async applyWaive(user: AuthUser, paymentId: string, receivableId: string, ip?: string): Promise<unknown> {
     const payment = await this.prisma.payment.findUnique({ where: { id: paymentId } });
     if (!payment) throw new NotFoundException('抹零单不存在');
-    const already = await this.prisma.receivableLedger.findFirst({ where: { paymentId, direction: 'WAIVE' } });
-    if (already) return { paymentNo: payment.paymentNo, alreadyApplied: true };
-    await this.prisma.receivableLedger.create({
-      data: { tenantId: user.tenantId, receivableId, paymentId, direction: 'WAIVE', amount: payment.amount, note: `抹零 ${payment.paymentNo}: ${payment.note ?? ''}`, createdBy: user.id },
+    // P1-5 收尾: 幂等检查与写入同事务(原 findFirst→create 分离, TOCTOU 可双份 WAIVE 流水)
+    return this.prisma.$transaction(async (tx) => {
+      const already = await tx.receivableLedger.findFirst({ where: { paymentId, direction: 'WAIVE' } });
+      if (already) return { paymentNo: payment.paymentNo, alreadyApplied: true };
+      await tx.receivableLedger.create({
+        data: { tenantId: user.tenantId, receivableId, paymentId, direction: 'WAIVE', amount: payment.amount, note: `抹零 ${payment.paymentNo}: ${payment.note ?? ''}`, createdBy: user.id },
+      });
+      await this.audit.log({ user, action: 'WAIVE_APPLY', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: Number(payment.amount) }, ip });
+      return { paymentNo: payment.paymentNo, waived: Number(payment.amount) };
     });
-    await this.audit.log({ user, action: 'WAIVE_APPLY', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: Number(payment.amount) }, ip });
-    return { paymentNo: payment.paymentNo, waived: Number(payment.amount) };
   }
 
   /** T03: 坏账核销(老板直接执行, R2 级动作, 幂等) */
@@ -334,7 +366,8 @@ export class ReceivablesService {
   /** T51: 账期提醒——到期前 N 天(cfg remind_days_before 默认7)的未结单据 */
   async reminders(user: AuthUser): Promise<unknown> {
     const n = await this.cfgNumber('remind_days_before', 7);
-    const { items } = await this.list(user, {});
+    // P1-7: 原实现只看第一页 50 条, 排序把未到期单压在尾部被截断, 催收提醒整批漏发
+    const items = await this.rows(user, {});
     return items
       .filter((r) => r.bucket === 'not_due' && dayjs(r.dueDate).isBefore(dayjs().add(n, 'day').endOf('day')))
       .map((r) => ({ sourceDocNo: r.sourceDocNo, dueDate: r.dueDate, open: r.open, daysLeft: dayjs(r.dueDate).diff(dayjs(), 'day') }));
@@ -366,7 +399,12 @@ export class ReceivablesService {
 
   async payments(user: AuthUser, q: { status?: string; customerId?: string }): Promise<unknown> {
     return this.prisma.payment.findMany({
-      where: { status: (q.status as 'REPORTED' | 'CONFIRMED' | 'CANCELLED') ?? undefined, customerId: user.role === 'CUSTOMER' ? user.customerId : q.customerId },
+      where: {
+        status: (q.status as 'REPORTED' | 'CONFIRMED' | 'CANCELLED') ?? undefined,
+        customerId: user.role === 'CUSTOMER' ? user.customerId : q.customerId,
+        // P1-9: REP 只看自己上报的收款(原实现横向可见全部业务员的客户姓名/金额/凭证号)
+        ...(user.role === 'REP' ? { reportedById: user.id } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
       include: { customer: { select: { name: true } } },
