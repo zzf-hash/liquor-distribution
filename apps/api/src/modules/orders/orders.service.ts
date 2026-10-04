@@ -154,7 +154,7 @@ export class OrdersService {
     const products = await this.prisma.product.findMany({ where: { id: { in: productIds } } });
     const productMap = new Map(products.map((p) => [p.id, p]));
     const lineData: Array<Omit<Prisma.OrderLineUncheckedCreateInput, 'id' | 'createdAt' | 'orderId'>> = [];
-    let totalAmount = 0;
+    let totalAmount = new Prisma.Decimal(0); // P1-13: Decimal 精确累加, 原浮点累加合计≠行和边界风险
     for (const l of dto.lines) {
       const p = productMap.get(l.productId);
       if (!p) throw new BadRequestException(`商品 ${l.productId} 不存在`);
@@ -178,7 +178,7 @@ export class OrdersService {
         ({ price, priceType, priceVersion } = resolved);
       }
       const amount = price.mul(l.qty);
-      totalAmount += Number(amount);
+      totalAmount = totalAmount.add(amount);
       lineData.push({
         tenantId: user.tenantId, // 嵌套 create 不经过租户注入, 显式携带
         productId: p.id,
@@ -206,7 +206,8 @@ export class OrdersService {
     const limit = Number(customer.creditLimit);
     // P1-12: 现结客户额度=0 款到发货(D07)——原三元两分支相同是死代码, 款到发货未实现;
     // 现结客户信用需求按全额计且不参与"额度充足"豁免: 额度=0 时必须收款/特批才能过
-    const creditNeed = customer.settlement === 'CASH' ? totalAmount + credit.openAr + credit.inTransit : totalAmount;
+    const totalNum = Number(totalAmount);
+    const creditNeed = customer.settlement === 'CASH' ? totalNum + credit.openAr + credit.inTransit : totalNum;
     const creditOk = customer.settlement === 'CASH'
       ? creditNeed <= limit // 现结: 全额+在途必须被额度覆盖(额度0则恒 false, 款到发货)
       : creditNeed <= limit - credit.openAr - credit.inTransit;
@@ -216,14 +217,14 @@ export class OrdersService {
       const need = dto.lines!.filter((l) => l.productId === pid).reduce((sum, l) => sum + l.qty * (l.unit === 'BASE' ? (productMap.get(pid)?.packSize ?? 1) : 1), 0);
       return { productId: pid, productName: productMap.get(pid)?.name ?? pid, ok: s.onHand - s.occupied >= need, onHand: s.onHand, occupied: s.occupied, need };
     });
-    const minOrder = { ok: totalAmount >= Number(customer.minOrderAmount), amount: totalAmount, min: Number(customer.minOrderAmount) };
+    const minOrder = { ok: totalNum >= Number(customer.minOrderAmount), amount: totalNum, min: Number(customer.minOrderAmount) };
     const precheck: PrecheckResult = { customer: precheckCustomer, credit: { ok: creditOk, available: limit - credit.openAr - credit.inTransit, ...credit, limit, need: creditNeed }, inventory, minOrder };
     const failed = !precheckCustomer.ok || !creditOk || inventory.some((i) => !i.ok) || !minOrder.ok;
 
     // T21: 超额自动拦截留痕; 老板特批可放行(D01/R2, 信用放行须老板本人)
     let specialApproved = false;
     if (failed) {
-      await this.audit.log({ user, action: AuditAction.PRECHECK_BLOCK, entityType: 'Order', before: precheck, after: { customerId, totalAmount }, ip });
+      await this.audit.log({ user, action: AuditAction.PRECHECK_BLOCK, entityType: 'Order', before: precheck, after: { customerId, totalAmount: totalNum }, ip });
       const creditOrMin = !creditOk || !minOrder.ok; // 信用/起送类可特批; 库存不足不可特批(物理不可出库)
       if (!(dto.forceSpecial && user.role === 'OWNER' && dto.specialReason && creditOrMin && precheckCustomer.ok && inventory.every((i) => i.ok))) {
         throw new HttpException({ code: 422, message: '审单预检未通过', data: precheck }, HttpStatus.UNPROCESSABLE_ENTITY);
@@ -241,7 +242,7 @@ export class OrdersService {
       const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1 + attempt;
       orderNo = `${prefix}-${String(seq).padStart(4, '0')}`;
       try {
-        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalAmount, precheck, specialApproved, idemKey, idemPayload);
+        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, idemKey, idemPayload);
       } catch (e) {
         if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
         throw e;
@@ -250,10 +251,10 @@ export class OrdersService {
     if (!order) throw new ConflictException('单号生成冲突, 请重试');
 
     if (specialApproved) {
-      await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalAmount, reason: dto.specialReason } , ip });
+      await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalNum, reason: dto.specialReason } , ip });
     }
-    await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount, precheck }, ip });
-    return { id: order.id, orderNo, status: order.status, totalAmount, precheck };
+    await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount: totalNum, precheck }, ip });
+    return { id: order.id, orderNo, status: order.status, totalAmount: totalNum, precheck };
   }
 
   /** 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单) */
@@ -289,7 +290,7 @@ export class OrdersService {
         await tx.approvalRecord.create({
           data: {
             tenantId: user.tenantId, line: 'CREDIT_RELEASE', entityType: 'ORDER', entityId: created.id,
-            title: `信用放行 ${orderNo} ¥${totalAmount}`, amount: new Prisma.Decimal(totalAmount),
+            title: `信用放行 ${orderNo} ¥${totalAmount}`, amount: new Prisma.Decimal(totalAmount), // totalAmount 参数已是 number
             reason: dto.specialReason!, applicantId: user.id, approverId: user.id,
             status: 'APPROVED', decidedAt: new Date(),
           },
