@@ -66,6 +66,13 @@ export class RebatesService {
     if (!scheme) throw new ConflictException('该客户无生效中返利方案');
     const start = dayjs(`${period}-01`).startOf('month').toDate();
     const end = dayjs(`${period}-01`).endOf('month').toDate();
+    // P1-13: 期间护栏——不可核算未来账期, 不可早于方案生效月追溯套利
+    if (dayjs(start).isAfter(dayjs().startOf('month'))) {
+      throw new ConflictException(`期间 ${period} 尚未开始, 不可核算未来账期`);
+    }
+    if (dayjs(start).isBefore(dayjs(scheme.validFrom).startOf('month'))) {
+      throw new ConflictException(`期间 ${period} 早于方案生效月 ${dayjs(scheme.validFrom).format('YYYY-MM')}, 不可追溯核算`);
+    }
     const payAgg = await this.prisma.payment.aggregate({
       where: { customerId, status: 'CONFIRMED', kind: 'PAYMENT', confirmedAt: { gte: start, lte: end } },
       _sum: { amount: true },
@@ -89,43 +96,51 @@ export class RebatesService {
     if (dup) throw new ConflictException(`该客户 ${dto.period} 已核算(唯一)`);
     const preview = await this.preview(user, dto.customerId, dto.period) as { schemeType: string; rate: number; baseAmount: number; rebateAmount: number };
     const scheme = (await this.prisma.rebateScheme.findFirst({ where: { customerId: dto.customerId, closedAt: null } }))!;
-    const created = await this.prisma.rebateSettlement.create({
-      data: {
-        tenantId: user.tenantId, customerId: dto.customerId, schemeId: scheme.id, period: dto.period,
-        baseAmount: new Prisma.Decimal(preview.baseAmount), rebateAmount: new Prisma.Decimal(preview.rebateAmount),
-        settleType: dto.settleType, note: dto.note, createdById: user.id,
-      },
-    });
-    if (dto.settleType === 'INVOICE' && preview.rebateAmount > 0) {
-      // 票折: FIFO 冲未结应收(与收款核销同序, D4)
-      const ars = await this.prisma.receivable.findMany({
-        where: { customerId: dto.customerId, disputeFlag: false, archivedAt: null },
-        include: { ledger: true },
-        orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
+    // P1-12: 核算单与 REBATE_OFFSET 流水同事务(原实现分离, 中途失败留"已核算但应收未冲"的半截账,
+    // 且 (tenantId,customerId,period) 唯一键阻止重做)
+    const { created, unapplied } = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.rebateSettlement.create({
+        data: {
+          tenantId: user.tenantId, customerId: dto.customerId, schemeId: scheme.id, period: dto.period,
+          baseAmount: new Prisma.Decimal(preview.baseAmount), rebateAmount: new Prisma.Decimal(preview.rebateAmount),
+          settleType: dto.settleType, note: dto.note, createdById: user.id,
+        },
       });
-      let remain = preview.rebateAmount;
-      for (const ar of ars) {
-        if (remain <= 0.0001) break;
-        let settled = 0; let revNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
-        for (const l of ar.ledger) {
-          const amt = Number(l.amount);
-          if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
-          else if (l.direction === 'WAIVE') waived += amt;
-          else if (l.direction === 'WRITEOFF') writtenOff += amt;
-          else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
-          else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
-        }
-        const open = Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay;
-        if (open <= 0.0001) continue;
-        const take = Math.min(open, remain);
-        remain -= take;
-        await this.prisma.receivableLedger.create({
-          data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'REBATE_OFFSET', amount: new Prisma.Decimal(take), note: `返利票折 ${dto.period}: ${dto.note ?? ''}`, createdBy: user.id },
+      let unapplied = preview.rebateAmount; // GOODS: 货补全额待兑付
+      if (dto.settleType === 'INVOICE' && preview.rebateAmount > 0) {
+        // 票折: FIFO 冲未结应收(与收款核销同序, D4)
+        const ars = await tx.receivable.findMany({
+          where: { customerId: dto.customerId, disputeFlag: false, archivedAt: null },
+          include: { ledger: true },
+          orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
         });
+        let remain = preview.rebateAmount;
+        for (const ar of ars) {
+          if (remain <= 0.0001) break;
+          let settled = 0; let revNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
+          for (const l of ar.ledger) {
+            const amt = Number(l.amount);
+            if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
+            else if (l.direction === 'WAIVE') waived += amt;
+            else if (l.direction === 'WRITEOFF') writtenOff += amt;
+            else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
+            else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
+          }
+          const open = Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay;
+          if (open <= 0.0001) continue;
+          const take = Math.min(open, remain);
+          remain -= take;
+          await tx.receivableLedger.create({
+            data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'REBATE_OFFSET', amount: new Prisma.Decimal(take), note: `返利票折 ${dto.period}: ${dto.note ?? ''}`, createdBy: user.id },
+          });
+        }
+        // P1-12: 未冲完的剩余不再静默蒸发, 返回给调用方并落审计
+        unapplied = Number(remain.toFixed(2));
       }
-    }
-    await this.audit.log({ user, action: 'REBATE_SETTLE', entityType: 'RebateSettlement', entityId: created.id, after: { customerId: dto.customerId, period: dto.period, ...preview, settleType: dto.settleType } });
-    return { ...created, unapplied: dto.settleType === 'INVOICE' ? undefined : preview.rebateAmount, hint: dto.settleType === 'GOODS' ? '货补请以随单赠下单兑付(不反改原单, D02)' : undefined };
+      return { created, unapplied };
+    });
+    await this.audit.log({ user, action: 'REBATE_SETTLE', entityType: 'RebateSettlement', entityId: created.id, after: { customerId: dto.customerId, period: dto.period, ...preview, settleType: dto.settleType, unapplied } });
+    return { ...created, unapplied, hint: dto.settleType === 'GOODS' ? '货补请以随单赠下单兑付(不反改原单, D02)' : unapplied > 0.0001 ? `未结应收不足, 返利 ¥${unapplied.toFixed(2)} 未冲减(请联系老板处理)` : undefined };
   }
 
   async settlements(q: { period?: string; customerId?: string }): Promise<unknown> {
