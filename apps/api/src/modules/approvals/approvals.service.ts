@@ -56,7 +56,8 @@ export class ApprovalsService {
     return { id: record.id };
   }
 
-  /** 24h 超时退回(D01: 不自动通过); 惰性扫描——列表/详情访问时触发(无 cron 依赖) */
+  /** 24h 超时退回(D01: 不自动通过); 惰性扫描——列表/详情访问时触发(无 cron 依赖)
+   * #12: 采购/调价/盘点超期原不联动退回, 单据停在 PENDING_APPROVAL/PENDING 成永久死单 */
   async expireStale(user: AuthUser): Promise<number> {
     const cutoff = dayjs().subtract(24, 'hour').toDate();
     const stale = await this.prisma.approvalRecord.findMany({
@@ -66,10 +67,18 @@ export class ApprovalsService {
     if (stale.length === 0) return 0;
     await this.prisma.$transaction(async (tx) => {
       await tx.approvalRecord.updateMany({ where: { id: { in: stale.map((s) => s.id) } }, data: { status: 'EXPIRED_24H', decidedAt: new Date() } });
-      // 联动退回: 特单 PENDING_PRICE → DRAFT
+      // 联动退回: 单据回到可编辑/可重新提审状态
       for (const s of stale) {
         if (s.entityType === 'SPECIAL_ORDER') {
           await tx.specialOrder.updateMany({ where: { id: s.entityId, status: 'PENDING_PRICE' }, data: { status: 'DRAFT' } });
+        } else if (s.entityType === 'PURCHASE') {
+          await tx.purchaseOrder.updateMany({ where: { id: s.entityId, status: 'PENDING_APPROVAL' }, data: { status: 'DRAFT' } });
+        } else if (s.entityType === 'PRICE_CHANGE') {
+          await tx.priceChangeRequest.updateMany({ where: { id: s.entityId, status: 'PENDING' }, data: { status: 'DRAFT' } });
+        } else if (s.entityType === 'STOCKTAKE') {
+          await tx.stocktake.updateMany({ where: { id: s.entityId, status: 'PENDING_APPROVAL' }, data: { status: 'DRAFT' } });
+        } else if (s.entityType === 'RETURN') {
+          await tx.returnOrder.updateMany({ where: { id: s.entityId, status: 'PENDING_REVIEW' }, data: { status: 'CANCELLED' } });
         }
       }
     });
@@ -111,6 +120,14 @@ export class ApprovalsService {
     const record = await this.prisma.approvalRecord.findUnique({ where: { id } });
     if (!record) throw new NotFoundException('审批单不存在');
     if (record.status !== 'PENDING') throw new ConflictException(`该审批已处理(${record.status})`);
+    // #13: 绕过列表直接 decide 可批过期数天的审批——先惰性跑一遍过期扫描
+    await this.expireStale(user);
+    const fresh = await this.prisma.approvalRecord.findUnique({ where: { id }, select: { status: true } });
+    if (!fresh || fresh.status !== 'PENDING') {
+      throw new ConflictException(`该审批已超时过期(${fresh?.status ?? 'UNKNOWN'}), 请让申请人重新提审`);
+    }
+    // 申请人回避(2026-10 审查修复): ≤阈值时 CLERK 可批, 原实现连自己提审的单也能批, 制衡失效
+    if (record.applicantId === user.id) throw new ForbiddenException('不可审批自己发起的申请');
     const threshold = await this.threshold();
     const amount = record.amount !== null ? Number(record.amount) : null;
     // 路由硬闸: 老板专属线 或 金额超阈值 → 仅 OWNER; 其余 CLERK/OWNER 均可
@@ -121,25 +138,63 @@ export class ApprovalsService {
     }
     const approved = dto.action === 'approve';
     await this.prisma.$transaction(async (tx) => {
-      await tx.approvalRecord.update({ where: { id }, data: { status: approved ? 'APPROVED' : 'REJECTED', approverId: user.id, decidedAt: new Date() } });
+      // 实体状态闸(2026-10 审查修复): 关联单据已流转(取消/收货/过期退回)时拒绝决策,
+      // 防"审批复活已取消单据"(如取消退货后老板补批→单据被改回 APPROVED→照常回冲)
+      await this.assertEntityDecidable(tx, record);
+      // 条件更新抢占: 并发双批(批+驳各执行一次)在此互斥
+      const claimed = await tx.approvalRecord.updateMany({
+        where: { id, status: 'PENDING' },
+        data: { status: approved ? 'APPROVED' : 'REJECTED', approverId: user.id, decidedAt: new Date() },
+      });
+      if (claimed.count === 0) throw new ConflictException('该审批已处理');
       await this.applySideEffects(tx, user, record, approved, dto.opinion);
     });
     await this.audit.log({ user, action: 'APPROVAL_DECIDE', entityType: 'ApprovalRecord', entityId: id, before: { status: 'PENDING' }, after: { status: approved ? 'APPROVED' : 'REJECTED', line: record.line, entityId: record.entityId, opinion: dto.opinion }, ip });
     return { id, approved, line: record.line, entityType: record.entityType, entityId: record.entityId };
   }
 
-  /** 线内联动副作用: 审批结果回写业务单据 */
+  /** 各审批线实体进入"可决策"状态的前置值; 已流转则 409(不静默吞) */
+  private async assertEntityDecidable(tx: Pick<PrismaService, 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake'>, record: { entityType: string; entityId: string }): Promise<void> {
+    const expect: Record<string, string[]> = {
+      SPECIAL_ORDER: ['PENDING_PRICE'],
+      RETURN: ['PENDING_REVIEW'],
+      PURCHASE: ['PENDING_APPROVAL'],
+      PRICE_CHANGE: ['PENDING'],
+      STOCKTAKE: ['PENDING_APPROVAL'],
+      ORDER: ['PENDING_CONFIRM', 'CONFIRMED'],
+    };
+    const allowed = expect[record.entityType];
+    if (!allowed) return;
+    let status: string | undefined;
+    if (record.entityType === 'SPECIAL_ORDER') status = (await tx.specialOrder.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'RETURN') status = (await tx.returnOrder.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'ORDER') status = (await tx.salesOrder.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'PRICE_CHANGE') status = (await tx.priceChangeRequest.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'PURCHASE') status = (await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'STOCKTAKE') status = (await tx.stocktake.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    if (!status || !allowed.includes(status)) {
+      throw new ConflictException(`关联单据状态已变化(${status ?? '不存在'}), 该审批不再可决策, 请在业务侧处理`);
+    }
+  }
+
+  /** 线内联动副作用: 审批结果回写业务单据(条件更新——实体状态已变则整体回滚) */
   private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake' | 'restockRequest' | 'dailyStockReport'>, user: AuthUser, record: { line: string; entityType: string; entityId: string; tenantId: string }, approved: boolean, opinion?: string): Promise<void> {
     if (record.entityType === 'SPECIAL_ORDER') {
-      await tx.specialOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
+      const u = await tx.specialOrder.updateMany({ where: { id: record.entityId, status: 'PENDING_PRICE' }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
+      if (u.count === 0) throw new ConflictException('特单状态已变化, 审批副作用未执行');
     } else if (record.entityType === 'RETURN') {
-      await tx.returnOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+      const u = await tx.returnOrder.updateMany({ where: { id: record.entityId, status: 'PENDING_REVIEW' }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+      if (u.count === 0) throw new ConflictException('退货单状态已变化, 审批副作用未执行');
     } else if (record.entityType === 'ORDER' && record.line === 'CREDIT_RELEASE' && approved) {
-      await tx.salesOrder.update({ where: { id: record.entityId }, data: { specialApproved: true } });
+      // 仅待确认/已确认订单可放行(已签收/已取消订单放行无意义且属状态倒转)
+      const u = await tx.salesOrder.updateMany({ where: { id: record.entityId, status: { in: ['PENDING_CONFIRM', 'CONFIRMED'] } }, data: { specialApproved: true } });
+      if (u.count === 0) throw new ConflictException('订单状态已变化, 信用放行未执行');
     } else if (record.entityType === 'PRICE_CHANGE') {
-      await tx.priceChangeRequest.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
+      const u = await tx.priceChangeRequest.updateMany({ where: { id: record.entityId, status: 'PENDING' }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
+      if (u.count === 0) throw new ConflictException('调价单状态已变化, 审批副作用未执行');
     } else if (record.entityType === 'PURCHASE') {
-      await tx.purchaseOrder.update({ where: { id: record.entityId }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+      const u = await tx.purchaseOrder.updateMany({ where: { id: record.entityId, status: 'PENDING_APPROVAL' }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
+      if (u.count === 0) throw new ConflictException('采购单状态已变化, 审批副作用未执行(已付款/已收货单不可驳回取消)');
       // 自动报货单回链: 审批结果同步 RestockRequest(pending→SUBMITTED→APPROVED/DISMISSED); snapshot.autoRestock 标记
       const pur = await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { note: true } });
       if (pur?.note?.includes('自动报货 RQ')) {
@@ -153,9 +208,9 @@ export class ApprovalsService {
         }
       }
     } else if (record.entityType === 'STOCKTAKE') {
-      // 盘点差异: 批准→RECONCILED(可调账); 驳回→COUNTED(重盘)
-      await tx.stocktake.update({ where: { id: record.entityId }, data: { status: approved ? 'RECONCILED' : 'COUNTED' } });
+      // 盘点差异: 批准 PENDING_APPROVAL→RECONCILED(可调账); 驳回 PENDING_APPROVAL→COUNTED(重盘)
+      const u = await tx.stocktake.updateMany({ where: { id: record.entityId, status: 'PENDING_APPROVAL' }, data: { status: approved ? 'RECONCILED' : 'COUNTED' } });
+      if (u.count === 0) throw new ConflictException('盘点单状态已变化, 审批副作用未执行');
     }
-    void user;
   }
 }
