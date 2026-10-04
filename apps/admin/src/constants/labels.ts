@@ -12,16 +12,16 @@ export const ORDER_STATUS_META: Record<string, { label: string; color: string }>
   REJECTED: { label: '已拒收', color: 'error' },
 };
 
-export const ORDER_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'PENDING_CONFIRM', label: '待确认' },
-  { key: 'CONFIRMED', label: '已确认' },
-  { key: 'OUTBOUND', label: '出库' },
-  { key: 'DELIVERING', label: '配送' },
-  { key: 'SIGNED', label: '签收' },
-  { key: 'SETTLED', label: '已销账' },
-  { key: 'CANCELLED', label: '取消' },
-  { key: 'REJECTED', label: '拒收' },
+export const ORDER_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'PENDING_CONFIRM', label: '待确认' },
+  { value: 'CONFIRMED', label: '已确认' },
+  { value: 'OUTBOUND', label: '出库' },
+  { value: 'DELIVERING', label: '配送' },
+  { value: 'SIGNED', label: '签收' },
+  { value: 'SETTLED', label: '已销账' },
+  { value: 'CANCELLED', label: '取消' },
+  { value: 'REJECTED', label: '拒收' },
 ];
 
 export const SOURCE_LABELS: Record<string, string> = {
@@ -97,13 +97,13 @@ export const ONBOARDING_META: Record<string, { label: string; color: string }> =
 };
 
 /** 应收账龄分档（后端 AgingBucket：not_due/d1_30/d31_60/d61_90/d90p/disputed） */
-export const AR_BUCKET_TABS: Array<{ key: string; label: string }> = [
-  { key: 'not_due', label: '未到期' },
-  { key: 'd1_30', label: '逾期1-30天' },
-  { key: 'd31_60', label: '逾期31-60天' },
-  { key: 'd61_90', label: '逾期61-90天' },
-  { key: 'd90p', label: '逾期90天以上' },
-  { key: 'disputed', label: '争议' },
+export const AR_BUCKET_TABS: Array<{ value: string; label: string }> = [
+  { value: 'not_due', label: '未到期' },
+  { value: 'd1_30', label: '逾期1-30天' },
+  { value: 'd31_60', label: '逾期31-60天' },
+  { value: 'd61_90', label: '逾期61-90天' },
+  { value: 'd90p', label: '逾期90天以上' },
+  { value: 'disputed', label: '争议' },
 ];
 
 export const IMPORT_KIND_OPTIONS: Array<{ value: string; label: string }> = [
@@ -147,13 +147,13 @@ export const SPECIAL_ORDER_STATUS_META: Record<string, { label: string; color: s
   REJECTED: { label: '已驳回', color: 'error' },
 };
 
-export const SPECIAL_ORDER_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'DRAFT', label: '草稿' },
-  { key: 'PENDING_PRICE', label: '待定价审批' },
-  { key: 'APPROVED', label: '审批通过' },
-  { key: 'CONVERTED', label: '已转单' },
-  { key: 'REJECTED', label: '已驳回' },
+export const SPECIAL_ORDER_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'DRAFT', label: '草稿' },
+  { value: 'PENDING_PRICE', label: '待定价审批' },
+  { value: 'APPROVED', label: '审批通过' },
+  { value: 'CONVERTED', label: '已转单' },
+  { value: 'REJECTED', label: '已驳回' },
 ];
 
 /** P1-T03 退货状态（待审批橙→已审批绿→已收货蓝/已取消灰） */
@@ -164,12 +164,12 @@ export const RETURN_STATUS_META: Record<string, { label: string; color: string }
   CANCELLED: { label: '已取消', color: 'default' },
 };
 
-export const RETURN_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'PENDING_REVIEW', label: '待审批' },
-  { key: 'APPROVED', label: '已审批' },
-  { key: 'RECEIVED', label: '已收货' },
-  { key: 'CANCELLED', label: '已取消' },
+export const RETURN_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'PENDING_REVIEW', label: '待审批' },
+  { value: 'APPROVED', label: '已审批' },
+  { value: 'RECEIVED', label: '已收货' },
+  { value: 'CANCELLED', label: '已取消' },
 ];
 
 /** P1-T05 调价状态（草稿灰/待审批橙/已批绿/已生效蓝/驳回红） */
@@ -182,14 +182,14 @@ export const PRICE_CHANGE_STATUS_META: Record<string, { label: string; color: st
   CANCELLED: { label: '已取消', color: 'default' },
 };
 
-export const PRICE_CHANGE_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'DRAFT', label: '草稿' },
-  { key: 'PENDING', label: '待审批' },
-  { key: 'APPROVED', label: '已批' },
-  { key: 'EFFECTIVE', label: '已生效' },
-  { key: 'REJECTED', label: '驳回' },
-  { key: 'CANCELLED', label: '已取消' },
+export const PRICE_CHANGE_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'DRAFT', label: '草稿' },
+  { value: 'PENDING', label: '待审批' },
+  { value: 'APPROVED', label: '已批' },
+  { value: 'EFFECTIVE', label: '已生效' },
+  { value: 'REJECTED', label: '驳回' },
+  { value: 'CANCELLED', label: '已取消' },
 ];
 
 /** P1-T04 回包装记录类型（台账 append-only，OUT 冲减为负押金） */
@@ -214,14 +214,14 @@ export const PURCHASE_STATUS_META: Record<string, { label: string; color: string
   CANCELLED: { label: '已取消', color: 'default' },
 };
 
-export const PURCHASE_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'DRAFT', label: '草稿' },
-  { key: 'PENDING_APPROVAL', label: '待审批' },
-  { key: 'APPROVED', label: '已审批' },
-  { key: 'PAID', label: '已付款' },
-  { key: 'RECEIVED', label: '已收货' },
-  { key: 'CANCELLED', label: '已取消' },
+export const PURCHASE_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'DRAFT', label: '草稿' },
+  { value: 'PENDING_APPROVAL', label: '待审批' },
+  { value: 'APPROVED', label: '已审批' },
+  { value: 'PAID', label: '已付款' },
+  { value: 'RECEIVED', label: '已收货' },
+  { value: 'CANCELLED', label: '已取消' },
 ];
 
 /** P1-T07 盘点（Q11：仓管盘→内勤核对→超阈值报老板→调账，双签留痕） */
@@ -239,14 +239,14 @@ export const STOCKTAKE_STATUS_META: Record<string, { label: string; color: strin
   CANCELLED: { label: '已取消', color: 'default' },
 };
 
-export const STOCKTAKE_STATUS_TABS: Array<{ key: string; label: string }> = [
-  { key: 'ALL', label: '全部' },
-  { key: 'DRAFT', label: '待录实盘' },
-  { key: 'COUNTED', label: '已录实盘' },
-  { key: 'RECONCILED', label: '已核对' },
-  { key: 'PENDING_APPROVAL', label: '超阈值待审批' },
-  { key: 'ADJUSTED', label: '已调账' },
-  { key: 'CANCELLED', label: '已取消' },
+export const STOCKTAKE_STATUS_TABS: Array<{ value: string; label: string }> = [
+  { value: 'ALL', label: '全部' },
+  { value: 'DRAFT', label: '待录实盘' },
+  { value: 'COUNTED', label: '已录实盘' },
+  { value: 'RECONCILED', label: '已核对' },
+  { value: 'PENDING_APPROVAL', label: '超阈值待审批' },
+  { value: 'ADJUSTED', label: '已调账' },
+  { value: 'CANCELLED', label: '已取消' },
 ];
 
 /** P1-T08 优惠（D02：b 除瓶箱后返利 / c 定扣货款；同客户 b/c 互斥） */

@@ -115,7 +115,7 @@ export function FourQuestionsBoard(): JSX.Element {
   useEffect(() => { void load(); }, [load]);
 
   const debtBuckets = data?.debt.buckets ?? {};
-  const shownBuckets = AR_BUCKET_TABS.filter((b) => toNum(debtBuckets[b.key]) > 0);
+  const shownBuckets = AR_BUCKET_TABS.filter((b) => toNum(debtBuckets[b.value]) > 0);
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={16}>
@@ -160,8 +160,8 @@ export function FourQuestionsBoard(): JSX.Element {
             <Statistic title="未结总额" value={fmtMoney(data?.debt.total)} valueStyle={{ color: NEG }} />
             <Space style={{ marginTop: 8 }} wrap size={4}>
               {shownBuckets.length ? shownBuckets.map((b) => (
-                <Tag key={b.key} color={BUCKET_TAG_COLORS[b.key]}>
-                  {b.label} {fmtMoney(debtBuckets[b.key])}
+                <Tag key={b.value} color={BUCKET_TAG_COLORS[b.value]}>
+                  {b.label} {fmtMoney(debtBuckets[b.value])}
                 </Tag>
               )) : <Tag>暂无账龄分布</Tag>}
             </Space>
