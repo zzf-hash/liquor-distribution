@@ -53,13 +53,15 @@ export class PurchasesService {
     const p = await this.prisma.purchaseOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!p) throw new NotFoundException('采购单不存在');
     if (p.status !== 'DRAFT') throw new ConflictException(`仅草稿可提交(当前 ${p.status})`);
+    // 先抢占状态再建审批单(2026-10 审查修复: 并发 submit 会建两张 PENDING 审批单)
+    const claimed = await this.prisma.purchaseOrder.updateMany({ where: { id, status: 'DRAFT' }, data: { status: 'PENDING_APPROVAL' } });
+    if (claimed.count === 0) throw new ConflictException(`仅草稿可提交(当前状态可能已变化)`);
     const approval = await this.approvals.create(user, {
       line: 'PURCHASE', entityType: 'PURCHASE', entityId: id,
       title: `采购 ${p.purNo} ${p.supplier} ¥${Number(p.totalAmount)}`,
       amount: Number(p.totalAmount), reason: `${p.type === 'PREPAID' ? 'F3 先付' : 'F4 后付'}采购, ${p.lines.length} 行`,
       payload: { purNo: p.purNo, type: p.type, supplier: p.supplier, lines: p.lines.map((l) => ({ productId: l.productId, qty: Number(l.qty), unitCost: Number(l.unitCost) })) },
     });
-    await this.prisma.purchaseOrder.update({ where: { id }, data: { status: 'PENDING_APPROVAL' } });
     return { id, status: 'PENDING_APPROVAL', approvalId: approval.id };
   }
 
@@ -76,7 +78,12 @@ export class PurchasesService {
     if (p.status !== validFrom) {
       throw new ConflictException(p.type === 'PREPAID' ? 'F3 先付流程: 审批通过后才可付款' : 'F4 后付流程: 收货入库后才可付款');
     }
-    await this.prisma.purchaseOrder.update({ where: { id }, data: { status: 'PAID', paidAt: new Date(), payeeNote: note ?? p.payeeNote } });
+    // 条件更新抢占(2026-10 审查修复: 并发付款双写 PAID; 2026-10 审查修复前 update 无状态守卫)
+    const claimed = await this.prisma.purchaseOrder.updateMany({
+      where: { id, status: validFrom },
+      data: { status: 'PAID', paidAt: new Date(), payeeNote: note ?? p.payeeNote },
+    });
+    if (claimed.count === 0) throw new ConflictException('采购单状态已变化(可能已付款), 请刷新后重试');
     await this.idem.complete(user, 'purchases.pay', idemKey, pPayload, { purNo: p.purNo });
     await this.audit.log({ user, action: 'PURCHASE_PAY', entityType: 'PURCHASE', entityId: id, after: { purNo: p.purNo, amount: Number(p.totalAmount), note } });
     return { purNo: p.purNo, status: 'PAID', amount: Number(p.totalAmount) };
@@ -93,6 +100,9 @@ export class PurchasesService {
     }
     const batches: Array<{ productId: string; batchNo: string; qty: number }> = [];
     await this.prisma.$transaction(async (tx) => {
+      // 事务内抢占(2026-10 审查修复: 状态检查在事务外, 并发收货双倍入库且无幂等键)
+      const claimed = await tx.purchaseOrder.updateMany({ where: { id, status: validFrom }, data: { status: 'RECEIVED', receivedAt: new Date() } });
+      if (claimed.count === 0) throw new ConflictException('采购单状态已变化(可能已收货), 请刷新后重试');
       for (const l of p.lines) {
         let batch = await tx.batchStock.findFirst({ where: { productId: l.productId, batchNo: l.batchNo } });
         if (!batch) {
@@ -113,7 +123,6 @@ export class PurchasesService {
         });
         batches.push({ productId: l.productId, batchNo: l.batchNo, qty: Number(l.qty) });
       }
-      await tx.purchaseOrder.update({ where: { id }, data: { status: 'RECEIVED', receivedAt: new Date() } });
     });
     await this.audit.log({ user, action: 'PURCHASE_RECEIVE', entityType: 'PURCHASE', entityId: id, after: { purNo: p.purNo, batches, costVersions: p.lines.length } });
     return { purNo: p.purNo, status: 'RECEIVED', batches, costPriceVersions: p.lines.length };

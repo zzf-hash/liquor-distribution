@@ -56,17 +56,28 @@ export class ReturnsService {
       const already = returnedByLine.get(orderLineId) ?? 0;
       if (already + qty > net + 0.0001) throw new BadRequestException(`行退货累计 ${already + qty} 超过原行净量 ${net}(R4 只能多不能少的上限=原量)`);
     }
-    const seq = (await this.prisma.returnOrder.count({ where: { returnNo: { startsWith: `RT${dayjs().format('YYYYMMDD')}` } } })) + 1;
-    const created = await this.prisma.returnOrder.create({
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const rtDay = dayjs().format('YYYYMMDD');
+    let created: Awaited<ReturnType<typeof this.prisma.returnOrder.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      const seq = (await this.prisma.returnOrder.count({ where: { returnNo: { startsWith: `RT${rtDay}` } } })) + 1 + attempt;
+      try {
+        created = await this.prisma.returnOrder.create({
       data: {
         tenantId: user.tenantId,
-        returnNo: `RT${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        returnNo: `RT${rtDay}-${String(seq).padStart(4, '0')}`,
         sourceOrderId: dto.sourceOrderId, customerId: order.customerId,
         reason: dto.reason, status: 'PENDING_REVIEW', createdById: user.id,
         lines: { create: dto.lines.map((l) => ({ tenantId: user.tenantId, orderLineId: l.orderLineId, productId: order.lines.find((x) => x.id === l.orderLineId)!.productId, qty: new Prisma.Decimal(l.qty), note: l.note })) },
       } as never,
       include: { lines: true },
-    });
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!created) throw new ConflictException('单号生成冲突, 请重试');
     const amount = dto.lines.reduce((s, l) => {
       const line = order.lines.find((x) => x.id === l.orderLineId)!;
       return s + Number(line.unitPrice) * l.qty;

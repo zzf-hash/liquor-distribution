@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -7,6 +7,20 @@ import { AuditService, AuditAction } from '../../audit/audit.service';
 export interface LoginResult {
   token: string;
   user: { id: string; username: string; name: string; role: string; dataScope: string };
+}
+
+// 登录限流(2026-10 审查修复: 原无任何爆破防护)。内存滑动窗口按 ip+用户名计数,
+// 15 分钟内失败 ≥10 次拒绝; 单实例部署够用, 多实例应换 Redis 集中计数。
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILS = 10;
+const loginFails = new Map<string, { count: number; firstAt: number }>();
+
+function pruneLoginFails(): void {
+  if (loginFails.size < 5000) return;
+  const now = Date.now();
+  for (const [k, v] of loginFails) {
+    if (now - v.firstAt >= LOGIN_WINDOW_MS) loginFails.delete(k);
+  }
 }
 
 // P0-02 认证: 五角色 JWT
@@ -22,8 +36,17 @@ export class AuthService {
   ) {}
 
   async login(username: string, password: string, ip?: string): Promise<LoginResult> {
+    const limitKey = `${ip ?? '-'}|${username}`;
+    pruneLoginFails();
+    const hits = loginFails.get(limitKey);
+    if (hits && hits.count >= LOGIN_MAX_FAILS && Date.now() - hits.firstAt < LOGIN_WINDOW_MS) {
+      throw new HttpException('登录尝试次数过多, 请 15 分钟后再试', HttpStatus.TOO_MANY_REQUESTS);
+    }
     const user = await this.prisma.user.findFirst({ where: { username } });
     const fail = async (): Promise<never> => {
+      const cur = loginFails.get(limitKey);
+      if (!cur || Date.now() - cur.firstAt >= LOGIN_WINDOW_MS) loginFails.set(limitKey, { count: 1, firstAt: Date.now() });
+      else cur.count += 1;
       await this.audit.log({
         user: { id: '', tenantId: user?.tenantId ?? 'UNKNOWN', username, role: '-' },
         action: AuditAction.LOGIN_FAIL, entityType: 'User', ip,
@@ -33,6 +56,7 @@ export class AuthService {
     if (!user || !user.passwordHash) return fail();
     if (user.status === 'DISABLED') throw new UnauthorizedException('账号已禁用');
     if (!(await bcrypt.compare(password, user.passwordHash))) return fail();
+    loginFails.delete(limitKey); // 成功登录清零失败计数
 
     const token = await this.jwt.signAsync({
       sub: user.id,

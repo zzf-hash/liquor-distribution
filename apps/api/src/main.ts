@@ -1,10 +1,28 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { tenantContext } from './prisma/tenant-context';
 import type { Request, Response, NextFunction } from 'express';
+
+// 本地 dev 的 .env 加载(项目未用 @nestjs/config, 此前 JWT_SECRET 静默回退硬编码才"能用";
+// auth.module 已 fail-fast, 缺它本地起不来)。已存在的环境变量不覆盖(docker 部署以真实 env 为准)。
+function loadDotEnv(): void {
+  try {
+    const file = path.join(process.cwd(), '.env');
+    if (!fs.existsSync(file)) return;
+    for (const line of fs.readFileSync(file, 'utf-8').split('\n')) {
+      const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+      if (!m) continue;
+      const v = m[2].replace(/^['"]|['"]$/g, '');
+      if (process.env[m[1]] === undefined) process.env[m[1]] = v;
+    }
+  } catch { /* .env 读取失败不阻断启动, 由各模块自身的校验兜底 */ }
+}
+loadDotEnv();
 
 // B5 租户上下文中间件: 从 JWT 解出 tenantId, als.run 包裹下游整条链(守卫enterWith在部分环境不传播——
 // 实测生产 salesOrder.create 丢store报 "Argument tenant is missing", 此处为正解; 仅解码不验签,

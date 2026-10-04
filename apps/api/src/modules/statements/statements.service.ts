@@ -49,18 +49,29 @@ export class StatementsService {
       openBalance += open;
       lines.push({ docNo: ar.sourceDocNo, type: ar.sourceType, total: Number(ar.total), settledInPeriod: Number(ar.ledger.filter((l) => (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') && l.createdAt >= start && l.createdAt <= end).reduce((s, l) => s + Number(l.amount), 0).toFixed(2)), open: Number(open.toFixed(2)), generatedAt: dayjs(ar.generatedAt).format('YYYY-MM-DD'), dueDate: dayjs(ar.dueDate).format('YYYY-MM-DD'), dispute: ar.disputeFlag });
     }
-    const seq = (await this.prisma.statement.count({ where: { statementNo: { startsWith: `DZ${dto.period.replace('-', '')}` } } })) + 1;
-    const created = await this.prisma.statement.create({
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const dzPrefix = `DZ${dto.period.replace('-', '')}`;
+    let created: Awaited<ReturnType<typeof this.prisma.statement.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      const seq = (await this.prisma.statement.count({ where: { statementNo: { startsWith: dzPrefix } } })) + 1 + attempt;
+      try {
+        created = await this.prisma.statement.create({
       data: {
         tenantId: user.tenantId,
-        statementNo: `DZ${dto.period.replace('-', '')}-${String(seq).padStart(4, '0')}`,
+        statementNo: `${dzPrefix}-${String(seq).padStart(4, '0')}`,
         customerId: dto.customerId, period: dto.period,
         totalCharged: new Prisma.Decimal(totalCharged.toFixed(2)),
         totalSettled: new Prisma.Decimal(totalSettled.toFixed(2)),
         openBalance: new Prisma.Decimal(openBalance.toFixed(2)),
         lines: lines as never, generatedById: user.id, status: 'GENERATED',
       },
-    });
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!created) throw new ConflictException('单号生成冲突, 请重试');
     await this.audit.log({ user, action: 'STATEMENT_GENERATE', entityType: 'Statement', entityId: created.id, after: { statementNo: created.statementNo, period: dto.period, totalCharged, totalSettled, openBalance, lines: lines.length } });
     return created;
   }

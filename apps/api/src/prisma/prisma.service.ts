@@ -26,12 +26,28 @@ const WRITE_ONCE_MODELS = new Set<string>([
   'ReturnLine', // R4: 退货数量只增——行 append-only, 增量走追加行
 ]);
 
-// B5: 带 tenantId 的业务模型(查询/写入强制注入)
+// B5: 带 tenantId 的业务模型(查询/写入强制注入)。
+// 2026-10 安全审查: 清单曾漏一半模型, 导致 statements/rebates/visits/special-orders/
+// purchases/stocktakes/drafts 等查询跨租户泄漏——清单必须与 schema 全量对齐。
+// 生成方式: 取 prisma/schema.prisma 中所有带 tenantId 字段的模型(Tenant 自身除外)。
 const TENANT_MODELS = new Set<string>([
   'User', 'Product', 'Price', 'CustomerPrice', 'Customer', 'BatchStock',
-  'InventoryLedger', 'SalesOrder', 'OrderLine', 'Outbound', 'OutboundLine',
-  'SignatureRecord', 'Receivable', 'Payment', 'ReceivableLedger',
-  'AuditLog', 'ApprovalRecord', 'ImportBatch', 'ImportRowError', 'IdempotencyRecord',
+  'InventoryLedger', 'SalesOrder', 'OrderLine', 'ApprovalRecord', 'Outbound',
+  'OutboundLine', 'SignatureRecord', 'Receivable', 'Payment', 'ReceivableLedger',
+  'SpecialOrder', 'SpecialOrderLine', 'ReturnOrder', 'ReturnLine',
+  'PriceChangeRequest', 'PackageRecord', 'PurchaseOrder', 'PurchaseLine',
+  'Stocktake', 'StocktakeLine', 'RebateScheme', 'RebateSettlement', 'Payroll',
+  'Statement', 'DisputeItem', 'Visit', 'OrderDraft', 'AliasEntry',
+  'AuditLog', 'ImportBatch', 'ImportRowError', 'IdempotencyRecord', 'SystemConfig',
+  'DailyStockReport', 'RestockRequest',
+]);
+
+// 接受 where 的动作统一注入(含 findUnique 系——此前豁免是跨租户 IDOR 根源:
+// 全部按 id 读单据的代码都是裸查; Prisma5+ 扩展唯一 where 允许附加非唯一字段,
+// 注入后跨租户 id 直接 404/P2025)。upsert 不在此列: 现有调用点均用 tenantId_ 复合键。
+const WHERE_ACTIONS = new Set<string>([
+  'findMany', 'findFirst', 'findFirstOrThrow', 'findUnique', 'findUniqueOrThrow',
+  'count', 'aggregate', 'groupBy', 'update', 'updateMany', 'delete', 'deleteMany',
 ]);
 
 type Ctx = { tenantId: string } | undefined;
@@ -46,8 +62,15 @@ function applyGuards(params: Record<string, unknown>, ctx: Ctx): Record<string, 
   }
   if (!ctx || !TENANT_MODELS.has(model)) return params;
   const args = (params.args ?? {}) as Record<string, any>;
-  if (args.where && typeof args.where === 'object' && args.where.tenantId === undefined && action !== 'findUnique' && action !== 'findUniqueOrThrow') {
-    args.where = { ...args.where, tenantId: ctx.tenantId };
+  if (WHERE_ACTIONS.has(action)) {
+    // 无 where 的集合查询此前整个被跳过(GET /users 等裸 findMany 全租户泄漏), 这里主动构造
+    if (args.where === undefined) args.where = {};
+    const where = args.where as Record<string, unknown>;
+    const alreadyTenantScoped =
+      where.tenantId !== undefined ||
+      // tenantId_ 开头的复合唯一键(tenantId_key 等)构造即租户域, 不再叠加
+      Object.keys(where).some((k) => k.startsWith('tenantId_'));
+    if (!alreadyTenantScoped) where.tenantId = ctx.tenantId;
   }
   if (action === 'create' && args.data && typeof args.data === 'object' && args.data.tenantId === undefined) {
     args.data = { ...args.data, tenantId: ctx.tenantId };

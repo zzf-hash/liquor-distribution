@@ -11,7 +11,9 @@ import { CreateProductDto, ListProductsDto, UpdateProductDto } from './dto';
 export class ProductsController {
   constructor(private readonly products: ProductsService) {}
 
+  /** 2026-10 审查修复: 对 REP 开放只读目录(业务员代下单搜索商品此前 403) */
   @Get()
+  @Roles('OWNER', 'CLERK', 'REP')
   list(@Query() query: ListProductsDto, @CurrentUser() user: AuthUser) {
     return this.products.list(user, query);
   }

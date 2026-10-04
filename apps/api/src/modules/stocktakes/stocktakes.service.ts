@@ -90,6 +90,12 @@ export class StocktakesService {
     const diffAmount = Number(diffs.reduce((s, d) => s + d.diffAmount, 0).toFixed(2));
     const threshold = await this.threshold();
     const thresholdOver = Math.abs(diffAmount) > threshold;
+    // 先抢占状态再建审批单(2026-10 审查修复: 并发核对重复提审)
+    const claimed = await this.prisma.stocktake.updateMany({
+      where: { id, status: 'COUNTED' },
+      data: { status: thresholdOver ? 'PENDING_APPROVAL' : 'RECONCILED', reconciledById: user.id, reconciledAt: new Date(), diffAmount: new Prisma.Decimal(diffAmount), thresholdOver },
+    });
+    if (claimed.count === 0) throw new ConflictException('盘点单状态已变化(可能已核对), 请刷新后重试');
     let approvalId: string | undefined;
     if (thresholdOver) {
       const approval = await this.approvals.create(user, {
@@ -100,10 +106,6 @@ export class StocktakesService {
       });
       approvalId = approval.id;
     }
-    await this.prisma.stocktake.update({
-      where: { id },
-      data: { status: thresholdOver ? 'PENDING_APPROVAL' : 'RECONCILED', reconciledById: user.id, reconciledAt: new Date(), diffAmount: new Prisma.Decimal(diffAmount), thresholdOver },
-    });
     await this.audit.log({ user, action: 'STOCKTAKE_RECONCILE', entityType: 'STOCKTAKE', entityId: id, before: { status: 'COUNTED' }, after: { diffAmount, thresholdOver, approvalId, diffLines: diffs.length } });
     return { id, status: thresholdOver ? 'PENDING_APPROVAL' : 'RECONCILED', diffAmount, thresholdOver, threshold, diffs, approvalId };
   }
@@ -119,6 +121,9 @@ export class StocktakesService {
     }
     let adjusted = 0;
     await this.prisma.$transaction(async (tx) => {
+      // 事务内抢占(2026-10 审查修复: 状态检查在事务外, 并发调账双倍写 ADJUST 流水且无幂等键)
+      const claimed = await tx.stocktake.updateMany({ where: { id, status: 'RECONCILED' }, data: { status: 'ADJUSTED', adjustedAt: new Date() } });
+      if (claimed.count === 0) throw new ConflictException('盘点单状态已变化(可能已调账), 请刷新后重试');
       for (const l of st.lines) {
         const diff = Number(l.countedQty) - Number(l.systemQty);
         if (Math.abs(diff) <= 0.0001) continue;
@@ -127,7 +132,6 @@ export class StocktakesService {
         });
         adjusted++;
       }
-      await tx.stocktake.update({ where: { id }, data: { status: 'ADJUSTED', adjustedAt: new Date() } });
     });
     await this.audit.log({ user, action: 'STOCKTAKE_ADJUST', entityType: 'STOCKTAKE', entityId: id, after: { takeNo: st.takeNo, adjustedLines: adjusted, diffAmount: Number(st.diffAmount ?? 0) } });
     return { id, status: 'ADJUSTED', adjustedLines: adjusted };

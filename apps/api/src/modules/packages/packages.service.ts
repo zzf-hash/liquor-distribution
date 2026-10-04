@@ -31,23 +31,37 @@ export class PackagesService {
     if (!dto.category?.trim()) throw new BadRequestException('品类必填');
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
-    if (dto.type === 'OUT') {
-      // 押金退付: 校验余额足够(数量口径)
-      const bal = await this.balanceOf(dto.customerId, dto.category);
-      if (bal.qty < dto.qty) throw new BadRequestException(`押金退付超余额(当前 ${bal.qty})`);
-    }
-    const unit = await this.depositUnit(dto.category);
-    const depositPaid = dto.type === 'OUT' ? -Number((unit * dto.qty).toFixed(2)) : Number((unit * dto.qty).toFixed(2));
     const pPayload = { c: dto.customerId, k: dto.category, q: dto.qty, t: dto.type };
     const dup = await this.idem.check(user, 'packages.create', idemKey ?? '', pPayload);
     if (dup) return { replay: true, summary: dup.summary };
-    const created = await this.prisma.packageRecord.create({
-      data: {
-        tenantId: user.tenantId, customerId: dto.customerId, category: dto.category, qty: dto.qty,
-        type: dto.type, orderId: dto.orderId, depositPaid: new Prisma.Decimal(depositPaid),
-        note: dto.note, recordedById: user.id,
-      },
-    });
+    const unit = await this.depositUnit(dto.category);
+    const depositPaid = dto.type === 'OUT' ? -Number((unit * dto.qty).toFixed(2)) : Number((unit * dto.qty).toFixed(2));
+    let created: { id: string };
+    if (dto.type === 'OUT') {
+      // 押金退付: 事务内行锁 + 余额复核(2026-10 审查修复: 原余额校验在事务外且幂等记录
+      // 与业务不同事务, 并发双退可超额退付)
+      created = await this.prisma.$transaction(async (tx) => {
+        // 锁定该客户该品类的台账行, 串行化并发退付(锁内重算余额, READ COMMITTED 下可读到对方已提交行)
+        await tx.$queryRaw`SELECT id FROM "PackageRecord" WHERE "tenantId" = ${user.tenantId} AND "customerId" = ${dto.customerId} AND category = ${dto.category} FOR UPDATE`;
+        const bal = await this.balanceOfTx(tx, dto.customerId, dto.category);
+        if (bal.qty < dto.qty) throw new BadRequestException(`押金退付超余额(当前 ${bal.qty})`);
+        return tx.packageRecord.create({
+          data: {
+            tenantId: user.tenantId, customerId: dto.customerId, category: dto.category, qty: dto.qty,
+            type: dto.type, orderId: dto.orderId, depositPaid: new Prisma.Decimal(depositPaid),
+            note: dto.note, recordedById: user.id,
+          },
+        });
+      });
+    } else {
+      created = await this.prisma.packageRecord.create({
+        data: {
+          tenantId: user.tenantId, customerId: dto.customerId, category: dto.category, qty: dto.qty,
+          type: dto.type, orderId: dto.orderId, depositPaid: new Prisma.Decimal(depositPaid),
+          note: dto.note, recordedById: user.id,
+        },
+      });
+    }
     if (idemKey) {
       await this.idem.complete(user, 'packages.create', idemKey, pPayload, { id: created.id });
     }
@@ -55,15 +69,20 @@ export class PackagesService {
     return { id: created.id, category: dto.category, qty: dto.qty, type: dto.type, depositPaid };
   }
 
-  private async balanceOf(customerId: string, category: string): Promise<{ qty: number; deposit: number }> {
-    const rows = await this.prisma.packageRecord.findMany({ where: { customerId, category } });
+  private async balanceOfTx(tx: Pick<PrismaService, 'packageRecord'>, customerId: string, category: string): Promise<{ qty: number; deposit: number }> {
+    const rows = await tx.packageRecord.findMany({ where: { customerId, category } });
     let qty = 0; let deposit = 0;
     for (const r of rows) {
-      const sign = r.type === 'OUT' ? -1 : 1;
-      qty += sign * r.qty;
-      deposit += sign * Number(r.depositPaid);
+      // IN 类 depositPaid 为正、OUT 类存负值 → 直接累加(2026-10 审查修复: 原按 type 再乘 ±1,
+      // 负负得正, 每笔退付反而使押金余额增加)
+      qty += r.type === 'OUT' ? -r.qty : r.qty;
+      deposit += Number(r.depositPaid);
     }
     return { qty, deposit };
+  }
+
+  private async balanceOf(customerId: string, category: string): Promise<{ qty: number; deposit: number }> {
+    return this.balanceOfTx(this.prisma, customerId, category);
   }
 
   /** 押金台账汇总(按品类全局) */
@@ -71,10 +90,10 @@ export class PackagesService {
     const rows = await this.prisma.packageRecord.findMany({ select: { category: true, qty: true, type: true, depositPaid: true } });
     const map = new Map<string, { category: string; qty: number; deposit: number }>();
     for (const r of rows) {
-      const sign = r.type === 'OUT' ? -1 : 1;
       const cur = map.get(r.category) ?? { category: r.category, qty: 0, deposit: 0 };
-      cur.qty += sign * r.qty;
-      cur.deposit += sign * Number(r.depositPaid);
+      // 与 balanceOf 同口径: depositPaid 直接累加(OUT 行已存负值), 仅数量按 type 取反
+      cur.qty += r.type === 'OUT' ? -r.qty : r.qty;
+      cur.deposit += Number(r.depositPaid);
       map.set(r.category, cur);
     }
     const items = [...map.values()];

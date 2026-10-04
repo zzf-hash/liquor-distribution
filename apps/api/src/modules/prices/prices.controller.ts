@@ -53,8 +53,10 @@ export class CustomerPricesController {
 export class PriceResolveController {
   constructor(private readonly prices: PricesService) {}
 
-  /** 取价引擎（只读）：下单/导价共用，优先级 客户专属价>TERMINAL>TIER2>TIER1>RETAIL */
+  /** 取价引擎（只读）：下单/导价共用，优先级 客户专属价>TERMINAL>TIER2>TIER1>RETAIL
+   *  2026-10 审查修复: 对 REP 开放(业务员代下单此前 403); COST 成本价本就不在 resolve 链内 */
   @Get('resolve')
+  @Roles('OWNER', 'CLERK', 'REP')
   resolve(@Query() query: ResolvePriceDto, @CurrentUser() user: AuthUser) {
     return this.prices.resolve(user, query);
   }

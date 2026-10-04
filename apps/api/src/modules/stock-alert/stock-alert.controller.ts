@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Injectable, Logger, Module, OnModuleDestroy, OnModuleInit, Param, Post, Query } from '@nestjs/common';
 import { IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Max, Min, MinLength } from 'class-validator';
 import { PrismaService } from '../../prisma/prisma.service';
+import { tenantContext } from '../../prisma/tenant-context';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -161,7 +162,11 @@ export class StockAlertDailyTask implements OnModuleInit, OnModuleDestroy {
     const out: Array<{ tenantId: string; reportDate: string; rows: number; alerts: number; created: number } | { tenantId: string; error: string }> = [];
     for (const tenantId of await this.cfgReader.tenantIds()) {
       try {
-        out.push({ tenantId, ...(await this.svc.runScan(SYSTEM_USER(tenantId), { createRestocks: true })) });
+        // 逐租户切换注入层上下文(2026-10 审查修复配套: 租户注入以请求 store 为准,
+        // 系统任务遍历多租户时必须 run 对应租户, 否则扫描/自动提审被收敛到调用者租户)
+        await tenantContext.run({ tenantId }, async () => {
+          out.push({ tenantId, ...(await this.svc.runScan(SYSTEM_USER(tenantId), { createRestocks: true })) });
+        });
       } catch (e) {
         out.push({ tenantId, error: String(e).slice(0, 300) });
       }

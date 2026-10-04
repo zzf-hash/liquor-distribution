@@ -101,20 +101,31 @@ export class ReceivablesService {
     if (dup) return { replay: true, summary: dup.summary };
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
-    const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `PAY${dayjs().format('YYYYMMDD')}` } } })) + 1;
-    const payment = await this.prisma.payment.create({
-      data: {
-        tenantId: user.tenantId,
-        paymentNo: `PAY${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
-        customerId: dto.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'PAYMENT',
-        method: dto.method, voucher: dto.voucher, note: dto.note,
-        reportedById: user.role === 'REP' ? user.id : null,
-        enteredById: user.role === 'CLERK' || user.role === 'OWNER' ? user.id : null,
-        status: user.role === 'REP' ? 'REPORTED' : 'CONFIRMED',
-        confirmedAt: user.role === 'REP' ? null : new Date(),
-        idemKey,
-      },
-    });
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const payDay = dayjs().format('YYYYMMDD');
+    let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !payment; attempt++) {
+      const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `PAY${payDay}` } } })) + 1 + attempt;
+      try {
+        payment = await this.prisma.payment.create({
+          data: {
+            tenantId: user.tenantId,
+            paymentNo: `PAY${payDay}-${String(seq).padStart(4, '0')}`,
+            customerId: dto.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'PAYMENT',
+            method: dto.method, voucher: dto.voucher, note: dto.note,
+            reportedById: user.role === 'REP' ? user.id : null,
+            enteredById: user.role === 'CLERK' || user.role === 'OWNER' ? user.id : null,
+            status: user.role === 'REP' ? 'REPORTED' : 'CONFIRMED',
+            confirmedAt: user.role === 'REP' ? null : new Date(),
+            idemKey,
+          },
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!payment) throw new ConflictException('单号生成冲突, 请重试');
     await this.idem.complete(user, 'payments.report', idemKey, { c: dto.customerId, a: dto.amount, m: dto.method ?? '' }, { paymentNo: payment.paymentNo });
     await this.audit.log({ user, action: AuditAction.PAYMENT_CONFIRM, entityType: 'Payment', entityId: payment.id, after: { paymentNo: payment.paymentNo, amount: dto.amount, status: payment.status }, ip });
     if (payment.status === 'CONFIRMED') return this.settleFifo(user, payment.id, ip); // 内勤/老板直录 = 即确认销账
@@ -214,18 +225,29 @@ export class ReceivablesService {
     if (Number(monthWaived._sum.amount ?? 0) + dto.amount > monthMax) {
       throw new BadRequestException(`本月抹零累计将超上限 ${monthMax} 元(当前 ${Number(monthWaived._sum.amount ?? 0)})`);
     }
-    const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `WV${dayjs().format('YYYYMMDD')}` } } })) + 1;
-    const payment = await this.prisma.payment.create({
-      data: {
-        tenantId: user.tenantId,
-        paymentNo: `WV${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
-        customerId: ar.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'WAIVE', receivableId,
-        method: '抹零', note: dto.reason, reportedById: user.id,
-        status: user.role === 'OWNER' ? 'CONFIRMED' : 'REPORTED', // 老板发起即生效
-        confirmedAt: user.role === 'OWNER' ? new Date() : null,
-        idemKey,
-      },
-    });
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const wvDay = dayjs().format('YYYYMMDD');
+    let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !payment; attempt++) {
+      const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `WV${wvDay}` } } })) + 1 + attempt;
+      try {
+        payment = await this.prisma.payment.create({
+          data: {
+            tenantId: user.tenantId,
+            paymentNo: `WV${wvDay}-${String(seq).padStart(4, '0')}`,
+            customerId: ar.customerId, amount: new Prisma.Decimal(dto.amount), kind: 'WAIVE', receivableId,
+            method: '抹零', note: dto.reason, reportedById: user.id,
+            status: user.role === 'OWNER' ? 'CONFIRMED' : 'REPORTED', // 老板发起即生效
+            confirmedAt: user.role === 'OWNER' ? new Date() : null,
+            idemKey,
+          },
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!payment) throw new ConflictException('单号生成冲突, 请重试');
     await this.idem.complete(user, 'receivables.waive', idemKey, { r: receivableId, a: dto.amount, reason: dto.reason }, { paymentNo: payment.paymentNo });
     await this.audit.log({ user, action: 'WAIVE_INITIATE', entityType: 'Receivable', entityId: receivableId, after: { paymentNo: payment.paymentNo, amount: dto.amount, reason: dto.reason }, ip });
     if (payment.status === 'CONFIRMED') return this.applyWaive(user, payment.id, receivableId, ip);
@@ -256,15 +278,26 @@ export class ReceivablesService {
     if (!ar) throw new NotFoundException('应收单不存在');
     const { open } = this.arOpen(ar);
     if (open <= 0.0001) throw new ConflictException('该应收已结清, 无需核销');
-    const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `BD${dayjs().format('YYYYMMDD')}` } } })) + 1;
-    const payment = await this.prisma.payment.create({
-      data: {
-        tenantId: user.tenantId,
-        paymentNo: `BD${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
-        customerId: ar.customerId, amount: new Prisma.Decimal(open), kind: 'BAD_DEBT', receivableId,
-        method: '坏账核销', note: reason, status: 'CONFIRMED', confirmedAt: new Date(), idemKey,
-      },
-    });
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const bdDay = dayjs().format('YYYYMMDD');
+    let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !payment; attempt++) {
+      const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `BD${bdDay}` } } })) + 1 + attempt;
+      try {
+        payment = await this.prisma.payment.create({
+          data: {
+            tenantId: user.tenantId,
+            paymentNo: `BD${bdDay}-${String(seq).padStart(4, '0')}`,
+            customerId: ar.customerId, amount: new Prisma.Decimal(open), kind: 'BAD_DEBT', receivableId,
+            method: '坏账核销', note: reason, status: 'CONFIRMED', confirmedAt: new Date(), idemKey,
+          },
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!payment) throw new ConflictException('单号生成冲突, 请重试');
     await this.prisma.receivableLedger.create({
       data: { tenantId: user.tenantId, receivableId, paymentId: payment.id, direction: 'WRITEOFF', amount: payment.amount, note: `坏账核销 ${payment.paymentNo}: ${reason}`, createdBy: user.id },
     });

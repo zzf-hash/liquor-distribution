@@ -60,11 +60,11 @@ class ReverseLineDto {
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
-  /** P0-T20 三入口接单(内勤/业务员/客户), 统一进订单池 */
+  /** P0-T20 三入口接单(内勤/业务员/客户), 统一进订单池; Idempotency-Key 幂等(重试不重复下单) */
   @Post()
   @Roles('CLERK', 'OWNER', 'REP', 'CUSTOMER')
-  async create(@Body() dto: CreateOrderBody, @CurrentUser() user: AuthUser, @Ip() ip: string): Promise<unknown> {
-    return this.orders.create(dto, user, ip);
+  async create(@Body() dto: CreateOrderBody, @CurrentUser() user: AuthUser, @Headers('idempotency-key') idemKey: string, @Ip() ip: string): Promise<unknown> {
+    return this.orders.create(dto, user, idemKey, ip);
   }
 
   @Get()

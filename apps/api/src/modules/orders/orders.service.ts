@@ -232,12 +232,38 @@ export class OrdersService {
     }
 
     // 单号: SO{yyyymmdd}-{seq}
+    // P1-14: count+1 并发撞号 → P2002 500。序号在事务内取且失败按 seq+1 重试(≤5 次)
     const today = dayjs().format('YYYYMMDD');
-    const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: `SO${today}` } } })) + 1;
-    const orderNo = `SO${today}-${String(seq).padStart(4, '0')}`;
+    const prefix = `SO${today}`;
+    let orderNo = '';
+    let order: { id: string; orderNo: string; status: string } | null = null;
+    for (let attempt = 0; attempt < 5 && !order; attempt++) {
+      const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1 + attempt;
+      orderNo = `${prefix}-${String(seq).padStart(4, '0')}`;
+      try {
+        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalAmount, precheck, specialApproved, idemKey, idemPayload);
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!order) throw new ConflictException('单号生成冲突, 请重试');
 
-    // 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单)
-    const order = await this.prisma.$transaction(async (tx) => {
+    if (specialApproved) {
+      await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalAmount, reason: dto.specialReason } , ip });
+    }
+    await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount, precheck }, ip });
+    return { id: order.id, orderNo, status: order.status, totalAmount, precheck };
+  }
+
+  /** 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单) */
+  private async createOrderTx(
+    user: AuthUser, orderNo: string, customerId: string,
+    customer: { name: string; salespersonId: string | null; signMode: string; address: string | null },
+    dto: CreateOrderDto, lineData: unknown[], totalAmount: number, precheck: PrecheckResult,
+    specialApproved: boolean, idemKey?: string, idemPayload?: Record<string, unknown>,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
       const created = await tx.salesOrder.create({
         data: {
           tenantId: user.tenantId, // 显式租户(双保险: 中间件注入失败也不至 Argument missing)
@@ -257,7 +283,7 @@ export class OrdersService {
         } as never,
       });
       await tx.orderLine.createMany({
-        data: lineData.map((l) => ({ ...l, orderId: created.id })) as never,
+        data: (lineData as Array<Record<string, unknown>>).map((l) => ({ ...l, orderId: created.id })) as never,
       });
       if (specialApproved) {
         await tx.approvalRecord.create({
@@ -274,7 +300,7 @@ export class OrdersService {
         await tx.idempotencyRecord.create({
           data: {
             tenantId: user.tenantId, key: idemKey, endpoint: 'orders.create',
-            requestHash: IdempotencyService.requestHash('orders.create', idemPayload),
+            requestHash: IdempotencyService.requestHash('orders.create', idemPayload ?? {}),
             responseSummary: { id: created.id, orderNo: created.orderNo, status: created.status, totalAmount, precheck } as never,
             createdBy: user.id,
           },
@@ -282,12 +308,6 @@ export class OrdersService {
       }
       return created;
     });
-
-    if (specialApproved) {
-      await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalAmount, reason: dto.specialReason } , ip });
-    }
-    await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount, precheck }, ip });
-    return { id: order.id, orderNo, status: order.status, totalAmount, precheck };
   }
 
   async list(user: AuthUser, q: { status?: string; customerId?: string; keyword?: string; page?: number; pageSize?: number }): Promise<{ items: unknown[]; total: number }> {
@@ -474,15 +494,26 @@ export class OrdersService {
       }
       if (remaining > 0) throw new ConflictException(`商品 ${line.productName} 库存不足(需 ${need}, 缺 ${remaining}), FIFO 无法分配`);
     }
-    const seq = (await this.prisma.outbound.count({ where: { outboundNo: { startsWith: `OB${dayjs().format('YYYYMMDD')}` } } })) + 1;
-    const outbound = await this.prisma.outbound.create({
-      data: {
-        tenantId: user.tenantId, outboundNo: `OB${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
-        orderId, status: 'PICKING', pickerId: user.id,
-        lines: { create: suggestions.map((s) => ({ tenantId: user.tenantId, orderLineId: s.orderLineId, batchId: s.batchId, qty: new Prisma.Decimal(s.qty) })) },
-      } as never,
-      include: { lines: { include: { batch: true } } },
-    });
+    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
+    const obDay = dayjs().format('YYYYMMDD');
+    let outbound: Awaited<ReturnType<typeof this.prisma.outbound.create>> | null = null;
+    for (let attempt = 0; attempt < 5 && !outbound; attempt++) {
+      const seq = (await this.prisma.outbound.count({ where: { outboundNo: { startsWith: `OB${obDay}` } } })) + 1 + attempt;
+      try {
+        outbound = await this.prisma.outbound.create({
+          data: {
+            tenantId: user.tenantId, outboundNo: `OB${obDay}-${String(seq).padStart(4, '0')}`,
+            orderId, status: 'PICKING', pickerId: user.id,
+            lines: { create: suggestions.map((s) => ({ tenantId: user.tenantId, orderLineId: s.orderLineId, batchId: s.batchId, qty: new Prisma.Decimal(s.qty) })) },
+          } as never,
+          include: { lines: { include: { batch: true } } },
+        });
+      } catch (e) {
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!outbound) throw new ConflictException('单号生成冲突, 请重试');
     return { outbound, suggestions };
   }
 
