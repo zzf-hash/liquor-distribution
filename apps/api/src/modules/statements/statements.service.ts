@@ -24,30 +24,35 @@ export class StatementsService {
     if (dup) throw new ConflictException(`该客户 ${dto.period} 对账单已存在(${dup.statementNo})`);
     const start = dayjs(`${dto.period}-01`).startOf('month').toDate();
     const end = dayjs(`${dto.period}-01`).endOf('month').toDate();
+    // P1-11: 口径修正——核销是 FIFO 打在最早到期的应收上(多为以前期间的单), 原实现只遍历
+    // 期间内生成的应收, 当期核销/期末未结系统性漏算; 现按客户全部未归档应收聚合
     const ars = await this.prisma.receivable.findMany({
-      where: { customerId: dto.customerId, generatedAt: { gte: start, lte: end }, archivedAt: null },
+      where: { customerId: dto.customerId, archivedAt: null },
       include: { ledger: true },
       orderBy: { generatedAt: 'asc' },
     });
     const lines: Array<Record<string, unknown>> = [];
     let totalCharged = 0; let totalSettled = 0; let openBalance = 0;
     for (const ar of ars) {
-      let charged = 0; let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0;
+      const generatedInPeriod = ar.generatedAt >= start && ar.generatedAt <= end;
+      let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0;
+      let settledInPeriod = 0;
       for (const l of ar.ledger) {
         const amt = Number(l.amount);
         const inPeriod = l.createdAt >= start && l.createdAt <= end;
-        if (l.direction === 'CHARGE') { charged += amt; if (inPeriod) totalCharged += amt; }
-        else if ((l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') && inPeriod) { settled += amt; totalSettled += amt; }
-        else if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
+        if (l.direction === 'CHARGE') { if (generatedInPeriod) totalCharged += amt; }
+        else if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') { settled += amt; if (inPeriod) { totalSettled += amt; settledInPeriod += amt; } }
         else if (l.direction === 'WAIVE') waived += amt;
         else if (l.direction === 'WRITEOFF') writtenOff += amt;
         else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
         else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
       }
-      void charged;
       const open = Math.max(0, Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay);
       openBalance += open;
-      lines.push({ docNo: ar.sourceDocNo, type: ar.sourceType, total: Number(ar.total), settledInPeriod: Number(ar.ledger.filter((l) => (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') && l.createdAt >= start && l.createdAt <= end).reduce((s, l) => s + Number(l.amount), 0).toFixed(2)), open: Number(open.toFixed(2)), generatedAt: dayjs(ar.generatedAt).format('YYYY-MM-DD'), dueDate: dayjs(ar.dueDate).format('YYYY-MM-DD'), dispute: ar.disputeFlag });
+      // 明细行: 期间内生成的单 + 期间内有核销动作的旧单(否则客户对不上"当期核销"数字的来源)
+      if (generatedInPeriod || settledInPeriod > 0.0001) {
+        lines.push({ docNo: ar.sourceDocNo, type: ar.sourceType, total: Number(ar.total), settledInPeriod: Number(settledInPeriod.toFixed(2)), open: Number(open.toFixed(2)), generatedAt: dayjs(ar.generatedAt).format('YYYY-MM-DD'), dueDate: dayjs(ar.dueDate).format('YYYY-MM-DD'), dispute: ar.disputeFlag, generatedBeforePeriod: !generatedInPeriod });
+      }
     }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
     const dzPrefix = `DZ${dto.period.replace('-', '')}`;
