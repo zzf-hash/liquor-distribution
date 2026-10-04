@@ -28,7 +28,11 @@ export class PerformanceService {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new ConflictException('月份格式 YYYY-MM');
     const start = dayjs(`${month}-01`).startOf('month').toDate();
     const end = dayjs(`${month}-01`).endOf('month').toDate();
-    const reps = await this.prisma.user.findMany({ where: { role: 'REP', status: 'ACTIVE' }, select: { id: true, name: true } });
+    // 2026-10 审查修复: REP 角色只看本人绩效行(接口对 REP 开放后防横向可见)
+    const reps = await this.prisma.user.findMany({
+      where: { role: 'REP', status: 'ACTIVE', ...(user.role === 'REP' ? { id: user.id } : {}) },
+      select: { id: true, name: true },
+    });
     // 回款: 当月确认 PAYMENT, 按客户归属
     const payments = await this.prisma.payment.findMany({
       where: { status: 'CONFIRMED', kind: 'PAYMENT', confirmedAt: { gte: start, lte: end } },
@@ -36,10 +40,31 @@ export class PerformanceService {
     });
     const customers = await this.prisma.customer.findMany({ select: { id: true, salespersonId: true } });
     const ownerOf = new Map(customers.map((c) => [c.id, c.salespersonId]));
-    // 新客: 当月 onboarding→ACTIVE 的归属
-    const newCustomers = await this.prisma.customer.findMany({
-      where: { onboarding: 'ACTIVE', updatedAt: { gte: start, lte: end } },
-      select: { id: true, salespersonId: true },
+    // 新客: 当月首次 owner_approve→ACTIVE 的归属(按 AuditLog 判定; 原 updatedAt 口径改档案即重复计提)
+    const approveLogs = await this.prisma.auditLog.findMany({
+      where: {
+        action: 'CUSTOMER_ONBOARDING',
+        createdAt: { gte: start, lte: end },
+        after: { path: ['onboarding'], equals: 'ACTIVE' },
+      },
+      select: { entityId: true, createdAt: true },
+    });
+    const firstActive = new Map<string, Date>();
+    for (const lg of approveLogs) {
+      if (!lg.entityId) continue;
+      const prev = firstActive.get(lg.entityId);
+      if (!prev || lg.createdAt < prev) firstActive.set(lg.entityId, lg.createdAt);
+    }
+    const activeIds = [...firstActive.keys()].filter((x): x is string => !!x);
+    const newCustomerRows = activeIds.length
+      ? await this.prisma.customer.findMany({
+          where: { id: { in: activeIds } },
+          select: { id: true, salespersonId: true },
+        })
+      : [];
+    const newCustomers = newCustomerRows.filter((c) => {
+      const t = firstActive.get(c.id);
+      return t !== undefined && t >= start && t <= end;
     });
     // 拜访打卡数(T13)
     const visits = await this.prisma.visit.findMany({
@@ -69,9 +94,11 @@ export class PerformanceService {
       const newCustomerCount = newCustomers.filter((c) => c.salespersonId === rep.id).length;
       const visitCount = visits.filter((v) => v.repId === rep.id).length; // T13 拜访打卡(T09 数据源)
       const commission = Number((
-        paymentAmount * wPayment * commissionRate * 100 // 回款提成
-        + visitCount * (wVisit * 1000 / visitTarget) // 拜访达成(占位公式, T13 后按实际)
-        + newCustomerCount * newCustUnit * wNewCust * 10
+        // 2026-10 审查修复: 原式 ×100 把 1% 提成放大成 70% 回款(回款×0.7×0.01×100);
+        // 量纲统一为: 回款×提成比例×权重, 新客按单价×权重, 拜访按达成率×权重×1000 绩效额封顶
+        paymentAmount * commissionRate * wPayment // 回款提成(1% 默认)
+        + (visitTarget > 0 ? Math.min(visitCount / visitTarget, 1) * wVisit * 1000 : 0) // 拜访达成率(占位公式, T13 后按实际)
+        + newCustomerCount * newCustUnit * wNewCust
       ).toFixed(2));
       return {
         repId: rep.id, name: rep.name,
@@ -86,13 +113,16 @@ export class PerformanceService {
     return { month, items, generatedAt: new Date().toISOString() };
   }
 
-  /** 一键生成工资表(月唯一; 可复算=DRAFT 可重新生成覆盖) */
+  /** 一键生成工资表(月唯一; 可复算=仅 DRAFT 可重新生成覆盖, CONFIRMED 后静默改写属资金事故) */
   async generatePayroll(user: AuthUser, month: string): Promise<unknown> {
+    const existing = await this.prisma.payroll.findUnique({ where: { tenantId_month: { tenantId: user.tenantId, month } } });
+    if (existing && existing.status === 'CONFIRMED') {
+      throw new ConflictException(`${month} 工资表已确认发放, 不可重新生成(如需调整须走线下补差)`);
+    }
     const perf = (await this.monthly(user, month)) as { items: Array<{ repId: string; name: string; paymentAmount: number; newCustomers: number; visitCount: number; returnDeduction: number; commission: number }> };
     const baseSalary = await this.cfgNumber('perf_base_salary', 3000);
     const items = perf.items.map((i) => ({ ...i, baseSalary, total: Number((baseSalary + i.commission).toFixed(2)) }));
     const totalAmount = Number(items.reduce((s, i) => s + i.total, 0).toFixed(2));
-    const existing = await this.prisma.payroll.findUnique({ where: { tenantId_month: { tenantId: user.tenantId, month } } });
     const data = { items: items as never, totalAmount: new Prisma.Decimal(totalAmount), generatedBy: user.id, status: 'DRAFT', confirmedAt: null };
     const payroll = existing
       ? await this.prisma.payroll.update({ where: { id: existing.id }, data })
