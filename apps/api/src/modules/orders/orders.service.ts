@@ -107,11 +107,22 @@ export class OrdersService {
     const ars = await this.prisma.receivable.findMany({
       where: { customerId, disputeFlag: false },
       // P1-8: 核销口径须含 RETURN_CREDIT/WAIVE/WRITEOFF——漏算会低估已核销额→误拦新单
-      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF'] } } } },
+      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF', 'REVERSAL'] } } } },
     });
-    const openAr = ars.reduce((s, r) => s + Number(r.total) - r.ledger.reduce((x, l) => x + Number(l.amount), 0), 0);
+    const openAr = ars.reduce((sum, r) => {
+      let settled = 0; let waived = 0; let writtenOff = 0; let returned = 0; let reversal = 0;
+      for (const row of r.ledger) {
+        const amount = Number(row.amount);
+        if (row.direction === 'SETTLE' || row.direction === 'REBATE_OFFSET') settled += amount;
+        else if (row.direction === 'WAIVE') waived += amount;
+        else if (row.direction === 'WRITEOFF') writtenOff += amount;
+        else if (row.direction === 'RETURN_CREDIT') returned += amount;
+        else if (row.direction === 'REVERSAL') { if (row.paymentId) settled -= amount; else reversal += amount; }
+      }
+      return sum + Math.max(0, Number(r.total) - settled - waived - writtenOff - returned - reversal);
+    }, 0);
     const inTransitOrders = await this.prisma.salesOrder.aggregate({
-      where: { customerId, status: 'CONFIRMED' }, // D07: 已审通过未出库
+      where: { customerId, status: { in: ['CONFIRMED', 'OUTBOUND', 'DELIVERING'] } }, // D07: 已确认直至签收生成应收
       _sum: { totalAmount: true },
     });
     return { openAr, inTransit: Number(inTransitOrders._sum.totalAmount ?? 0) };
@@ -140,6 +151,9 @@ export class OrdersService {
       include: { salesperson: { select: { id: true, name: true } } },
     });
     if (!customer) throw new NotFoundException('客户不存在');
+    if (user.role === 'REP' && user.dataScope === 'OWN_CUSTOMERS' && customer.salespersonId !== user.id) {
+      throw new ForbiddenException('仅可为自己名下客户下单');
+    }
 
     // 四要素①: 客户有效(终审+未禁用; 未终审不可自主下单 Q4, 红线1 文案)
     const customerOk = customer.status === 'ACTIVE' && (dto.source === 'CUSTOMER' ? customer.onboarding === 'ACTIVE' : customer.onboarding === 'ACTIVE' || customer.onboarding === 'PENDING_OWNER');
@@ -362,7 +376,7 @@ export class OrdersService {
       },
     });
     if (!order) throw new NotFoundException('订单不存在');
-    this.assertOrderScope(user, order.customerId);
+    await this.assertOrderScope(user, order.customerId);
     // 应收按应用层关联(sourceType='ORDER' && sourceDocNo=orderNo), schema FK 已移除
     const receivables = await this.prisma.receivable.findMany({
       where: { tenantId: order.tenantId, sourceType: 'ORDER', sourceDocNo: order.orderNo },
@@ -471,51 +485,64 @@ export class OrdersService {
 
   // ─────────────── T22 出库: FIFO 建议批次 + 复核确认(不可变流水) ───────────────
   async createOutbound(user: AuthUser, orderId: string): Promise<unknown> {
-    const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
-    if (!order) throw new NotFoundException('订单不存在');
-    if (order.status !== 'CONFIRMED') throw new ConflictException('仅已确认订单可出库');
-    // FIFO: 到期日优先, 无到期日按入库时间
-    const suggestions: Array<{ orderLineId: string; productId: string; productName: string; batchNo: string; batchId: string; qty: number }> = [];
-    for (const line of order.lines) {
-      const need = Number(line.qty) * (line.unit === 'BASE' ? line.conversionRate : 1);
-      if (need <= 0) continue;
-      const batches = await this.prisma.batchStock.findMany({
-        where: { productId: line.productId },
-        include: { ledger: true },
-        orderBy: [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
-      });
-      let remaining = need;
-      for (const b of batches) {
-        if (remaining <= 0) break;
-        const onHand = b.ledger.reduce((s, l) => s + (l.direction === 'IN' ? Number(l.qty) : -Number(l.qty)), 0);
-        if (onHand <= 0) continue;
-        const take = Math.min(onHand, remaining);
-        remaining -= take;
-        suggestions.push({ orderLineId: line.id, productId: line.productId, productName: line.productName, batchNo: b.batchNo, batchId: b.id, qty: take });
+    // Lock the order so concurrent requests cannot create two live pick lists.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`SELECT id FROM "SalesOrder" WHERE id = ${orderId} FOR UPDATE`);
+      const order = await tx.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true, outbounds: { select: { status: true } } } });
+      if (!order) throw new NotFoundException('订单不存在');
+      if (order.status !== 'CONFIRMED') throw new ConflictException('仅已确认订单可出库');
+      if (order.outbounds.some((o) => o.status === 'PICKING' || o.status === 'CONFIRMED')) {
+        throw new ConflictException('该订单已有有效出库单，请勿重复生成拣货单');
       }
-      if (remaining > 0) throw new ConflictException(`商品 ${line.productName} 库存不足(需 ${need}, 缺 ${remaining}), FIFO 无法分配`);
-    }
-    // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
-    const obDay = dayjs().format('YYYYMMDD');
-    let outbound: Awaited<ReturnType<typeof this.prisma.outbound.create>> | null = null;
-    for (let attempt = 0; attempt < 5 && !outbound; attempt++) {
-      const seq = (await this.prisma.outbound.count({ where: { outboundNo: { startsWith: `OB${obDay}` } } })) + 1 + attempt;
-      try {
-        outbound = await this.prisma.outbound.create({
-          data: {
-            tenantId: user.tenantId, outboundNo: `OB${obDay}-${String(seq).padStart(4, '0')}`,
-            orderId, status: 'PICKING', pickerId: user.id,
-            lines: { create: suggestions.map((s) => ({ tenantId: user.tenantId, orderLineId: s.orderLineId, batchId: s.batchId, qty: new Prisma.Decimal(s.qty) })) },
-          } as never,
-          include: { lines: { include: { batch: true } } },
+
+      // Red reversal lines append to the order. Allocate only each original line's net quantity.
+      const reversed = new Map<string, number>();
+      for (const line of order.lines) if (line.reversalOfId) {
+        reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? 0) + Number(line.qty));
+      }
+      const suggestions: Array<{ orderLineId: string; productId: string; productName: string; batchNo: string; batchId: string; qty: number }> = [];
+      for (const line of order.lines) {
+        if (line.reversalOfId) continue;
+        const netQty = Number(line.qty) + (reversed.get(line.id) ?? 0);
+        const need = netQty * (line.unit === 'BASE' ? line.conversionRate : 1);
+        if (need <= 0) continue;
+        const batches = await tx.batchStock.findMany({
+          where: { productId: line.productId, OR: [{ expiryDate: null }, { expiryDate: { gte: new Date() } }] },
+          include: { ledger: true },
+          orderBy: [{ expiryDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
         });
-      } catch (e) {
-        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
-        throw e;
+        let remaining = need;
+        for (const b of batches) {
+          if (remaining <= 0) break;
+          const onHand = b.ledger.reduce((s, l) => s + (l.direction === 'IN' ? Number(l.qty) : -Number(l.qty)), 0);
+          if (onHand <= 0) continue;
+          const take = Math.min(onHand, remaining);
+          remaining -= take;
+          suggestions.push({ orderLineId: line.id, productId: line.productId, productName: line.productName, batchNo: b.batchNo, batchId: b.id, qty: take });
+        }
+        if (remaining > 0) throw new ConflictException(`商品 ${line.productName} 库存不足(需 ${need}, 缺 ${remaining}), FIFO 无法分配`);
       }
-    }
-    if (!outbound) throw new ConflictException('单号生成冲突, 请重试');
-    return { outbound, suggestions };
+      const obDay = dayjs().format('YYYYMMDD');
+      let outbound: Awaited<ReturnType<typeof tx.outbound.create>> | null = null;
+      for (let attempt = 0; attempt < 5 && !outbound; attempt++) {
+        const seq = (await tx.outbound.count({ where: { outboundNo: { startsWith: `OB${obDay}` } } })) + 1 + attempt;
+        try {
+          outbound = await tx.outbound.create({
+            data: {
+              tenantId: user.tenantId, outboundNo: `OB${obDay}-${String(seq).padStart(4, '0')}`,
+              orderId, status: 'PICKING', pickerId: user.id,
+              lines: { create: suggestions.map((s) => ({ tenantId: user.tenantId, orderLineId: s.orderLineId, batchId: s.batchId, qty: new Prisma.Decimal(s.qty) })) },
+            } as never,
+            include: { lines: { include: { batch: true } } },
+          });
+        } catch (e) {
+          if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+          throw e;
+        }
+      }
+      if (!outbound) throw new ConflictException('单号生成冲突, 请重试');
+      return { outbound, suggestions };
+    });
   }
 
   /** 复核确认出库: 写 InventoryLedger OUT 流水(B4) + 出库状态机推进(P0-C); 需 Idempotency-Key, 幂等记录与出库同事务原子落 */
@@ -541,17 +568,28 @@ export class OrdersService {
         data: { status: 'CONFIRMED', checkerId: user.id, confirmedAt: new Date() },
       });
       if (claimed.count === 0) throw new ConflictException('出库单已被确认, 请勿重复提交');
-      // P1-7 出库确认前逐行复核现存量, 不足则拒绝(防止下单后库存被耗尽 → 负库存)
-      for (const l of outbound.lines) {
-        const rows = await tx.inventoryLedger.findMany({
-          where: { productId: l.orderLine.productId },
-          select: { direction: true, qty: true },
-        });
-        const onHand = rows.reduce((s, r) => s + (r.direction === 'IN' ? Number(r.qty) : -Number(r.qty)), 0);
-        if (onHand < Number(l.qty)) {
-          throw new ConflictException(
-            `商品 ${l.orderLine.productName} 现有库存不足(现存 ${onHand}, 出库需 ${Number(l.qty)}), 已取消本次出库`,
-          );
+      // Lock batches in a stable order and aggregate this outbound's total demand per batch.
+      // This prevents duplicate lines and concurrent orders from driving a batch negative.
+      const batchIds = [...new Set(outbound.lines.map((l) => l.batchId))].sort();
+      if (batchIds.length) {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "BatchStock" WHERE id IN (${Prisma.join(batchIds)}) ORDER BY id FOR UPDATE`);
+      }
+      const stockRows = batchIds.length ? await tx.inventoryLedger.groupBy({
+        by: ['batchId', 'direction'], where: { batchId: { in: batchIds } }, _sum: { qty: true },
+      }) : [];
+      const availableByBatch = new Map<string, number>();
+      for (const row of stockRows) {
+        if (!row.batchId) continue;
+        const delta = Number(row._sum.qty ?? 0) * (row.direction === 'IN' ? 1 : -1);
+        availableByBatch.set(row.batchId, (availableByBatch.get(row.batchId) ?? 0) + delta);
+      }
+      const requiredByBatch = new Map<string, number>();
+      for (const line of outbound.lines) requiredByBatch.set(line.batchId, (requiredByBatch.get(line.batchId) ?? 0) + Number(line.qty));
+      for (const [batchId, required] of requiredByBatch) {
+        const available = availableByBatch.get(batchId) ?? 0;
+        if (available + 0.0001 < required) {
+          const productName = outbound.lines.find((l) => l.batchId === batchId)?.orderLine.productName ?? batchId;
+          throw new ConflictException(`商品 ${productName} 批次库存不足(现存 ${available}, 出库需 ${required}), 已取消本次出库`);
         }
       }
       for (const l of outbound.lines) {
@@ -619,6 +657,8 @@ export class OrdersService {
     let anyAccepted = false;
     const rejections: Array<{ productId: string; batchId: string | null; qty: number }> = [];
     const perLine = body.lines?.length ? new Map(body.lines.map((l) => [l.orderLineId, l.actualQty])) : null;
+    if (perLine && perLine.size !== body.lines!.length) throw new BadRequestException('签收行存在重复商品');
+    if (perLine && [...perLine.keys()].some((lineId) => !netByLine.has(lineId))) throw new BadRequestException('签收行不属于该订单');
     for (const { line, net } of netByLine.values()) {
       const actual = perLine ? (perLine.get(line.id) ?? net) : net;
       if (actual < 0 || actual > net) throw new BadRequestException(`行 ${line.productName} 实收须在 [0, ${net}]`);
@@ -627,7 +667,7 @@ export class OrdersService {
       const rejectedQty = net - actual;
       if (rejectedQty > 0) {
         // 拒收部分: 找该行的出库批次回冲
-        const outLines = order.outbounds.flatMap((o) => o.lines).filter((ol) => ol.orderLineId === line.id);
+        const outLines = order.outbounds.filter((o) => o.status === 'CONFIRMED').flatMap((o) => o.lines).filter((ol) => ol.orderLineId === line.id);
         let remaining = rejectedQty * (line.unit === 'BASE' ? line.conversionRate : 1);
         for (const ol of outLines) {
           if (remaining <= 0) break;
@@ -635,6 +675,7 @@ export class OrdersService {
           remaining -= take;
           rejections.push({ productId: line.productId, batchId: ol.batchId, qty: take });
         }
+        if (remaining > 0.0001) throw new ConflictException(`商品 ${line.productName} 拒收数量超过实际出库量`);
       }
     }
     // 整单拒收按"所有行实收数量为 0"判定(2026-10 审查修复: 原按 acceptedAmount<=0 金额判定,
@@ -656,6 +697,7 @@ export class OrdersService {
           tenantId: user.tenantId, orderId, type: body.type, signerName: body.signerName,
           photoUrl: body.photoUrl, signatureData: body.signatureData, deviceInfo: body.deviceInfo,
           recordedById: user.id, returnPackages: (body.returnPackages ?? undefined) as never,
+          actualLines: [...netByLine.values()].map(({ line, net }) => ({ orderLineId: line.id, actualQty: perLine?.get(line.id) ?? net })) as never,
         } as never,
       });
       // T04 联动: 回包装回填落押金台账(WITH_ORDER, 单价 cfg)
@@ -673,7 +715,7 @@ export class OrdersService {
         // 整单拒收: 全量回冲出库量(2026-10 审查修复: 原 rejections 逐行回冲与全量回冲两段都执行,
         // 同批货 IN 流水写两遍→库存凭空翻倍)
         for (const { line } of netByLine.values()) {
-          const outLines = order.outbounds.flatMap((o) => o.lines).filter((ol) => ol.orderLineId === line.id);
+          const outLines = order.outbounds.filter((o) => o.status === 'CONFIRMED').flatMap((o) => o.lines).filter((ol) => ol.orderLineId === line.id);
           for (const ol of outLines) {
             await tx.inventoryLedger.create({
               data: { tenantId: user.tenantId, productId: line.productId, batchId: ol.batchId, direction: 'IN', qty: ol.qty, refType: 'REJECT_RETURN', refNo: order.orderNo, note: '整单拒收回冲', createdBy: user.id },
@@ -721,7 +763,7 @@ export class OrdersService {
         data: { status: 'REJECTED', cancelReason: reason, signedAt: new Date() },
       });
       if (claimed.count === 0) throw new ConflictException('订单状态已变化(可能已被签收/拒收), 请刷新后重试');
-      for (const o of order.outbounds) {
+      for (const o of order.outbounds.filter((outbound) => outbound.status === 'CONFIRMED')) {
         for (const ol of o.lines) {
           const line = order.lines.find((l) => l.id === ol.orderLineId);
           if (!line) continue;

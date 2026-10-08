@@ -32,6 +32,7 @@ function dueInfo(r: CustomerReceivableDTO): DueInfo {
  */
 export default function CustomerReceivablesPage() {
   const [rows, setRows] = useState<CustomerReceivableDTO[]>([])
+  const [serverOpenTotal, setServerOpenTotal] = useState<number | null>(null)
   const [tab, setTab] = useState<TabKey>('open')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -50,6 +51,7 @@ export default function CustomerReceivablesPage() {
     try {
       const res = await receivablesApi.mine()
       setRows(res.items ?? [])
+      setServerOpenTotal(typeof res.openTotal === 'number' ? res.openTotal : null)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载待结单据失败')
     } finally {
@@ -60,7 +62,7 @@ export default function CustomerReceivablesPage() {
   // 待结/已结按 open 字段在前端分档（已结数据由后端支持后自动出现）
   const openRows = rows.filter((r) => r.open > 0.005)
   const settledRows = rows.filter((r) => r.open <= 0.005)
-  const openTotal = openRows.reduce((s, r) => s + r.open, 0)
+  const openTotal = serverOpenTotal ?? openRows.reduce((s, r) => s + r.open, 0)
 
   return (
     <View className='rlist'>

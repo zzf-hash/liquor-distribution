@@ -49,9 +49,9 @@ export class VisitsController {
   async list(@CurrentUser() user: AuthUser, @Query('mine') mine?: string, @Query('month') month?: string, @Query('customerId') customerId?: string): Promise<unknown> {
     const monthStart = month ? dayjs(`${month}-01`).startOf('month').toDate() : dayjs().startOf('month').toDate();
     const monthEnd = month ? dayjs(`${month}-01`).endOf('month').toDate() : dayjs().endOf('month').toDate();
-    return this.prisma.visit.findMany({
+    const items = await this.prisma.visit.findMany({
       where: {
-        repId: mine || user.role === 'REP' ? user.id : undefined,
+        repId: (mine || user.role === 'REP') ? user.id : undefined,
         customerId,
         visitedAt: { gte: monthStart, lte: monthEnd },
       },
@@ -59,6 +59,7 @@ export class VisitsController {
       take: 200,
       include: { customer: { select: { code: true, name: true, abcLevel: true } } },
     });
+    return { items, total: items.length };
   }
 
   @Get('stats')

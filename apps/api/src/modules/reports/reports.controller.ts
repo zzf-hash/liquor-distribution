@@ -23,29 +23,38 @@ export class ReportsController {
     // 销售: 期间签收订单(含明细, 按品类聚合 + top 商品)
     const orders = await this.prisma.salesOrder.findMany({
       where: { signedAt: { gte: start, lte: end }, status: { in: ['SIGNED', 'SETTLED'] } },
-      include: { lines: { include: { product: { select: { category: true } } } } },
+      include: { lines: { include: { product: { select: { category: true } } } }, signature: true },
     });
     const salesByCategory: Record<string, number> = {};
     const productAgg = new Map<string, { name: string; qty: number; amount: number }>();
+    const repAgg = new Map<string, { amount: number; orderCount: number }>();
     let totalSales = 0;
     for (const o of orders) {
+      const reversed = new Map<string, number>();
+      for (const line of o.lines) if (line.reversalOfId) reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? 0) + Number(line.qty));
+      const actualLines = Array.isArray(o.signature?.actualLines) ? o.signature.actualLines as Array<{ orderLineId: string; actualQty: number }> : [];
+      let orderNet = 0;
       for (const l of o.lines) {
-        const amt = Number(l.amount);
+        if (l.reversalOfId) continue;
+        const netQty = Number(l.qty) + (reversed.get(l.id) ?? 0);
+        const actual = actualLines.length ? Number(actualLines.find((x) => x.orderLineId === l.id)?.actualQty ?? 0) : netQty;
+        const acceptedQty = Math.max(0, Math.min(netQty, actual));
+        const amt = Number((acceptedQty * Number(l.unitPrice)).toFixed(2));
+        orderNet += amt;
         totalSales += amt;
         const cat = String(l.product?.category ?? 'QITA');
         salesByCategory[cat] = (salesByCategory[cat] ?? 0) + amt;
         const cur = productAgg.get(l.productId) ?? { name: l.productName, qty: 0, amount: 0 };
-        cur.qty += Number(l.qty); cur.amount += amt;
+        cur.qty += acceptedQty; cur.amount += amt;
         productAgg.set(l.productId, cur);
+      }
+      if (o.salespersonId) {
+        const rep = repAgg.get(o.salespersonId) ?? { amount: 0, orderCount: 0 };
+        rep.amount += orderNet; rep.orderCount += 1; repAgg.set(o.salespersonId, rep);
       }
     }
     const topProducts = [...productAgg.values()].sort((a, b) => b.amount - a.amount).slice(0, 10);
-    const salesByRep = await this.prisma.salesOrder.groupBy({
-      by: ['salespersonId'],
-      where: { signedAt: { gte: start, lte: end }, status: { in: ['SIGNED', 'SETTLED'] } },
-      _sum: { totalAmount: true }, _count: { id: true },
-    });
-    const repIds = salesByRep.map((r) => r.salespersonId).filter((x): x is string => Boolean(x));
+    const repIds = [...repAgg.keys()];
     const reps = repIds.length ? await this.prisma.user.findMany({ where: { id: { in: repIds } }, select: { id: true, name: true } }) : [];
     // 回款/退货/采购汇总
     const [payAgg, returnAgg, purchaseAgg, arAgg] = await this.prisma.$transaction([
@@ -58,7 +67,7 @@ export class ReportsController {
     return {
       month, totalSales: Number(totalSales.toFixed(2)), salesByCategory,
       topProducts,
-      salesByRep: salesByRep.filter((r) => r.salespersonId).map((r) => ({ name: reps.find((u) => u.id === r.salespersonId)?.name ?? '未知', amount: Number(r._sum.totalAmount ?? 0), orderCount: r._count.id })),
+      salesByRep: [...repAgg].map(([id, row]) => ({ name: reps.find((u) => u.id === id)?.name ?? '未知', amount: Number(row.amount.toFixed(2)), orderCount: row.orderCount })),
       totalPayments: Number(payAgg._sum.amount ?? 0),
       returnCount: returnAgg,
       totalPurchases: Number(purchaseAgg._sum.totalAmount ?? 0),

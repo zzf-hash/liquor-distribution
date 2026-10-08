@@ -131,7 +131,19 @@ export class ApprovalsService {
     const threshold = await this.threshold();
     const amount = record.amount !== null ? Number(record.amount) : null;
     // 路由硬闸: 老板专属线 或 金额超阈值 → 仅 OWNER; 其余 CLERK/OWNER 均可
-    const ownerOnly = OWNER_ONLY_LINES.has(record.line) || (amount !== null && amount > threshold);
+    let belowCost = false;
+    if (record.entityType === 'SPECIAL_ORDER' && record.line === 'PRICE_SPECIAL') {
+      const special = await this.prisma.specialOrder.findUnique({ where: { id: record.entityId }, include: { lines: true } });
+      for (const line of special?.lines ?? []) {
+        if (!line.productId) continue;
+        const cost = await this.prisma.price.findFirst({
+          where: { productId: line.productId, unit: line.unit as 'BASE' | 'MIN', levelType: 'COST', validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
+          orderBy: { validFrom: 'desc' },
+        });
+        if (cost && Number(line.price) < Number(cost.price)) { belowCost = true; break; }
+      }
+    }
+    const ownerOnly = OWNER_ONLY_LINES.has(record.line) || (amount !== null && amount > threshold) || belowCost;
     if (ownerOnly && user.role !== 'OWNER') {
       throw new ForbiddenException(ownerOnly && amount !== null && amount > threshold && !OWNER_ONLY_LINES.has(record.line)
         ? `金额 ¥${amount} 超阈值 ¥${threshold}, 须老板审批` : '该审批线仅老板可批');
@@ -158,7 +170,7 @@ export class ApprovalsService {
     const expect: Record<string, string[]> = {
       SPECIAL_ORDER: ['PENDING_PRICE'],
       RETURN: ['PENDING_REVIEW'],
-      PURCHASE: ['PENDING_APPROVAL'],
+      PURCHASE: ['PENDING_APPROVAL', 'RECEIVED_PENDING_APPROVAL'],
       PRICE_CHANGE: ['PENDING'],
       STOCKTAKE: ['PENDING_APPROVAL'],
       ORDER: ['PENDING_CONFIRM', 'CONFIRMED'],
@@ -193,8 +205,12 @@ export class ApprovalsService {
       const u = await tx.priceChangeRequest.updateMany({ where: { id: record.entityId, status: 'PENDING' }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
       if (u.count === 0) throw new ConflictException('调价单状态已变化, 审批副作用未执行');
     } else if (record.entityType === 'PURCHASE') {
-      const u = await tx.purchaseOrder.updateMany({ where: { id: record.entityId, status: 'PENDING_APPROVAL' }, data: { status: approved ? 'APPROVED' : 'CANCELLED' } });
-      if (u.count === 0) throw new ConflictException('采购单状态已变化, 审批副作用未执行(已付款/已收货单不可驳回取消)');
+      const purchase = await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { status: true } });
+      const from = purchase?.status;
+      if (from !== 'PENDING_APPROVAL' && from !== 'RECEIVED_PENDING_APPROVAL') throw new ConflictException('采购单状态已变化, 审批副作用未执行');
+      const to = from === 'RECEIVED_PENDING_APPROVAL' ? (approved ? 'RECEIVED' : 'RECEIVED_PENDING_APPROVAL') : (approved ? 'APPROVED' : 'DRAFT');
+      const u = await tx.purchaseOrder.updateMany({ where: { id: record.entityId, status: from }, data: { status: to } });
+      if (u.count === 0) throw new ConflictException('采购单状态已变化, 审批副作用未执行');
       // 自动报货单回链: 审批结果同步 RestockRequest(pending→SUBMITTED→APPROVED/DISMISSED); snapshot.autoRestock 标记
       const pur = await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { note: true } });
       if (pur?.note?.includes('自动报货 RQ')) {

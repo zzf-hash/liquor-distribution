@@ -96,7 +96,7 @@ export class PerformanceService {
       const commission = Number((
         // 2026-10 审查修复: 原式 ×100 把 1% 提成放大成 70% 回款(回款×0.7×0.01×100);
         // 量纲统一为: 回款×提成比例×权重, 新客按单价×权重, 拜访按达成率×权重×1000 绩效额封顶
-        paymentAmount * commissionRate * wPayment // 回款提成(1% 默认)
+        Math.max(0, paymentAmount - returnDeduction) * commissionRate * wPayment // 退货冲减当期提成基数
         + (visitTarget > 0 ? Math.min(visitCount / visitTarget, 1) * wVisit * 1000 : 0) // 拜访达成率(占位公式, T13 后按实际)
         + newCustomerCount * newCustUnit * wNewCust
       ).toFixed(2));

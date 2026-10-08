@@ -19,10 +19,17 @@ export class ReturnsService {
     private readonly approvals: ApprovalsService,
   ) {}
 
+  private acceptedQty(order: { signature?: { actualLines?: unknown } | null }, lineId: string, netQty: number): number {
+    const rows = Array.isArray(order.signature?.actualLines) ? order.signature.actualLines as Array<{ orderLineId: string; actualQty: number }> : null;
+    if (!rows) return netQty; // Legacy signatures predate per-line quantities.
+    const entry = rows.find((row) => row.orderLineId === lineId);
+    return Math.max(0, Math.min(netQty, Number(entry?.actualQty ?? 0)));
+  }
+
   async create(user: AuthUser, dto: { sourceOrderId: string; reason: string; lines: Array<{ orderLineId: string; qty: number; note?: string }> }): Promise<unknown> {
     if (!dto.reason?.trim()) throw new BadRequestException('退货必须填写原因');
     if (!dto.lines?.length) throw new BadRequestException('退货至少一行');
-    const order = await this.prisma.salesOrder.findUnique({ where: { id: dto.sourceOrderId }, include: { lines: true, returns: { include: { lines: true } } } });
+    const order = await this.prisma.salesOrder.findUnique({ where: { id: dto.sourceOrderId }, include: { lines: true, signature: true, returns: { include: { lines: true } } } });
     if (!order) throw new NotFoundException('原订单不存在');
     if (!['SIGNED', 'SETTLED'].includes(order.status)) throw new ConflictException('仅已签收/已销账订单可退货');
     // D13: 48h 窗口(签收后)
@@ -34,16 +41,11 @@ export class ReturnsService {
     for (const l of dto.lines) {
       merged.set(l.orderLineId, (merged.get(l.orderLineId) ?? 0) + l.qty);
     }
-    // #18 上限扣减已拒收量: 签收时拒收(整单拒收回冲/红字冲销)过的货不能再退
-    const rejectedByLine = new Map<string, number>();
-    for (const l of order.lines) {
-      if (l.reversalOfId) rejectedByLine.set(l.reversalOfId, (rejectedByLine.get(l.reversalOfId) ?? 0) - Number(l.qty));
-    }
     const netByLine = new Map<string, number>();
     for (const l of order.lines) {
       if (l.reversalOfId) continue;
       const reversed = order.lines.filter((r) => r.reversalOfId === l.id).reduce((s, r) => s + Number(r.qty), 0);
-      netByLine.set(l.id, Number(l.qty) + reversed + (rejectedByLine.get(l.id) ?? 0));
+      netByLine.set(l.id, this.acceptedQty(order, l.id, Number(l.qty) + reversed));
     }
     const returnedByLine = new Map<string, number>();
     for (const r of order.returns.filter((x) => x.status !== 'CANCELLED')) {
@@ -117,22 +119,24 @@ export class ReturnsService {
     const r = await this.prisma.returnOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!r) throw new NotFoundException('退货单不存在');
     if (r.status !== 'PENDING_REVIEW') throw new ConflictException('仅待审批退货单可追加(R4); 已审批/已收货的退货单不可追加');
-    const order = await this.prisma.salesOrder.findUnique({ where: { id: r.sourceOrderId }, include: { lines: true, returns: { include: { lines: true } } } });
+    const order = await this.prisma.salesOrder.findUnique({ where: { id: r.sourceOrderId }, include: { lines: true, signature: true, returns: { include: { lines: true } } } });
     if (!order) throw new NotFoundException('原订单不存在');
     const netByLine = new Map<string, { net: number; productId: string }>();
     for (const l of order.lines) {
       if (l.reversalOfId) continue;
       const reversed = order.lines.filter((x) => x.reversalOfId === l.id).reduce((s, x) => s + Number(x.qty), 0);
-      netByLine.set(l.id, { net: Number(l.qty) + reversed, productId: l.productId });
+      netByLine.set(l.id, { net: this.acceptedQty(order, l.id, Number(l.qty) + reversed), productId: l.productId });
     }
     const returned = new Map<string, number>();
     for (const ro of order.returns.filter((x) => x.status !== 'CANCELLED')) {
       for (const l of ro.lines) returned.set(l.orderLineId, (returned.get(l.orderLineId) ?? 0) + Number(l.qty));
     }
-    for (const l of lines) {
-      const info = netByLine.get(l.orderLineId);
-      if (!info || l.qty <= 0) throw new BadRequestException('追加行非法');
-      if ((returned.get(l.orderLineId) ?? 0) + l.qty > info.net + 0.0001) throw new BadRequestException(`累计退货超过原行净量(R4)`);
+    const addByLine = new Map<string, number>();
+    for (const l of lines) addByLine.set(l.orderLineId, (addByLine.get(l.orderLineId) ?? 0) + l.qty);
+    for (const [orderLineId, qty] of addByLine) {
+      const info = netByLine.get(orderLineId);
+      if (!info || qty <= 0) throw new BadRequestException('追加行非法');
+      if ((returned.get(orderLineId) ?? 0) + qty > info.net + 0.0001) throw new BadRequestException(`累计退货超过签收实收数量`);
     }
     await this.prisma.returnLine.createMany({
       data: lines.map((l) => ({ tenantId: user.tenantId, returnOrderId: id, orderLineId: l.orderLineId, productId: netByLine.get(l.orderLineId)!.productId, qty: new Prisma.Decimal(l.qty) })),
@@ -161,7 +165,7 @@ export class ReturnsService {
       const orderLine = r.order.lines.find((x) => x.id === l.orderLineId);
       if (!orderLine) continue;
       const minQty = Number(l.qty) * (orderLine.unit === 'BASE' ? orderLine.conversionRate : 1);
-      const outLines = r.order.outbounds.flatMap((o) => o.lines).filter((ol) => ol.orderLineId === l.orderLineId);
+      const outLines = r.order.outbounds.filter((o) => o.status === 'CONFIRMED').flatMap((o) => o.lines).filter((ol) => ol.orderLineId === l.orderLineId);
       let remaining = minQty;
       for (const ol of outLines) {
         if (remaining <= 0) break;
@@ -169,9 +173,12 @@ export class ReturnsService {
         remaining -= take;
         batches.push({ productId: l.productId, batchId: ol.batchId, qty: take });
       }
+      if (remaining > 0.0001) throw new ConflictException(`退货行 ${l.orderLineId} 超过已确认出库数量，无法回冲库存`);
       arCredit += Number(orderLine.unitPrice) * Number(l.qty);
     }
     await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.returnOrder.updateMany({ where: { id, status: 'APPROVED' }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: user.id } });
+      if (claimed.count === 0) throw new ConflictException('退货单状态已变化(可能已收货), 请刷新后重试');
       for (const b of batches) {
         await tx.inventoryLedger.create({
           data: { tenantId: user.tenantId, productId: b.productId, batchId: b.batchId, direction: 'IN', qty: new Prisma.Decimal(b.qty), refType: 'RETURN_IN', refNo: r.returnNo, note: `退货回冲 ${r.returnNo}`, createdBy: user.id },
@@ -184,7 +191,6 @@ export class ReturnsService {
           data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'RETURN_CREDIT', amount: new Prisma.Decimal(arCredit), note: `退货冲减 ${r.returnNo}: ${r.reason}`, createdBy: user.id },
         });
       }
-      await tx.returnOrder.update({ where: { id }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: user.id } });
     });
     await this.audit.log({ user, action: 'RETURN_RECEIVE', entityType: 'RETURN', entityId: id, after: { returnNo: r.returnNo, batches: batches.length, arCredit } });
     return { returnNo: r.returnNo, status: 'RECEIVED', batches, arCredit };

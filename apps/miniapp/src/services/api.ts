@@ -269,6 +269,7 @@ export const shopApi = {
 export interface PageResult<T> {
   items: T[]
   total: number
+  openTotal?: number
 }
 
 export interface CustomerOrderDTO {
@@ -357,11 +358,12 @@ export interface CustomerReceivableDTO {
   daysOverdue: number
   disputeFlag: boolean
   bucket: ArBucket
+  settledAt?: string
 }
 
 export const receivablesApi = {
   /** 客户 token 只返回自己的未归档单据；"已结"（open<=0）由后端支持后自动出现在 items 里 */
-  mine: () => request<PageResult<CustomerReceivableDTO>>('/receivables'),
+  mine: () => request<PageResult<CustomerReceivableDTO>>('/receivables?pageSize=200'),
   /** 内勤应收台账（owner/clerk token 全量）：bucket 分档 过滤，行形状与 mine 相同 */
   list: (bucket?: string) =>
     request<PageResult<CustomerReceivableDTO>>(`/receivables${bucket ? `?bucket=${bucket}&pageSize=200` : '?pageSize=200'}`),

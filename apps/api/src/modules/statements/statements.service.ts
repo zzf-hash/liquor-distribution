@@ -134,6 +134,7 @@ export class StatementsService {
   }
 
   async list(user: AuthUser, q: { status?: string; customerId?: string; period?: string }): Promise<unknown> {
+    if (user.role === 'CUSTOMER' && !user.customerId) throw new ForbiddenException('客户账号未绑定客户资料');
     const where = {
       status: q.status as never,
       customerId: user.role === 'CUSTOMER' ? user.customerId : q.customerId,

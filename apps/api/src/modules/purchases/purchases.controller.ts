@@ -62,7 +62,7 @@ export class PurchasesController {
     return this.svc.pay(user, id, idemKey, dto.note);
   }
 
-  /** 收货入库: F3=PAID 后, F4=APPROVED 后; 批次+IN 流水+COST 价版本 */
+  /** 收货入库: F3=PAID 后; F4=内勤确认后收货，再等老板确认付款 */
   @Post(':id/receive')
   @Roles('WAREHOUSE', 'OWNER')
   async receive(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {

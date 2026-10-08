@@ -123,7 +123,7 @@ export class SpecialOrdersService {
       {
         customerId: so.customerId,
         source: user.role === 'REP' ? 'REP' : 'CLERK',
-        lines: productLines.map((l) => ({ productId: l.productId!, qty: Number(l.qty), unit: 'BASE', priceOverride: Number(l.price) })),
+        lines: productLines.map((l) => ({ productId: l.productId!, qty: Number(l.qty), unit: l.unit as 'BASE' | 'MIN', priceOverride: Number(l.price) })),
         addressOverride: so.address,
         deliveryDate: so.deliveryDate ? dayjs(so.deliveryDate).format('YYYY-MM-DD') : undefined,
         note: `特单 ${so.specialNo} 转单${so.isBanquet ? '(宴席)' : ''}`,

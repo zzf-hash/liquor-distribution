@@ -540,6 +540,7 @@ model SignatureRecord {
   deviceInfo     String?
   recordedById   String // 回录人(D+1 时限)
   returnPackages Json? // 回包装回填 [{category, qty}] P0 仅记录
+  actualLines    Json? // 逐行实际签收数量 [{orderLineId, actualQty}]
   createdAt      DateTime      @default(now())
 
   order SalesOrder @relation(fields: [tenantId, orderId], references: [tenantId, id])
@@ -822,6 +823,7 @@ enum PurchaseStatus {
   PENDING_APPROVAL // PURCHASE 审批线
   APPROVED
   PAID
+  RECEIVED_PENDING_APPROVAL // 后付采购已收货，等老板确认后付款
   RECEIVED // 收货入库完成(IN 流水+批次)
   CANCELLED
 }
