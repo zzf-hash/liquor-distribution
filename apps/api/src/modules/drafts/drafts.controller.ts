@@ -68,8 +68,8 @@ export class DraftsController {
   }
 
   @Get('drafts/:id')
-  async detail(@Param('id') id: string): Promise<unknown> {
-    return this.svc.detail(id);
+  async detail(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
+    return this.svc.detail(user, id);
   }
 
   /** 可编辑红线: 人工修正 items/客户 */

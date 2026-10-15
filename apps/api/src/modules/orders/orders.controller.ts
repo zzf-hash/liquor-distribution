@@ -140,9 +140,9 @@ export class OrdersController {
     return this.orders.reverseLine(user, id, lineId, dto.qty, dto.reason, ip);
   }
 
-  /** P0-T22 出库: 生成 FIFO 拣货单 */
+  /** P0-T22 出库: 生成 FIFO 拣货单 — CLERK 可发起(内勤页"生成拣货单"按钮原 403) */
   @Post(':id/outbound')
-  @Roles('WAREHOUSE', 'OWNER')
+  @Roles('WAREHOUSE', 'OWNER', 'CLERK')
   async createOutbound(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
     return this.orders.createOutbound(user, id);
   }

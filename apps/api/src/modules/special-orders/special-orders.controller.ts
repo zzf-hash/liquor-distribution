@@ -61,8 +61,8 @@ export class SpecialOrdersController {
   }
 
   @Get(':id')
-  async detail(@Param('id') id: string): Promise<unknown> {
-    return this.svc.detail(id);
+  async detail(@CurrentUser() user: AuthUser, @Param('id') id: string): Promise<unknown> {
+    return this.svc.detail(user, id);
   }
 
   @Post(':id/submit')

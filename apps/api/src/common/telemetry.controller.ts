@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Module, Post, Query } from '@nestjs/common';
+import { Roles } from './roles.guard';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -34,8 +35,9 @@ export class TelemetryController {
     return { accepted: events.length };
   }
 
-  /** 运维速览: 最近错误/慢请求计数(admin 用) */
+  /** 运维速览: 最近错误/慢请求计数(admin 用) — P1: 跨租户计数收紧为内勤/老板(原任意已认证用户含 CUSTOMER 可读) */
   @Get('summary')
+  @Roles('OWNER', 'CLERK')
   async summary(@Query('hours') hours?: string): Promise<unknown> {
     const h = Math.min(168, Math.max(1, Number(hours) || 24));
     const since = new Date(Date.now() - h * 3600_000);

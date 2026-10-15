@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -53,19 +53,22 @@ export class SpecialOrdersService {
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where: Prisma.SpecialOrderWhereInput = {
       status: q.status as never,
+      // P1 行级归属: REP/WAREHOUSE 只看自己创建的特单(原 void user; 横向可见他人特单+报价明细)
+      ...(user.role === 'REP' || user.role === 'WAREHOUSE' ? { createdById: user.id } : {}),
       OR: q.keyword ? [{ specialNo: { contains: q.keyword } }, { title: { contains: q.keyword } }, { customerName: { contains: q.keyword } }] : undefined,
     };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.specialOrder.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { lines: true } }),
       this.prisma.specialOrder.count({ where }),
     ]);
-    void user;
     return { items, total };
   }
 
-  async detail(id: string): Promise<unknown> {
+  async detail(user: AuthUser, id: string): Promise<unknown> {
     const so = await this.prisma.specialOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!so) throw new NotFoundException('特单不存在');
+    // P1 行级归属: REP/WAREHOUSE 无权读取他人特单
+    if ((user.role === 'REP' || user.role === 'WAREHOUSE') && so.createdById !== user.id) throw new ForbiddenException('无权查看他人特单');
     return so;
   }
 
@@ -73,6 +76,7 @@ export class SpecialOrdersService {
   async submit(user: AuthUser, id: string, reason: string): Promise<unknown> {
     const so = await this.prisma.specialOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!so) throw new NotFoundException('特单不存在');
+    if ((user.role === 'REP' || user.role === 'WAREHOUSE') && so.createdById !== user.id) throw new ForbiddenException('无权提交他人特单审批');
     if (so.status !== 'DRAFT') throw new ConflictException(`仅草稿可提交审批(当前 ${so.status})`);
     if (!reason?.trim()) throw new BadRequestException('提交审批必须填写理由');
     const amount = so.lines.reduce((s, l) => s + Number(l.qty) * Number(l.price), 0);

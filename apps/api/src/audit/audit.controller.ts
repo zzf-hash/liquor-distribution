@@ -21,8 +21,8 @@ export class AuditController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
   ): Promise<unknown> {
-    const p = Math.max(1, Number(page ?? 1));
-    const size = Math.min(200, Math.max(1, Number(pageSize ?? 50)));
+    const p = Math.max(1, Math.floor(Number(page ?? 1)) || 1);
+    const size = Math.min(200, Math.floor(Number(pageSize ?? 50)) || 50);
     const where = {
       action,
       entityId,

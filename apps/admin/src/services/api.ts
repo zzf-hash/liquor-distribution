@@ -1083,9 +1083,9 @@ export const statementsApi = {
     request<StatementDTO>('/statements/generate', { method: 'POST', body: input }),
   /** GENERATED → SENT（推送后客户 miniapp 可见，可确认或提异议） */
   send: (id: string) => request<StatementDTO>(`/statements/${id}/send`, { method: 'POST', body: {} }),
-  /** 差异处理（结论必填）；该单全部差异处理完自动 RESOLVED */
+  /** 差异处理（结论必填）；该单全部差异处理完自动 RESOLVED。修 P1: 原路径缺 /statements 前缀 → 404 */
   resolveDispute: (disputeId: string, resolution: string) =>
-    request<{ id: string; status: DisputeStatusDTO }>(`/disputes/${disputeId}/resolve`, {
+    request<{ id: string; status: DisputeStatusDTO }>(`/statements/disputes/${disputeId}/resolve`, {
       method: 'POST',
       body: { resolution },
     }),

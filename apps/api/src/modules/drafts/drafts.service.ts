@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -126,6 +126,7 @@ export class DraftsService {
   async update(user: AuthUser, id: string, dto: { customerId?: string; items?: DraftItem[] }): Promise<unknown> {
     const d = await this.prisma.orderDraft.findUnique({ where: { id } });
     if (!d) throw new NotFoundException('草稿不存在');
+    if (user.role === 'REP' && d.createdById !== user.id) throw new ForbiddenException('无权编辑他人草稿');
     if (d.status !== 'PENDING_REVIEW') throw new ConflictException(`仅待确认草稿可编辑(当前 ${d.status})`);
     const updated = await this.prisma.orderDraft.update({
       where: { id },
@@ -142,6 +143,7 @@ export class DraftsService {
   async confirm(user: AuthUser, id: string, dto: { customerId?: string; lines?: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; priceOverride?: number }>; learnAliases?: boolean }): Promise<unknown> {
     const d = await this.prisma.orderDraft.findUnique({ where: { id } });
     if (!d) throw new NotFoundException('草稿不存在');
+    if (user.role === 'REP' && d.createdById !== user.id) throw new ForbiddenException('无权转单他人草稿');
     if (d.status !== 'PENDING_REVIEW') throw new ConflictException(`仅待确认草稿可转单(当前 ${d.status})`);
     const draftItems = (d.items as unknown as DraftItem[]) ?? [];
     const customerId = dto.customerId ?? d.customerId;
@@ -187,6 +189,7 @@ export class DraftsService {
   async discard(user: AuthUser, id: string): Promise<unknown> {
     const d = await this.prisma.orderDraft.findUnique({ where: { id } });
     if (!d) throw new NotFoundException('草稿不存在');
+    if (user.role === 'REP' && d.createdById !== user.id) throw new ForbiddenException('无权废弃他人草稿');
     if (d.status !== 'PENDING_REVIEW') throw new ConflictException('已转单草稿不可废弃');
     await this.prisma.orderDraft.update({ where: { id }, data: { status: 'DISCARDED' } });
     await this.audit.log({ user, action: 'DRAFT_DISCARD', entityType: 'OrderDraft', entityId: id });
@@ -196,18 +199,23 @@ export class DraftsService {
   async list(user: AuthUser, q: { status?: string; page?: number; pageSize?: number }): Promise<unknown> {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
-    const where = { status: q.status as never };
+    // P1 行级归属: REP 只看自己的草稿(原 void user; 全租户横向可见他人草稿+客户报货明细)
+    const where: Prisma.OrderDraftWhereInput = {
+      status: q.status as never,
+      ...(user.role === 'REP' ? { createdById: user.id } : {}),
+    };
     const [items, total] = await this.prisma.$transaction([
       this.prisma.orderDraft.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
       this.prisma.orderDraft.count({ where }),
     ]);
-    void user;
     return { items: items.map((d) => ({ ...d, lowConfidence: d.confidence < LOW_CONFIDENCE })), total };
   }
 
-  async detail(id: string): Promise<unknown> {
+  async detail(user: AuthUser, id: string): Promise<unknown> {
     const d = await this.prisma.orderDraft.findUnique({ where: { id } });
     if (!d) throw new NotFoundException('草稿不存在');
+    // P1 行级归属: REP 只能读自己的草稿(同租户横向越权收口)
+    if (user.role === 'REP' && d.createdById !== user.id) throw new ForbiddenException('无权查看他人草稿');
     return { ...d, lowConfidence: d.confidence < LOW_CONFIDENCE };
   }
 
