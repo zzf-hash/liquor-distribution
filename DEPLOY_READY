@@ -1,2 +1,4 @@
-commit: dc7114a
-build: api+web镜像(服务器构建) 库存预警P2上线: DailyStockReport/RestockRequest新表(迁移20261001000000_stock_alert_restock已应用) /api/stock-alert/* 六路由注册 07:30日切 内勤确认制报货单; 冒烟=health/login/scan(8 SKU)/report/config全绿 前端asset含stock-alert; 本commit修StockAlertModule DI链(ApprovalsModule+PurchasesModule imports + PurchasesModule exports); 增量= 142d33e..dc7114a
+commit: cc1071f
+build: api+web镜像(服务器构建) 33+1提交批量上线(dc7114a..cc1071f): 小程序核心流程修复/P1批余项(盘点漂移409/返利同事务/对账单口径/应收收口/采购加权成本/商城BASE取价/admin筛选/出库状态机) + 遥测B1(嵌套校验+name兜底) + 后付采购流/签收actualLines两迁移(已应用) + HTTPS(443+certs卷, compose与线上已对齐) + SSH端口改2222
+smoke: health/login/订单201(SO20261015-0001预检全过,已取消清理)/审计链写入/真实证书链ssl_verify:0/web资产无mock-token; B1修复前遥测垃圾payload曾500, 修复后待复核
+rollback: liquor/{api,web}:rollback-1015
