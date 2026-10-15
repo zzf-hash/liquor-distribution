@@ -1,4 +1,4 @@
-commit: cc1071f
-build: api+web镜像(服务器构建) 33+1提交批量上线(dc7114a..cc1071f): 小程序核心流程修复/P1批余项(盘点漂移409/返利同事务/对账单口径/应收收口/采购加权成本/商城BASE取价/admin筛选/出库状态机) + 遥测B1(嵌套校验+name兜底) + 后付采购流/签收actualLines两迁移(已应用) + HTTPS(443+certs卷, compose与线上已对齐) + SSH端口改2222
-smoke: health/login/订单201(SO20261015-0001预检全过,已取消清理)/审计链写入/真实证书链ssl_verify:0/web资产无mock-token; B1修复前遥测垃圾payload曾500, 修复后待复核
+commit: c11331f
+build: api+web镜像(服务器构建) 批1安全修复上线(d24dca7..c11331f): 子代理8分片扫描核验后修复——roles.guard fail-open→fail-closed(无@Roles路由对CUSTOMER关闭)/telemetry summary收紧OWNER+CLERK/drafts+special-orders行级归属(REP横向越权收口)/orders outbound补CLERK(内勤拣货单403)/admin resolveDispute路径404/audit分页NaN守护
+smoke: owner→summary 200/owner→audit?page=abc 200(原500)/customer→summary 403/customer→notify-status 403/customer→shop/products 200正路无伤/jest 60+tsc绿
 rollback: liquor/{api,web}:rollback-1015
