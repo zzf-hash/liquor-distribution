@@ -27,13 +27,15 @@ export class TelemetryService {
     role?: string;
     detail?: unknown;
   }): void {
+    // B1(全项目bug清查): name 缺失/非字符串时不再抛 TypeError 穿透——遥测自身必须静默不成为故障源
+    const name = typeof ev.name === 'string' && ev.name ? ev.name : 'invalid_name';
     // 异步落库, 不 await; 遥测故障静默(最多打一行内部日志)
     this.prisma.telemetryEvent
       .create({
         data: {
           source: ev.source,
           kind: ev.kind,
-          name: ev.name.slice(0, 300),
+          name: name.slice(0, 300),
           level: ev.level ?? 'info',
           path: ev.path?.slice(0, 300),
           method: ev.method,

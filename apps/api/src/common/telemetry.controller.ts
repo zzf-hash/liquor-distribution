@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Module, Post, Query } from '@nestjs/common';
-import { IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsIn, IsInt, IsObject, IsOptional, IsString, MaxLength, ValidateNested } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelemetryInterceptor } from './telemetry.interceptor';
 import { TelemetryService } from './telemetry.service';
@@ -18,7 +19,8 @@ class TelemetryEventDto {
   @IsOptional() @IsObject() detail?: Record<string, unknown>;
 }
 class TelemetryBatchDto {
-  @IsArray() events!: TelemetryEventDto[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => TelemetryEventDto)
+  events!: TelemetryEventDto[];
 }
 
 @Controller('telemetry')
