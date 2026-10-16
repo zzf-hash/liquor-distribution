@@ -34,6 +34,14 @@ export const DEFAULT_ALERT_CONFIG: AlertConfig = {
   defaultSupplier: '默认供应商',
 };
 
+/** 临期预警配置(SystemConfig key=expiry_alert_config, M2-3/M7-4): warnDays 天内到期的在库批次预警 */
+export interface ExpiryAlertConfig {
+  warnDays: number; // 预警窗口(天), 默认 30(啤酒临期刚需)
+  enabled: boolean;
+}
+
+export const DEFAULT_EXPIRY_CONFIG: ExpiryAlertConfig = { warnDays: 30, enabled: true };
+
 /** 出库消耗: OUT 且 refType=OUTBOUND; 回冲型(IN)抵减销量(判定按 direction, 见 netSales) */
 
 @Injectable()
@@ -233,21 +241,29 @@ export class StockAlertService {
       }
     }
 
-    // 5. 审计 + 通知(每日摘要)
+    // 5. 审计 + 通知(每日摘要; 含临期效期维度 M2-3)
     const lowCount = rows.filter((r) => r.level === 'LOW').length;
     const outCount = rows.filter((r) => r.level === 'OUT').length;
     const totalValue = rows.reduce((s, r) => s + Number(r.stockValue), 0);
+    let expirySummary: { expired: number; warning: number; valueAtRisk: number } | null = null;
+    try {
+      expirySummary = (await this.listExpiry(actor)).summary; // 临期扫描失败不影响库存日切主流程
+    } catch { expirySummary = null; }
     await this.audit.log({
       user: actor, action: 'STOCK_REPORT_RUN', entityType: 'DailyStockReport', entityId: reportDate,
-      after: { reportDate, rows: rows.length, lowCount, outCount, created, totalValue: Number(totalValue.toFixed(2)) },
+      after: { reportDate, rows: rows.length, lowCount, outCount, created, totalValue: Number(totalValue.toFixed(2)), expiry: expirySummary },
     });
-    if (lowCount + outCount > 0 || created > 0) {
+    const hasExpiry = !!expirySummary && expirySummary.expired + expirySummary.warning > 0;
+    if (lowCount + outCount > 0 || created > 0 || hasExpiry) {
       const lines = [
         `日期: ${reportDate}`,
         `预警: ${lowCount} 个商品低于动态阈值, 缺货 ${outCount} 个`,
         `自动报货单: 新建 ${created} 张待内勤确认`,
         `库存总值(成本): ¥${totalValue.toFixed(2)}`,
       ];
+      if (hasExpiry && expirySummary) {
+        lines.push(`临期预警: ${expirySummary.warning} 个批次进入预警窗口, ${expirySummary.expired} 个已过期(涉及金额 ¥${expirySummary.valueAtRisk.toFixed(2)})`);
+      }
       try { await this.notify.send(`每日库存报表 ${reportDate}`, lines); } catch { /* 通知失败不阻断 */ }
     }
     void now;
@@ -392,5 +408,77 @@ export class StockAlertService {
     if (pl) return Number(pl.unitCost);
     const price = await this.prisma.price.findFirst({ where: { tenantId, productId, levelType: 'COST' }, orderBy: { validFrom: 'desc' }, select: { price: true } });
     return price ? Number(price.price) : 0;
+  }
+
+  // ─────────────── M2-3/M7-4 临期预警(数量预警之外的效期维度, 啤酒/红酒刚需) ───────────────
+
+  async getExpiryConfig(tenantId: string): Promise<ExpiryAlertConfig> {
+    const row = await this.prisma.systemConfig.findFirst({ where: { tenantId, key: 'expiry_alert_config' } });
+    const base = { ...DEFAULT_EXPIRY_CONFIG };
+    if (!row) return base;
+    const v = row.value as Partial<ExpiryAlertConfig> | undefined;
+    if (v) {
+      if (typeof v.warnDays === 'number' && v.warnDays >= 1) base.warnDays = Math.floor(v.warnDays);
+      if (typeof v.enabled === 'boolean') base.enabled = v.enabled;
+    }
+    return base;
+  }
+
+  async saveExpiryConfig(user: AuthUser, patch: Partial<ExpiryAlertConfig>): Promise<ExpiryAlertConfig> {
+    const cur = await this.getExpiryConfig(user.tenantId);
+    const next: ExpiryAlertConfig = { ...cur, ...patch };
+    if (!(next.warnDays >= 1 && next.warnDays <= 365)) throw new BadRequestException('预警窗口须在 1-365 天');
+    await this.prisma.systemConfig.upsert({
+      where: { tenantId_key: { tenantId: user.tenantId, key: 'expiry_alert_config' } },
+      create: { tenantId: user.tenantId, key: 'expiry_alert_config', value: next as never, updatedBy: user.id, note: '临期预警配置' },
+      update: { value: next as never, updatedBy: user.id },
+    });
+    await this.audit.log({ user, action: 'EXPIRY_CONFIG_SAVE', entityType: 'SystemConfig', entityId: 'expiry_alert_config', before: cur as never, after: next as never });
+    return next;
+  }
+
+  /** 临期在库批次清单(含已过期): 按流水投影批次现存量, 只列 onHand>0 且效期≤窗口的 */
+  async listExpiry(user: AuthUser): Promise<{ warnDays: number; items: Array<{ batchId: string; skuCode: string; productName: string; category: string; batchNo: string; location: string | null; expiryDate: string; daysLeft: number; level: 'EXPIRED' | 'WARNING'; onHand: number; stockValue: number }>; summary: { expired: number; warning: number; valueAtRisk: number } }> {
+    const cfg = await this.getExpiryConfig(user.tenantId);
+    const cutoff = dayjs().add(cfg.warnDays, 'day').endOf('day').toDate();
+    const batches = await this.prisma.batchStock.findMany({
+      where: { tenantId: user.tenantId, expiryDate: { not: null, lte: cutoff }, product: { status: 'ON_SALE' } },
+      include: { product: { select: { skuCode: true, name: true, category: true, baseUnit: true, minUnit: true } } },
+      orderBy: { expiryDate: 'asc' },
+    });
+    const onHandAgg = await this.prisma.inventoryLedger.groupBy({
+      by: ['batchId', 'direction'],
+      where: { tenantId: user.tenantId, batchId: { in: batches.map((b) => b.id) } },
+      _sum: { qty: true },
+    });
+    const onHand = new Map<string, number>();
+    for (const g of onHandAgg) {
+      if (!g.batchId) continue;
+      const q = Number(g._sum.qty ?? 0);
+      onHand.set(g.batchId, (onHand.get(g.batchId) ?? 0) + (g.direction === 'IN' ? q : -q));
+    }
+    const now = dayjs().startOf('day');
+    const items = batches
+      .map((b) => {
+        const qty = onHand.get(b.id) ?? 0;
+        if (qty <= 0) return null;
+        const daysLeft = dayjs(b.expiryDate).startOf('day').diff(now, 'day');
+        return {
+          batchId: b.id, skuCode: b.product.skuCode, productName: b.product.name, category: b.product.category,
+          batchNo: b.batchNo, location: b.location, expiryDate: dayjs(b.expiryDate).format('YYYY-MM-DD'),
+          daysLeft, level: (daysLeft < 0 ? 'EXPIRED' : 'WARNING') as 'EXPIRED' | 'WARNING',
+          onHand: qty, stockValue: Number((qty * Number(b.unitCost)).toFixed(2)),
+        };
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
+    return {
+      warnDays: cfg.warnDays,
+      items,
+      summary: {
+        expired: items.filter((i) => i.level === 'EXPIRED').length,
+        warning: items.filter((i) => i.level === 'WARNING').length,
+        valueAtRisk: Number(items.reduce((s, i) => s + i.stockValue, 0).toFixed(2)),
+      },
+    };
   }
 }

@@ -11,6 +11,7 @@ export const CUSTOMER_PAGES = [
   'pages/customer/cart/index',
   'pages/customer/orders/index',
   'pages/customer/receivables/index',
+  'pages/customer/statements/index',
 ] as const
 
 // 业务员端页面（P1-T12/T13 + P1 全员端补齐 home/customers/order-create/payment-report/performance）

@@ -6,9 +6,11 @@ import {
   Alert, App as AntApp, Button, Card, Collapse, Descriptions, Input, InputNumber, Modal,
   Select, Space, Spin, Table, Tag, Typography,
 } from 'antd';
+import { DownloadOutlined } from '@ant-design/icons';
 import {
   ApiError,
   customersApi,
+  downloadApiFile,
   ordersApi,
   pricesApi,
   productsApi,
@@ -147,6 +149,25 @@ export default function OrdersPage(): JSX.Element {
           />
           {canOperate && (
             <Button type="primary" onClick={() => setCreateOpen(true)}>新建订单</Button>
+          )}
+          {canOperate && (
+            <Button
+              icon={<DownloadOutlined />}
+              onClick={async () => {
+                try {
+                  const qsParams = new URLSearchParams();
+                  if (activeStatus !== 'ALL') qsParams.set('status', activeStatus);
+                  if (keyword) qsParams.set('q', keyword);
+                  const qsStr = qsParams.toString();
+                  await downloadApiFile(`/orders/export${qsStr ? `?${qsStr}` : ''}`, '订单');
+                  message.success('订单清单已导出');
+                } catch (e) {
+                  message.error(e instanceof Error ? e.message : '导出失败');
+                }
+              }}
+            >
+              导出 xlsx
+            </Button>
           )}
         </Space>
         <ProTable<OrderDTO>

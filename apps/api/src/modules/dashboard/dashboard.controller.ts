@@ -2,6 +2,7 @@ import { Controller, Get, Injectable, Module } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { readAgingConfig, bucketOfDays, arOpenOf } from '../receivables/aging';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -40,24 +41,17 @@ export class DashboardController {
       where: { archivedAt: null },
       include: { customer: { select: { id: true, name: true } }, ledger: true },
     });
-    const buckets: Record<string, number> = { not_due: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90p: 0, disputed: 0 };
+    // M9-3: 档位租户级可配(默认 30/50/90), 与应收台账同源(aging.ts)
+    const aging = await readAgingConfig(this.prisma, user.tenantId);
+    const buckets: Record<string, number> = { not_due: 0, b1: 0, b2: 0, b3: 0, b4: 0, disputed: 0 };
     const debtor = new Map<string, { customerId: string; name: string; open: number }>();
     let debtTotal = 0;
     for (const ar of ars) {
-      let settled = 0; let waived = 0; let writtenOff = 0; let revNoPay = 0; let returnCredit = 0;
-      for (const l of ar.ledger) {
-        const amt = Number(l.amount);
-        if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
-        else if (l.direction === 'WAIVE') waived += amt;
-        else if (l.direction === 'WRITEOFF') writtenOff += amt;
-        else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
-        else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
-      }
-      const open = Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay;
+      const open = arOpenOf(Number(ar.total), ar.ledger).open;
       if (open <= 0.0001) continue;
       debtTotal += open;
       const days = ar.disputeFlag ? -1 : dayjs().startOf('day').diff(dayjs(ar.dueDate).startOf('day'), 'day');
-      const bucket = ar.disputeFlag ? 'disputed' : days <= 0 ? 'not_due' : days <= 30 ? 'd1_30' : days <= 60 ? 'd31_60' : days <= 90 ? 'd61_90' : 'd90p';
+      const bucket = ar.disputeFlag ? 'disputed' : bucketOfDays(days, aging);
       buckets[bucket] += open;
       const d = debtor.get(ar.customerId) ?? { customerId: ar.customerId, name: ar.customer.name, open: 0 };
       d.open += open;

@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Button, Input, Picker, Text, View } from '@tarojs/components'
+import { useEffect, useRef, useState } from 'react'
+import { Button, Canvas, Image, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
 import {
@@ -17,10 +17,35 @@ import './index.scss'
 // 回包装品类（与服务端押金单价 cfg 默认对齐：周转箱15/啤酒瓶0.5/白酒盒2）
 const PACKAGE_CATEGORIES: string[] = ['周转箱', '啤酒瓶', '白酒盒']
 
-const SIGN_TYPES: Array<{ key: 'E_SIGN' | 'PAPER'; label: string }> = [
-  { key: 'E_SIGN', label: '电子签（当场确认）' },
+const SIGN_TYPES: Array<{ key: 'E_SIGN' | 'PHOTO' | 'PAPER'; label: string }> = [
+  { key: 'E_SIGN', label: '电子签（手写签名）' },
+  { key: 'PHOTO', label: '拍照签收（拍签收单/现场）' },
   { key: 'PAPER', label: '纸单回录（拍纸质单，回仓录入）' },
 ]
+
+const CANVAS_ID = 'signCanvas'
+
+/** 图片转 base64 dataURL（weapp 本地临时文件 / H5 blob 两态；对象存储未接入前的内联方案 M8-3） */
+function fileToDataUrl(path: string): Promise<string> {
+  if (path.startsWith('blob:') || path.startsWith('http')) {
+    return fetch(path)
+      .then((r) => r.blob())
+      .then((blob) => new Promise<string>((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result))
+        fr.onerror = () => reject(new Error('图片读取失败'))
+        fr.readAsDataURL(blob)
+      }))
+  }
+  return new Promise<string>((resolve, reject) => {
+    Taro.getFileSystemManager().readFile({
+      filePath: path,
+      encoding: 'base64',
+      success: (r) => resolve(`data:image/jpeg;base64,${r.data}`),
+      fail: () => reject(new Error('图片读取失败')),
+    })
+  })
+}
 
 interface SignLine {
   line: OrderLineDTO
@@ -55,12 +80,111 @@ export default function WarehouseSignPage() {
   const [signLines, setSignLines] = useState<SignLine[]>([])
   const [typeIdx, setTypeIdx] = useState(0)
   const [signerName, setSignerName] = useState('')
-  const [signature, setSignature] = useState('')
+  const [photoPath, setPhotoPath] = useState('')
   const [packages, setPackages] = useState<Array<{ category: string; qty: string }>>([])
   const [showReject, setShowReject] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
+
+  // canvas 手写签名（2d）：node/ctx 挂 ref，hasDrawn 控制可提交性
+  const canvasNode = useRef<{ node: unknown; ctx: CanvasRenderingContext2D; rect: { left: number; top: number } } | null>(null)
+  const drawing = useRef(false)
+  const lastPoint = useRef<{ x: number; y: number } | null>(null)
+  const hasDrawn = useRef(false)
+
+  useEffect(() => {
+    // 页面渲染完成后再取 canvas 节点（2d 模式必须 node 方式拿 context）
+    const timer = setTimeout(() => { initCanvas() }, 200)
+    return () => clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function initCanvas() {
+    try {
+      const query = Taro.createSelectorQuery()
+      query.select(`#${CANVAS_ID}`).fields({ node: true, size: true, rect: true }).exec((res) => {
+        const info = res?.[0] as { node: unknown; width: number; height: number; left: number; top: number } | undefined
+        if (!info?.node) return
+        const dpr = Taro.getSystemInfoSync().pixelRatio || 2
+        const canvas = info.node as { width: number; height: number; getContext: (t: '2d') => CanvasRenderingContext2D }
+        canvas.width = info.width * dpr
+        canvas.height = info.height * dpr
+        const ctx = canvas.getContext('2d')
+        ctx.scale(dpr, dpr)
+        ctx.lineWidth = 3
+        ctx.lineCap = 'round'
+        ctx.lineJoin = 'round'
+        ctx.strokeStyle = '#2b2422'
+        canvasNode.current = { node: canvas, ctx, rect: { left: info.left, top: info.top } }
+      })
+    } catch {
+      // canvas 初始化失败(极旧基础库): 仍可提交, 签名板留空
+    }
+  }
+
+  function touchPos(e: { touches: Array<{ x?: number; y?: number; clientX?: number; clientY?: number }> }): { x: number; y: number } | null {
+    const t = e.touches?.[0]
+    const rect = canvasNode.current?.rect
+    if (!t) return null
+    if (typeof t.x === 'number' && typeof t.y === 'number') return { x: t.x, y: t.y } // weapp: 画布相对坐标
+    if (typeof t.clientX === 'number' && typeof t.clientY === 'number' && rect) return { x: t.clientX - rect.left, y: t.clientY - rect.top } // H5
+    return null
+  }
+
+  function onTouchStart(e: { touches: Array<{ x?: number; y?: number; clientX?: number; clientY?: number }> }) {
+    const p = touchPos(e)
+    if (!p) return
+    drawing.current = true
+    lastPoint.current = p
+    hasDrawn.current = true
+  }
+
+  function onTouchMove(e: { touches: Array<{ x?: number; y?: number; clientX?: number; clientY?: number }> }) {
+    if (!drawing.current) return
+    const p = touchPos(e)
+    const ctx = canvasNode.current?.ctx
+    if (!p || !ctx || !lastPoint.current) return
+    ctx.beginPath()
+    ctx.moveTo(lastPoint.current.x, lastPoint.current.y)
+    ctx.lineTo(p.x, p.y)
+    ctx.stroke()
+    lastPoint.current = p
+  }
+
+  function onTouchEnd() {
+    drawing.current = false
+    lastPoint.current = null
+  }
+
+  function clearSignature() {
+    const c = canvasNode.current
+    if (!c) return
+    const canvas = c.node as { width: number; height: number }
+    c.ctx.clearRect(0, 0, canvas.width, canvas.height)
+    hasDrawn.current = false
+  }
+
+  /** 导出签名为 dataURL；未画过返回 undefined */
+  function exportSignature(): string | undefined {
+    if (!hasDrawn.current || !canvasNode.current) return undefined
+    const canvas = canvasNode.current.node as { toDataURL: (t: string) => string }
+    try {
+      return canvas.toDataURL('image/png')
+    } catch {
+      return undefined
+    }
+  }
+
+  async function takePhoto() {
+    try {
+      const res = await Taro.chooseImage({ count: 1, sizeType: ['compressed'] })
+      const p = res.tempFilePaths?.[0]
+      if (p) setPhotoPath(p)
+    } catch {
+      /* 用户取消 */
+    }
+  }
 
   useDidShow(() => {
     if (!getToken()) {
@@ -132,12 +256,21 @@ export default function WarehouseSignPage() {
       })
       if (!ok) return
     }
+    if (type === 'PHOTO' && !photoPath) {
+      Taro.showToast({ title: '拍照签收请先拍一张凭证', icon: 'none' })
+      return
+    }
     setSubmitting(true)
     try {
+      // E_SIGN: canvas 导出签名 base64; PHOTO: 凭证图转 base64(对象存储未接前的内联过渡)
+      const signatureData = type === 'E_SIGN' ? exportSignature() : undefined
+      const photoUrl = type === 'PHOTO' && photoPath ? await fileToDataUrl(photoPath) : undefined
       const res = await ordersApi.sign(order.id, {
         type,
         signerName: signerName.trim() || undefined,
-        signatureData: signature.trim() || undefined,
+        signatureData,
+        photoUrl,
+        deviceInfo: `${Taro.getSystemInfoSync().platform ?? ''} sign-canvas`,
         returnPackages: returnPackages.length ? returnPackages : undefined,
         lines,
       })
@@ -244,15 +377,41 @@ export default function WarehouseSignPage() {
             onInput={(e) => setSignerName(e.detail.value)}
           />
         </View>
-        <View className='frow'>
-          <Text className='frow__label'>签名文本</Text>
-          <Input
-            className='sign__ipt'
-            placeholder='选填，如“已验收 王老板”'
-            value={signature}
-            onInput={(e) => setSignature(e.detail.value)}
-          />
-        </View>
+
+        {/* M8-3 电子网签: canvas 手写签名(替代原签名文本框) */}
+        {SIGN_TYPES[typeIdx]?.key === 'E_SIGN' && (
+          <View className='signpad'>
+            <View className='signpad__head'>
+              <Text className='signpad__label'>请让客户手写签名</Text>
+              <Text className='signpad__clear' onClick={clearSignature}>清除重写</Text>
+            </View>
+            <Canvas
+              type='2d'
+              id={CANVAS_ID}
+              canvasId={CANVAS_ID}
+              className='signpad__canvas'
+              onTouchStart={onTouchStart}
+              onTouchMove={onTouchMove}
+              onTouchEnd={onTouchEnd}
+            />
+            <Text className='signpad__tip'>签名将随签收单存证；不签名也可提交（仅记录签收人姓名）</Text>
+          </View>
+        )}
+
+        {/* M8-3 拍照签收: 现场凭证 */}
+        {SIGN_TYPES[typeIdx]?.key === 'PHOTO' && (
+          <View className='signpad'>
+            <Text className='signpad__label'>拍一张签收凭证（签收单/卸货现场）</Text>
+            {photoPath ? (
+              <View className='signpad__preview' onClick={() => { void takePhoto() }}>
+                <Image src={photoPath} mode='aspectFill' className='signpad__photo' />
+                <Text className='signpad__tip'>点击重拍</Text>
+              </View>
+            ) : (
+              <Button className='btn-inline btn-inline--ghost' onClick={() => { void takePhoto() }}>拍照 / 从相册选择</Button>
+            )}
+          </View>
+        )}
       </View>
 
       {/* 回包装动态行 */}

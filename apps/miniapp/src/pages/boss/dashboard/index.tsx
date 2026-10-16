@@ -1,19 +1,26 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
-import { LOGIN_PAGE, dashboardApi, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
+import { LOGIN_PAGE, agingApi, dashboardApi, defaultArBucketLabels, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
 import type { ArBucket, FourQuestionsDTO } from '../../../services/api'
 import './index.scss'
 
 // 欠款分档（与后端 buckets 键对齐；配色=蓝未到期→橙短逾→红长逾→灰争议）
-const BUCKETS: Array<{ key: ArBucket; label: string; tone: string }> = [
-  { key: 'not_due', label: '未到期', tone: 'info' },
-  { key: 'd1_30', label: '逾期1-30天', tone: 'warn' },
-  { key: 'd31_60', label: '逾期31-60天', tone: 'warn2' },
-  { key: 'd61_90', label: '逾期61-90天', tone: 'danger2' },
-  { key: 'd90p', label: '逾期90天+', tone: 'danger' },
-  { key: 'disputed', label: '争议款', tone: 'muted' },
-]
+// M9-3: 档位文案按租户配置下发（默认 30/50/90），拉不到配置时用兜底文案
+const BUCKET_TONES: Record<ArBucket, string> = {
+  not_due: 'info',
+  b1: 'warn',
+  b2: 'warn2',
+  b3: 'danger2',
+  b4: 'danger',
+  disputed: 'muted',
+}
+
+const BUCKET_ORDER: ArBucket[] = ['not_due', 'b1', 'b2', 'b3', 'b4', 'disputed']
+
+function bucketsOf(labels: Record<ArBucket, string>): Array<{ key: ArBucket; label: string; tone: string }> {
+  return BUCKET_ORDER.map((key) => ({ key, label: key === 'disputed' ? '争议款' : labels[key], tone: BUCKET_TONES[key] }))
+}
 
 /**
  * 老板四问看板（P1 全员端，GET /dashboard/four-questions）：
@@ -25,6 +32,7 @@ export default function BossDashboardPage() {
   const [data, setData] = useState<FourQuestionsDTO | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [bucketLabels, setBucketLabels] = useState<Record<ArBucket, string>>(defaultArBucketLabels())
 
   useDidShow(() => {
     if (!getToken()) {
@@ -32,6 +40,7 @@ export default function BossDashboardPage() {
       return
     }
     void load()
+    agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
   })
 
   usePullDownRefresh(() => {
@@ -69,7 +78,7 @@ export default function BossDashboardPage() {
   }
 
   const debtTotal = toNum(data.debt?.total)
-  const bucketRows = BUCKETS.map((b) => ({ ...b, amount: toNum(data.debt?.buckets?.[b.key]) }))
+  const bucketRows = bucketsOf(bucketLabels).map((b) => ({ ...b, amount: toNum(data.debt?.buckets?.[b.key]) }))
   const barTotal = bucketRows.reduce((s, b) => s + b.amount, 0)
 
   return (

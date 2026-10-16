@@ -96,15 +96,30 @@ export const ONBOARDING_META: Record<string, { label: string; color: string }> =
   REJECTED: { label: '已驳回', color: 'error' },
 };
 
-/** 应收账龄分档（后端 AgingBucket：not_due/d1_30/d31_60/d61_90/d90p/disputed） */
-export const AR_BUCKET_TABS: Array<{ value: string; label: string }> = [
-  { value: 'not_due', label: '未到期' },
-  { value: 'd1_30', label: '逾期1-30天' },
-  { value: 'd31_60', label: '逾期31-60天' },
-  { value: 'd61_90', label: '逾期61-90天' },
-  { value: 'd90p', label: '逾期90天以上' },
-  { value: 'disputed', label: '争议' },
-];
+/** 应收账龄分档（后端 AgingBucket：not_due/b1/b2/b3/b4/disputed）。
+ * M9-3：档位上限租户级可配（默认 30/50/90，Q1 已确认），tab 文案按配置生成——
+ * 页面用 agingApi.get() 拉配置后调 arBucketTabs()；未拉到配置时用默认档位。 */
+export interface AgingBucketCfg {
+  b1: number;
+  b2: number;
+  b3: number;
+}
+
+export const DEFAULT_AR_BUCKET_CFG: AgingBucketCfg = { b1: 30, b2: 50, b3: 90 };
+
+export function arBucketTabs(cfg: AgingBucketCfg = DEFAULT_AR_BUCKET_CFG): Array<{ value: string; label: string }> {
+  return [
+    { value: 'not_due', label: '未到期' },
+    { value: 'b1', label: `逾期1-${cfg.b1}天` },
+    { value: 'b2', label: `逾期${cfg.b1 + 1}-${cfg.b2}天` },
+    { value: 'b3', label: `逾期${cfg.b2 + 1}-${cfg.b3}天` },
+    { value: 'b4', label: `逾期${cfg.b3}天以上` },
+    { value: 'disputed', label: '争议' },
+  ];
+}
+
+/** 未拉到配置时的兜底 tab（与后端 DEFAULT_AGING_CONFIG 一致） */
+export const AR_BUCKET_TABS: Array<{ value: string; label: string }> = arBucketTabs();
 
 export const IMPORT_KIND_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'PRODUCT', label: '商品' },

@@ -94,6 +94,33 @@ export interface RestockRequestDTO {
   updatedAt: string;
 }
 
+// ───────────────────────── 临期预警（M2-3/M7-4 效期维度） ─────────────────────────
+
+export interface ExpiryAlertConfigDTO {
+  warnDays: number;
+  enabled: boolean;
+}
+
+export interface ExpiryItemDTO {
+  batchId: string;
+  skuCode: string;
+  productName: string;
+  category: string;
+  batchNo: string;
+  location: string | null;
+  expiryDate: string;
+  daysLeft: number;
+  level: 'EXPIRED' | 'WARNING';
+  onHand: number;
+  stockValue: number;
+}
+
+export interface ExpiryListDTO {
+  warnDays: number;
+  items: ExpiryItemDTO[];
+  summary: { expired: number; warning: number; valueAtRisk: number };
+}
+
 export const stockAlertApi = {
   getConfig: () => request<StockAlertConfigDTO>('/stock-alert/config'),
   saveConfig: (input: Partial<StockAlertConfigDTO>) => request<StockAlertConfigDTO>('/stock-alert/config', { method: 'POST', body: input }),
@@ -102,4 +129,8 @@ export const stockAlertApi = {
   restocks: (params: { status?: string; page?: number; pageSize?: number }) => request<{ items: RestockRequestDTO[]; total: number; page: number; pageSize: number }>(`/stock-alert/restocks${qs(params)}`),
   confirmRestock: (id: string, input: { qty?: number; supplier?: string; type?: string; note?: string }) => request<{ id: string; status: string; purchaseId: string; purNo: string; approvalId: string }>(`/stock-alert/restocks/${id}/confirm`, { method: 'POST', body: input }),
   dismissRestock: (id: string, reason: string) => request<{ id: string; status: string }>(`/stock-alert/restocks/${id}/dismiss`, { method: 'POST', body: { reason } }),
+  // 临期预警
+  expiry: () => request<ExpiryListDTO>('/stock-alert/expiry'),
+  getExpiryConfig: () => request<ExpiryAlertConfigDTO>('/stock-alert/expiry/config'),
+  saveExpiryConfig: (input: Partial<ExpiryAlertConfigDTO>) => request<ExpiryAlertConfigDTO>('/stock-alert/expiry/config', { method: 'POST', body: input }),
 };

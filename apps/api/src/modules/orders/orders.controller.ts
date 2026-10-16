@@ -1,10 +1,14 @@
-import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { Response } from 'express';
+import dayjs from 'dayjs';
 import { OrdersService, CreateOrderDto } from './orders.service';
+import { ORDER_STATUS_LABELS } from '../../statemachine/order-state';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { buildXlsx, sendXlsx, exportFilename, ExportSheet } from '../../common/export.util';
 
 class LineDto {
   @IsString() productId!: string;
@@ -95,6 +99,42 @@ export class OrdersController {
     @Query('pageSize') pageSize?: string,
   ): Promise<unknown> {
     return this.orders.listOutbounds({ status, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  /** M1-5 订单导出(xlsx; 过滤条件与列表一致, 分页拉全量, 上限 2000 行) */
+  @Get('export')
+  @Roles('OWNER', 'CLERK')
+  async export(
+    @CurrentUser() user: AuthUser,
+    @Query('status') status?: string,
+    @Query('customerId') customerId?: string,
+    @Query('q') keyword?: string,
+    @Res() res?: Response,
+  ): Promise<void> {
+    const rows: Array<Record<string, unknown>> = [];
+    for (let page = 1; page <= 20; page++) {
+      const batch = await this.orders.list(user, { status, customerId, keyword, page, pageSize: 100 });
+      rows.push(...(batch.items as Array<Record<string, unknown>>));
+      if (rows.length >= batch.total) break;
+    }
+    const sheet: ExportSheet<Record<string, unknown>> = {
+      name: '订单',
+      columns: [
+        { key: 'orderNo', header: '订单号', width: 18 },
+        { key: 'status', header: '状态', width: 10, value: (r) => ORDER_STATUS_LABELS[r.status as keyof typeof ORDER_STATUS_LABELS] ?? String(r.status ?? '') },
+        { key: 'customerName', header: '客户', width: 16 },
+        { key: 'totalAmount', header: '订单金额', width: 12, value: (r) => Number(r.totalAmount) },
+        { key: 'source', header: '来源', width: 10 },
+        { key: 'lineCount', header: '行数', width: 8 },
+        { key: 'specialApproved', header: '特批', width: 8 },
+        { key: 'createdAt', header: '创建时间', width: 18, value: (r) => dayjs(r.createdAt as string).format('YYYY-MM-DD HH:mm') },
+        { key: 'deliveryDate', header: '配送日期', width: 12, value: (r) => (r.deliveryDate ? dayjs(r.deliveryDate as string).format('YYYY-MM-DD') : null) },
+        { key: 'addressSnapshot', header: '配送地址', width: 28 },
+      ],
+      rows,
+      title: `订单清单(共 ${rows.length} 单)`,
+    };
+    sendXlsx(res!, exportFilename('订单'), buildXlsx([sheet]));
   }
 
   /** P0-T22 复核确认出库(库存流水, 幂等) */

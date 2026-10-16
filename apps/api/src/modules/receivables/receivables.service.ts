@@ -7,13 +7,17 @@ import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertPaymentTransition, PaymentState } from '../../statemachine/payment-state';
 import { NotifyService } from '../../common/notify.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import {
+  AgingBucket, AgingConfig, readAgingConfig, normalizeAgingConfig, bucketOfDays,
+  AGING_CONFIG_KEY, DEFAULT_AGING_CONFIG, arOpenOf,
+} from './aging';
 
 // ═══════════════ P0-T30 应收台账 + P0-T31 收款销账(F9) + T03 抹零坏账 + T32 软归档 + T51 提醒 ═══════════════
-// D4 冻结口径: 生成=签收完成; 到期日=生成日+账期; 分档未到期/1-30/31-60/61-90/>90(可配);
+// D4 冻结口径: 生成=签收完成; 到期日=生成日+账期; 分档未到期/b1/b2/b3/b4(档位租户级可配, 默认30/50/90, Q1已确认);
 //   核销 FIFO(最早到期优先), 禁止比例分摊; 争议款不进分档与提醒
 // B4: open=流水投影(total−SETTLE−WAIVE−WRITEOFF−冲正); B3 同原则: 收款冲正只准红字新单
 
-export type AgingBucket = 'not_due' | 'd1_30' | 'd31_60' | 'd61_90' | 'd90p' | 'disputed';
+export type { AgingBucket } from './aging';
 
 interface ArRow {
   id: string; sourceType: string; sourceDocNo: string; customerName: string;
@@ -30,26 +34,34 @@ export class ReceivablesService {
     private readonly notify: NotifyService,
   ) {}
 
-  private bucketOf(dueDate: Date, disputeFlag: boolean): { daysOverdue: number; bucket: AgingBucket } {
+  private bucketOf(dueDate: Date, disputeFlag: boolean, cfg: AgingConfig): { daysOverdue: number; bucket: AgingBucket } {
     if (disputeFlag) return { daysOverdue: -1, bucket: 'disputed' };
     const days = dayjs().startOf('day').diff(dayjs(dueDate).startOf('day'), 'day');
-    const bucket: AgingBucket = days <= 0 ? 'not_due' : days <= 30 ? 'd1_30' : days <= 60 ? 'd31_60' : days <= 90 ? 'd61_90' : 'd90p';
-    return { daysOverdue: Math.max(0, days), bucket };
+    return { daysOverdue: Math.max(0, days), bucket: bucketOfDays(days, cfg) };
   }
 
-  /** B4 统一开账口径: settled = Σ(SETTLE+REBATE) − Σ(带 paymentId 的 REVERSAL);
+  /** B4 统一开账口径(实现移入 aging.ts 与定时任务共用): settled = Σ(SETTLE+REBATE) − Σ(带 paymentId 的 REVERSAL);
    *  open = max(0, total − settled − WAIVE − WRITEOFF − RETURN_CREDIT(退货) − Σ(无 paymentId 的 REVERSAL)) */
   private arOpen(r: { total: unknown; ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }> }): { settled: number; open: number } {
-    let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
-    for (const l of r.ledger) {
-      const amt = Number(l.amount);
-      if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
-      else if (l.direction === 'WAIVE') waived += amt;
-      else if (l.direction === 'WRITEOFF') writtenOff += amt;
-      else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
-      else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else reversalNoPay += amt; }
-    }
-    return { settled, open: Math.max(0, Number(r.total) - settled - waived - writtenOff - returnCredit - reversalNoPay) };
+    return arOpenOf(Number(r.total), r.ledger);
+  }
+
+  /** M9-3: 账龄档位配置(租户级, Q1 已确认默认 30/50/90) */
+  async getAgingConfig(user: AuthUser): Promise<AgingConfig> {
+    return readAgingConfig(this.prisma, user.tenantId);
+  }
+
+  async saveAgingConfig(user: AuthUser, patch: Partial<AgingConfig>, ip?: string): Promise<AgingConfig> {
+    if (user.role !== 'OWNER') throw new ForbiddenException('账龄档位仅老板可配置');
+    const cur = await this.getAgingConfig(user);
+    const next = normalizeAgingConfig({ ...cur, ...patch });
+    await this.prisma.systemConfig.upsert({
+      where: { tenantId_key: { tenantId: user.tenantId, key: AGING_CONFIG_KEY } },
+      create: { tenantId: user.tenantId, key: AGING_CONFIG_KEY, value: { v: next } as never, updatedBy: user.id, note: '账龄分档档位(天)' },
+      update: { value: { v: next } as never, updatedBy: user.id },
+    });
+    await this.audit.log({ user, action: 'AGING_CONFIG_SAVE', entityType: 'SystemConfig', entityId: AGING_CONFIG_KEY, before: cur, after: next, ip });
+    return next;
   }
 
   /** SystemConfig 读取(带默认值): 数值型商户签字可否决(业务适配清单§0) */
@@ -81,9 +93,10 @@ export class ReceivablesService {
       include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'REVERSAL'] } } } },
       orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
     });
+    const aging = await readAgingConfig(this.prisma, user.tenantId); // 档位租户级可配(M9-3)
     const mapped: ArRow[] = all.map((r) => {
       const { settled, open } = this.arOpen(r);
-      const { daysOverdue, bucket } = this.bucketOf(r.dueDate, r.disputeFlag);
+      const { daysOverdue, bucket } = this.bucketOf(r.dueDate, r.disputeFlag, aging);
       const settledAt = open <= 0.0001
         ? r.ledger.filter((l) => ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT'].includes(l.direction)).reduce<Date | null>((latest, l) => !latest || l.createdAt > latest ? l.createdAt : latest, null)
         : null;
@@ -107,7 +120,7 @@ export class ReceivablesService {
   async summary(user: AuthUser): Promise<Record<string, number>> {
     // P1-7: 原实现复用 list() 的第一页切片, 未结超 50 条时欠款总额严重低估
     const items = await this.rows(user, {});
-    const out: Record<string, number> = { not_due: 0, d1_30: 0, d31_60: 0, d61_90: 0, d90p: 0, disputed: 0 };
+    const out: Record<string, number> = { not_due: 0, b1: 0, b2: 0, b3: 0, b4: 0, disputed: 0 };
     for (const r of items) out[r.bucket] += r.open;
     out.total = items.reduce((s, r) => s + r.open, 0);
     return out;

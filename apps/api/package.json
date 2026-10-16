@@ -8,7 +8,7 @@
     "dev": "tsc -p tsconfig.json --watch",
     "prisma:generate": "prisma generate",
     "test": "jest",
-    "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js && node prisma/seed-p1.js"
+    "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js && node prisma/seed-p1.js && node prisma/seed-demo.js"
   },
   "dependencies": {
     "@liquor/shared": "workspace:*",

@@ -344,7 +344,35 @@ export const ordersApi = {
 
 // ───────────────────────── 待结单据（文案红线：只说"待结金额"） ─────────────────────────
 
-export type ArBucket = 'not_due' | 'd1_30' | 'd31_60' | 'd61_90' | 'd90p' | 'disputed'
+// 账龄档位键(M9-3): b1/b2/b3 上限租户级可配(默认 30/50/90), 文案由 agingApi 下发
+export type ArBucket = 'not_due' | 'b1' | 'b2' | 'b3' | 'b4' | 'disputed'
+
+export interface AgingConfigDTO {
+  b1: number
+  b2: number
+  b3: number
+}
+
+export interface AgingConfigResultDTO {
+  config: AgingConfigDTO
+  labels: Record<ArBucket, string>
+}
+
+export const agingApi = {
+  get: () => request<AgingConfigResultDTO>('/receivables/aging-config'),
+}
+
+/** 档位文案兜底(与后端默认 30/50/90 一致); 拉到配置后请用 agingApi 的 labels */
+export function defaultArBucketLabels(): Record<ArBucket, string> {
+  return {
+    not_due: '未到期',
+    b1: '逾期1-30天',
+    b2: '逾期31-50天',
+    b3: '逾期51-90天',
+    b4: '逾期90天以上',
+    disputed: '争议',
+  }
+}
 
 export interface CustomerReceivableDTO {
   id: string
@@ -367,6 +395,66 @@ export const receivablesApi = {
   /** 内勤应收台账（owner/clerk token 全量）：bucket 分档 过滤，行形状与 mine 相同 */
   list: (bucket?: string) =>
     request<PageResult<CustomerReceivableDTO>>(`/receivables${bucket ? `?bucket=${bucket}&pageSize=200` : '?pageSize=200'}`),
+}
+
+// ───────────────────────── 月结对账单（M9-5 客户侧：列表/确认/异议） ─────────────────────────
+
+export type StatementStatus = 'GENERATED' | 'SENT' | 'CONFIRMED' | 'DISPUTED' | 'RESOLVED'
+
+export const STATEMENT_STATUS_LABELS: Record<string, string> = {
+  GENERATED: '已生成',
+  SENT: '待我确认',
+  CONFIRMED: '已确认',
+  DISPUTED: '有异议',
+  RESOLVED: '异议已处理',
+}
+
+export interface StatementLineDTO {
+  docNo: string
+  type: string
+  total: number
+  settledInPeriod: number
+  open: number
+  generatedAt: string
+  dueDate: string
+  dispute?: boolean
+  generatedBeforePeriod?: boolean
+}
+
+export interface StatementDTO {
+  id: string
+  statementNo: string
+  period: string
+  totalCharged: number
+  totalSettled: number
+  openBalance: number
+  status: StatementStatus
+  lines?: StatementLineDTO[] | null
+  sentAt?: string | null
+  confirmedAt?: string | null
+  customer?: { code?: string | null; name: string } | null
+  createdAt: string
+}
+
+export type DisputeType = 'MISSING_ORDER' | 'PRICE' | 'GIFT' | 'RETURN'
+
+export const DISPUTE_TYPE_LABELS: Record<string, string> = {
+  MISSING_ORDER: '漏单',
+  PRICE: '价格',
+  GIFT: '赠品',
+  RETURN: '退货',
+}
+
+export const statementsApi = {
+  /** 客户 token 只返回自己的对账单 */
+  list: (status?: string) =>
+    request<StatementDTO[]>(`/statements${status ? `?status=${status}` : ''}`),
+  detail: (id: string) => request<StatementDTO>(`/statements/${id}`),
+  /** 客户确认（SENT → CONFIRMED） */
+  confirm: (id: string) => request<StatementDTO>(`/statements/${id}/confirm`, { method: 'POST', body: {} }),
+  /** 客户异议：差异项（四类）进内勤工作池 */
+  dispute: (id: string, items: Array<{ type: DisputeType; content: string }>) =>
+    request<Record<string, unknown>>(`/statements/${id}/dispute`, { method: 'POST', body: { items } }),
 }
 
 // ───────────────────────── 购物车（本地 state + storage 持久化，key=productId+unit） ─────────────────────────
@@ -555,9 +643,12 @@ export interface OrderDetailDTO {
 }
 
 export interface SignBody {
-  type: 'E_SIGN' | 'PAPER'
+  type: 'E_SIGN' | 'PHOTO' | 'PAPER'
   signerName?: string
+  /** E_SIGN: canvas 手写签名导出的 dataURL(base64); PHOTO: 拍照凭证 dataURL */
   signatureData?: string
+  photoUrl?: string
+  deviceInfo?: string
   /** 回包装回填（品类+数量，落押金台账） */
   returnPackages?: Array<{ category: string; qty: number }>
   /** 逐行实收（默认=净量；缺省行服务端按净量计） */

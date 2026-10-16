@@ -9,7 +9,7 @@ import {
 } from 'antd';
 import { ReloadOutlined, FileAddOutlined, SettingOutlined } from '@ant-design/icons';
 import { stockAlertApi } from '../../services/stock-alert-api';
-import type { StockAlertConfigDTO, StockReportDTO, StockReportItemDTO, RestockRequestDTO } from '../../services/stock-alert-api';
+import type { StockAlertConfigDTO, StockReportDTO, StockReportItemDTO, RestockRequestDTO, ExpiryItemDTO, ExpiryListDTO } from '../../services/stock-alert-api';
 import { fmtDateTime, fmtMoney, toNum } from '../../utils/format';
 import { getAuth } from '../../services/auth';
 
@@ -126,7 +126,79 @@ function ReportTab(): JSX.Element {
   );
 }
 
-// ───────────────────────── Tab2 报货单（内勤确认制） ─────────────────────────
+// ───────────────────────── Tab2 临期预警（M2-3 效期维度，啤酒/红酒刚需） ─────────────────────────
+
+const EXPIRY_LEVEL_META: Record<string, { label: string; color: string }> = {
+  EXPIRED: { label: '已过期', color: 'red' },
+  WARNING: { label: '临期', color: 'orange' },
+};
+
+function ExpiryTab(): JSX.Element {
+  const [data, setData] = useState<ExpiryListDTO | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    setError('');
+    try {
+      setData(await stockAlertApi.expiry());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载临期预警失败');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const items = data?.items ?? [];
+  const s = data?.summary;
+
+  const doExport = (): void => {
+    exportCsv(`临期预警-${todayStr()}`, [
+      ['SKU', '商品', '批次', '库位', '到期日', '剩余天数', '状态', '批次库存(最小)', '货值(成本)'],
+      ...items.map((r: ExpiryItemDTO) => [r.skuCode, r.productName, r.batchNo, r.location ?? '', r.expiryDate, r.daysLeft, EXPIRY_LEVEL_META[r.level]?.label ?? r.level, r.onHand, r.stockValue]),
+    ]);
+  };
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Statistic title="临期批次" value={s?.warning ?? 0} valueStyle={{ color: '#fa8c16' }} />
+        <Statistic title="已过期批次" value={s?.expired ?? 0} valueStyle={{ color: '#cf1322' }} />
+        <Statistic title="涉及货值(成本)" value={s ? fmtMoney(s.valueAtRisk) : '—'} prefix="¥" />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          预警窗口：到期前 {data?.warnDays ?? 30} 天（预警配置 Tab 可调）；已过期批次不可拣货（FEFO 自动排除）
+        </Typography.Text>
+        <Button icon={<ReloadOutlined />} loading={loading} onClick={() => void load()}>刷新</Button>
+        <Button onClick={doExport} disabled={items.length === 0}>导出 CSV</Button>
+      </Space>
+      {error ? <Typography.Text type="danger">{error}</Typography.Text> : null}
+      <Table<ExpiryItemDTO>
+        rowKey="batchId"
+        size="small"
+        loading={loading}
+        dataSource={items}
+        pagination={{ pageSize: 50, showSizeChanger: false }}
+        locale={{ emptyText: `预警窗口内没有在库批次（现有批次到期日均在 ${data?.warnDays ?? 30} 天以外）` }}
+        columns={[
+          { title: 'SKU', dataIndex: 'skuCode', width: 100 },
+          { title: '商品', dataIndex: 'productName', width: 180, ellipsis: true },
+          { title: '批次', dataIndex: 'batchNo', width: 140 },
+          { title: '库位', dataIndex: 'location', width: 110, render: (v) => v || '—' },
+          { title: '到期日', dataIndex: 'expiryDate', width: 110 },
+          { title: '剩余天数', dataIndex: 'daysLeft', width: 90, align: 'right', render: (v) => (v < 0 ? <b style={{ color: '#cf1322' }}>{v}</b> : v) },
+          { title: '状态', dataIndex: 'level', width: 90, render: (lv) => <Tag color={EXPIRY_LEVEL_META[lv]?.color}>{EXPIRY_LEVEL_META[lv]?.label ?? lv}</Tag> },
+          { title: '批次库存', dataIndex: 'onHand', width: 100, align: 'right' },
+          { title: '货值', dataIndex: 'stockValue', width: 100, align: 'right', render: (v) => fmtMoney(toNum(v)) },
+        ]}
+      />
+    </div>
+  );
+}
+
+// ───────────────────────── Tab3 报货单（内勤确认制） ─────────────────────────
 
 function RestockTab(): JSX.Element {
   const [items, setItems] = useState<RestockRequestDTO[]>([]);
@@ -273,16 +345,22 @@ function ConfigTab(): JSX.Element {
     void stockAlertApi.getConfig().then((c: StockAlertConfigDTO) => {
       form.setFieldsValue({ windowDays: c.windowDays, safetyDays: c.safetyDays, coverageDays: c.coverageDays, enabled: c.enabled, defaultSupplier: c.defaultSupplier });
     }).catch((e: unknown) => message.error(e instanceof Error ? e.message : '加载配置失败'));
+    void stockAlertApi.getExpiryConfig().then((c) => {
+      form.setFieldsValue({ expiryWarnDays: c.warnDays, expiryEnabled: c.enabled });
+    }).catch(() => {/* 临期配置缺省(默认30天) */});
   }, [form]);
 
   const save = async (): Promise<void> => {
     const v = await form.validateFields();
     setSaving(true);
     try {
-      await stockAlertApi.saveConfig({
-        windowDays: v.windowDays, safetyDays: v.safetyDays, coverageDays: v.coverageDays,
-        enabled: v.enabled, defaultSupplier: v.defaultSupplier,
-      });
+      await Promise.all([
+        stockAlertApi.saveConfig({
+          windowDays: v.windowDays, safetyDays: v.safetyDays, coverageDays: v.coverageDays,
+          enabled: v.enabled, defaultSupplier: v.defaultSupplier,
+        }),
+        stockAlertApi.saveExpiryConfig({ warnDays: v.expiryWarnDays, enabled: v.expiryEnabled }),
+      ]);
       message.success('配置已保存（次日扫描生效；立即生效可点报表页「刷新」前的手动扫描）');
     } catch (e) {
       message.error(e instanceof Error ? e.message : '保存失败');
@@ -309,6 +387,12 @@ function ConfigTab(): JSX.Element {
         <Form.Item name="defaultSupplier" label="默认供应商（商品档案未填时用）">
           <Input />
         </Form.Item>
+        <Form.Item name="expiryWarnDays" label="临期预警窗口 — 到期前 N 天的批次进临期清单" rules={[{ required: true }]}>
+          <InputNumber min={1} max={365} style={{ width: 200 }} addonAfter="日" />
+        </Form.Item>
+        <Form.Item name="expiryEnabled" label="临期预警（每日库存摘要推送临期条数）" valuePropName="checked">
+          <Switch checkedChildren="开" unCheckedChildren="关" />
+        </Form.Item>
         {isOwner ? <Button type="primary" icon={<SettingOutlined />} loading={saving} onClick={() => void save()}>保存配置</Button> : <Typography.Text type="secondary">仅老板可修改配置</Typography.Text>}
       </Form>
     </Card>
@@ -325,6 +409,7 @@ export default function StockAlertPage(): JSX.Element {
           defaultActiveKey="report"
           items={[
             { key: 'report', label: '每日库存报表', children: <ReportTab /> },
+            { key: 'expiry', label: '临期预警', children: <ExpiryTab /> },
             { key: 'restocks', label: '报货单', children: <RestockTab /> },
             { key: 'config', label: '预警配置', children: <ConfigTab /> },
           ]}

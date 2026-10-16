@@ -8,7 +8,8 @@ import {
   Alert, Button, Card, Col, Row, Space, Statistic, Table, Tag, Typography,
 } from 'antd';
 import { clearAuth, getAuth } from '../../services/auth';
-import { AR_BUCKET_TABS } from '../../constants/labels';
+import { agingApi } from '../../services/api';
+import { AR_BUCKET_TABS, arBucketTabs } from '../../constants/labels';
 import { fmtDateTime, fmtMoney, toNum } from '../../utils/format';
 import type { Decimalish } from '../../utils/format';
 
@@ -79,10 +80,10 @@ async function fetchFourQuestions(): Promise<FourQuestionsDTO> {
 
 const BUCKET_TAG_COLORS: Record<string, string> = {
   not_due: 'default',
-  d1_30: 'gold',
-  d31_60: 'orange',
-  d61_90: 'volcano',
-  d90p: 'red',
+  b1: 'gold',
+  b2: 'orange',
+  b3: 'volcano',
+  b4: 'red',
   disputed: 'purple',
 };
 
@@ -99,6 +100,8 @@ export function FourQuestionsBoard(): JSX.Element {
   const [data, setData] = useState<FourQuestionsDTO | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  // M9-3: 档位文案按租户配置生成(默认 30/50/90)
+  const [bucketTabs, setBucketTabs] = useState(AR_BUCKET_TABS);
 
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
@@ -113,9 +116,12 @@ export function FourQuestionsBoard(): JSX.Element {
   }, []);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    agingApi.get().then((r) => setBucketTabs(arBucketTabs(r.config))).catch(() => setBucketTabs(AR_BUCKET_TABS));
+  }, []);
 
   const debtBuckets = data?.debt.buckets ?? {};
-  const shownBuckets = AR_BUCKET_TABS.filter((b) => toNum(debtBuckets[b.value]) > 0);
+  const shownBuckets = bucketTabs.filter((b) => toNum(debtBuckets[b.value]) > 0);
 
   return (
     <Space direction="vertical" style={{ width: '100%' }} size={16}>

@@ -1,0 +1,269 @@
+@use '../../../styles/shared' as *;
+@use '../../../styles/tokens' as *;
+
+.slist {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $gap-base;
+  box-sizing: border-box;
+}
+
+.slist__tabs {
+  display: flex;
+  gap: calc($gap-base / 2);
+  margin-bottom: $gap-base;
+}
+
+.tabbtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  font-size: $font-sub;
+  color: $color-text;
+  background: $color-card;
+  border: none;
+  border-radius: $radius-base;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
+
+  &--on {
+    font-weight: 600;
+    color: #fff;
+    background: $color-primary;
+  }
+}
+
+.slist__body {
+  display: flex;
+  flex-direction: column;
+  gap: $gap-base;
+}
+
+.slist__tip {
+  display: block;
+  padding: 12px 8px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  text-align: center;
+  line-height: 1.6;
+}
+
+// 对账单卡
+.scard {
+  padding: $gap-base;
+  background: $color-card;
+  border-radius: $radius-base;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.scard__head {
+  display: flex;
+  align-items: center;
+  gap: calc($gap-base / 2);
+}
+
+.scard__no {
+  font-size: $font-title;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.scard__arrow {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.scard__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.scard__amount {
+  font-size: $font-body;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.scard__note {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.scard__lines {
+  padding: calc($gap-base / 2) $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scard__ops {
+  display: flex;
+  gap: $gap-base;
+}
+
+// 明细行
+.sline {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sline__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.sline__doc {
+  font-size: $font-sub;
+  color: $color-text;
+}
+
+.sline__open {
+  font-size: $font-sub;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.sline__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+// 差异弹层
+.dpop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-end;
+}
+
+.dpop__mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.dpop__panel {
+  position: relative;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding: $gap-lg $gap-base calc($gap-base + env(safe-area-inset-bottom));
+  background: $color-card;
+  border-radius: $radius-base $radius-base 0 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: $gap-base;
+}
+
+.dpop__title {
+  font-size: $font-title;
+  font-weight: 600;
+  color: $color-text;
+}
+
+.dpop__item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dpop__type {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  background: $color-bg;
+  border-radius: $radius-base;
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.dpop__arrow {
+  color: $color-text-sub;
+}
+
+.dpop__input {
+  width: 100%;
+  min-height: 120px;
+  padding: calc($gap-base / 2) $gap-base;
+  font-size: $font-body;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.dpop__del {
+  font-size: $font-sub;
+  color: $color-primary;
+  align-self: flex-end;
+}
+
+.dpop__ops {
+  display: flex;
+  gap: $gap-base;
+}
+
+// 取消=描边样式（共享 btn-inline 只有实心/幽灵两态）
+.btn-inline--plain {
+  color: $color-text-sub;
+  background: transparent;
+  border: 1px solid rgba(138, 127, 122, 0.4);
+}
+
+// 空态/错误态
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $gap-base;
+  padding: 120px $gap-base;
+}
+
+.state__txt {
+  font-size: $font-body;
+  color: $color-text-sub;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $touch-min;
+  width: 100%;
+  font-size: $font-body;
+  font-weight: 600;
+  color: #fff;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-base;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+}

@@ -79,6 +79,26 @@
   color: $color-text-sub;
 }
 
+// 对账单入口（M9-5 客户侧闭环：SENT 对账单在此确认/提差异）
+.sumcard__link {
+  margin-top: 16px;
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: $font-sub;
+  font-weight: 600;
+  color: $color-primary;
+  background: rgba(139, 30, 36, 0.06);
+  border: none;
+  border-radius: $radius-base;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
+}
+
 // 单据卡
 .rcard {
   padding: $gap-base;

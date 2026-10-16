@@ -20,7 +20,8 @@ export class RebatesService {
   /** 建方案(D02 互斥硬校验: 同客户存在生效中方案→409) */
   async createScheme(user: AuthUser, dto: { customerId: string; type: 'B' | 'C'; rate: number; note?: string; validTo?: string }): Promise<unknown> {
     const rate = Number(dto.rate);
-    if (!(rate >= 0.05 && rate <= 0.5)) throw new BadRequestException('费率须在 5%-50% 之间(D02)');
+    // 2026-10 口径修订(需求 v1.1 M3-2): 客户明确返利比例 1%-50% 可配, 原 5% 下限排除小额月返
+    if (!(rate >= 0.01 && rate <= 0.5)) throw new BadRequestException('费率须在 1%-50% 之间(D02)');
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
     const active = await this.prisma.rebateScheme.findFirst({

@@ -1,19 +1,21 @@
-// 应收台账（P0-T30~T31）：账龄分档 tab / 收款登记（幂等键）/ 待确认收款→确认销账（二次确认摘要）
+// 应收台账（P0-T30~T31）：账龄分档 tab（档位可配 M9-3）/ 收款登记（幂等键）/ 待确认收款→确认销账（二次确认摘要）
 import { useEffect, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
+import { DownloadOutlined, SettingOutlined } from '@ant-design/icons';
 import {
   App as AntApp, Button, Card, Descriptions, Input, InputNumber, Modal,
   Select, Space, Table, Tag, Typography,
 } from 'antd';
-import { customersApi, receivablesApi } from '../../services/api';
+import { agingApi, customersApi, downloadApiFile, receivablesApi } from '../../services/api';
 import type {
+  AgingConfigDTO,
   ArBucketDTO,
   CustomerDTO,
   PaymentDTO,
   ReceivableDTO,
 } from '../../services/api';
-import { AR_BUCKET_TABS, SETTLEMENT_LABELS, labelOf } from '../../constants/labels';
+import { AR_BUCKET_TABS, SETTLEMENT_LABELS, arBucketTabs, labelOf } from '../../constants/labels';
 import { fmtDate, fmtDateTime, fmtMoney } from '../../utils/format';
 
 const NEG = '#cf1322';
@@ -25,6 +27,16 @@ export default function ReceivablesPage(): JSX.Element {
   const [refreshKey, setRefreshKey] = useState(0);
   const [payOpen, setPayOpen] = useState(false);
   const [payRefreshKey, setPayRefreshKey] = useState(0);
+  // M9-3 账龄档位（租户级可配，默认 30/50/90）
+  const [bucketTabs, setBucketTabs] = useState(AR_BUCKET_TABS);
+  const [agingOpen, setAgingOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    agingApi.get()
+      .then((r) => setBucketTabs(arBucketTabs(r.config)))
+      .catch(() => setBucketTabs(AR_BUCKET_TABS)); // 配置拉取失败用默认档位
+  }, [refreshKey]);
 
   const columns: ProColumns<ReceivableDTO>[] = [
     { title: '单据号', dataIndex: 'sourceDocNo', width: 160, render: (_, r) => (
@@ -54,12 +66,30 @@ export default function ReceivablesPage(): JSX.Element {
         <Card>
           <Space style={{ marginBottom: 12 }} wrap>
             <Select
-              style={{ width: 150 }}
+              style={{ width: 160 }}
               value={bucket}
               onChange={(v) => { setBucket(v as ArBucketDTO); setRefreshKey((k) => k + 1); }}
-              options={AR_BUCKET_TABS}
+              options={bucketTabs}
             />
             <Button type="primary" onClick={() => setPayOpen(true)}>收款登记</Button>
+            <Button
+              icon={<DownloadOutlined />}
+              loading={exporting}
+              onClick={async () => {
+                setExporting(true);
+                try {
+                  await downloadApiFile(`/receivables/export?bucket=${bucket}`, '应收台账');
+                  message.success('应收台账已导出');
+                } catch (e) {
+                  message.error(e instanceof Error ? e.message : '导出失败');
+                } finally {
+                  setExporting(false);
+                }
+              }}
+            >
+              导出 xlsx
+            </Button>
+            <Button icon={<SettingOutlined />} onClick={() => setAgingOpen(true)}>账龄档位</Button>
           </Space>
           <ProTable<ReceivableDTO>
             rowKey="id"
@@ -92,7 +122,94 @@ export default function ReceivablesPage(): JSX.Element {
         onClose={() => setPayOpen(false)}
         onSaved={() => { setPayOpen(false); setRefreshKey((k) => k + 1); setPayRefreshKey((k) => k + 1); }}
       />
+
+      <AgingConfigModal
+        open={agingOpen}
+        onClose={() => setAgingOpen(false)}
+        onSaved={() => { setAgingOpen(false); setRefreshKey((k) => k + 1); }}
+      />
     </PageContainer>
+  );
+}
+
+// ───────────────────────── 账龄档位设置（M9-3，仅老板；档位租户级可配） ─────────────────────────
+
+function AgingConfigModal({
+  open, onClose, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [cfg, setCfg] = useState<AgingConfigDTO | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setCfg(null);
+      agingApi.get().then((r) => setCfg(r.config)).catch(() => setCfg(null));
+    }
+  }, [open]);
+
+  async function save(): Promise<void> {
+    if (!cfg) return;
+    if (!(cfg.b1 >= 1 && cfg.b2 > cfg.b1 && cfg.b3 > cfg.b2 && cfg.b3 <= 365)) {
+      message.warning('档位须满足 1 ≤ 第一档 < 第二档 < 第三档 ≤ 365');
+      return;
+    }
+    setSaving(true);
+    try {
+      const next = await agingApi.save(cfg);
+      message.success(`账龄档位已更新：${next.b1}/${next.b2}/${next.b3} 天`);
+      onSaved();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const items: Array<{ key: keyof AgingConfigDTO; label: string; hint: string }> = [
+    { key: 'b1', label: '第一档（天）', hint: '逾期 ≤ 此天数' },
+    { key: 'b2', label: '第二档（天）', hint: `逾期 ${cfg ? cfg.b1 + 1 : 31} ~ 此天数` },
+    { key: 'b3', label: '第三档（天）', hint: `超过第二档到此天数，超过此天数即最高档` },
+  ];
+
+  return (
+    <Modal
+      open={open}
+      title="账龄档位设置（租户级）"
+      okText="保存"
+      cancelText="取消"
+      confirmLoading={saving}
+      onOk={save}
+      onCancel={onClose}
+      destroyOnClose
+    >
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12 }}>
+        需求已确认默认 30/50/90 天（第二档较常见 30/60/90 收紧 10 天）。修改仅影响分档展示与提醒，不改历史数据；仅老板可保存。
+      </Typography.Paragraph>
+      {cfg ? (
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          {items.map((it) => (
+            <Space key={it.key} align="center">
+              <Typography.Text style={{ width: 96 }}>{it.label}</Typography.Text>
+              <InputNumber
+                min={1}
+                max={365}
+                precision={0}
+                value={cfg[it.key]}
+                onChange={(v) => setCfg({ ...cfg, [it.key]: v ?? cfg[it.key] })}
+              />
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>{it.hint}</Typography.Text>
+            </Space>
+          ))}
+        </Space>
+      ) : (
+        <Typography.Text type="secondary">正在加载当前档位…</Typography.Text>
+      )}
+    </Modal>
   );
 }
 

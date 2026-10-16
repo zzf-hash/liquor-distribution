@@ -101,6 +101,40 @@ function qs(params: Record<string, string | number | undefined | null>): string 
   return s ? `?${s}` : '';
 }
 
+/** M1-5 单据导出（xlsx 二进制流，绕过 JSON 信封）：鉴权同 request，blob 落地浏览器下载 */
+export async function downloadApiFile(path: string, fallbackName: string): Promise<void> {
+  const auth = getAuth();
+  const headers: Record<string, string> = {};
+  if (auth?.token) headers.Authorization = `Bearer ${auth.token}`;
+  const res = await fetch(`${BASE_URL}${path}`, { headers });
+  if (res.status === 401) {
+    clearAuth();
+    window.location.href = '/login';
+    throw new ApiError('登录已过期，请重新登录', 401, 401, null);
+  }
+  if (!res.ok) {
+    let msg = `导出失败（HTTP ${res.status}）`;
+    try {
+      const body = (await res.json()) as ApiEnvelope<unknown>;
+      if (body?.message) msg = body.message;
+    } catch { /* 二进制错误页忽略 */ }
+    throw new ApiError(msg, res.status, res.status, null);
+  }
+  const disposition = res.headers.get('Content-Disposition') ?? '';
+  const starMatch = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  const plainMatch = /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = starMatch ? decodeURIComponent(starMatch[1]) : plainMatch ? plainMatch[1] : fallbackName;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ───────────────────────── 通用分页 ─────────────────────────
 
 export interface PageResult<T> {
@@ -387,7 +421,26 @@ export const ordersApi = {
 
 // ───────────────────────── 应收 / 收款（P0-T30~T31） ─────────────────────────
 
-export type ArBucketDTO = 'not_due' | 'd1_30' | 'd31_60' | 'd61_90' | 'd90p' | 'disputed';
+// 账龄档位键（M9-3）：b1/b2/b3 上限租户级可配（默认 30/50/90，Q1 已确认），文案由 agingApi 下发
+export type ArBucketDTO = 'not_due' | 'b1' | 'b2' | 'b3' | 'b4' | 'disputed';
+
+export interface AgingConfigDTO {
+  b1: number;
+  b2: number;
+  b3: number;
+}
+
+export interface AgingConfigResultDTO {
+  config: AgingConfigDTO;
+  labels: Record<ArBucketDTO, string>;
+}
+
+export const agingApi = {
+  /** 档位配置 + 档位文案（三端共用口径） */
+  get: () => request<AgingConfigResultDTO>('/receivables/aging-config'),
+  save: (config: AgingConfigDTO) =>
+    request<AgingConfigDTO>('/receivables/aging-config', { method: 'POST', body: config }),
+};
 
 export interface ReceivableDTO {
   id: string;

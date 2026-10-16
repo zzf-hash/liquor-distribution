@@ -34,6 +34,7 @@ import { VisitsModule } from './modules/visits/visits.controller';
 import { DraftsModule } from './modules/drafts/drafts.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
+import { DailyTasksModule } from './modules/daily-tasks/daily-tasks.controller';
 
 @Module({
   imports: [
@@ -65,6 +66,7 @@ import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
     UsersModule,
     HealthModule,
     StockAlertModule,
+    DailyTasksModule, // 每日自动化: 到期提醒/月结对账单/自动归档
     TelemetryModule, // 内建遥测: 请求埋点 + 三端错误上报
   ],
   providers: [

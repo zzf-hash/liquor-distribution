@@ -94,6 +94,12 @@ export default function CustomerReceivablesPage() {
             <Text className='sumcard__label'>待结金额合计</Text>
             <Text className='sumcard__amount'>{fmtMoney(openTotal)}</Text>
             <Text className='sumcard__note'>按先到期先结的顺序结算；到期前请备好款项</Text>
+            <Button
+              className='sumcard__link'
+              onClick={() => Taro.navigateTo({ url: '/pages/customer/statements/index' })}
+            >
+              月结对账单（确认数字 / 提差异）›
+            </Button>
           </View>
           {openRows.length === 0 ? (
             <Text className='rlist__tip'>当前没有待结单据</Text>

@@ -3,25 +3,46 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
+  agingApi,
+  defaultArBucketLabels,
   fmtDate,
   fmtMoney,
   getToken,
   receivablesApi,
   toNum,
 } from '../../../services/api'
-import type { CustomerReceivableDTO } from '../../../services/api'
+import type { ArBucket, CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
 
 // 账龄分档 tab（bucket 对齐后端 AgingBucket；'' = 全部未结）
-const TABS: Array<{ key: string; label: string; tone: string }> = [
-  { key: '', label: '全部', tone: '' },
-  { key: 'not_due', label: '未到期', tone: 'info' },
-  { key: 'd1_30', label: '逾期1-30', tone: 'warn' },
-  { key: 'd31_60', label: '31-60', tone: 'warn' },
-  { key: 'd61_90', label: '61-90', tone: 'danger' },
-  { key: 'd90p', label: '90天+', tone: 'danger' },
-  { key: 'disputed', label: '争议', tone: 'muted' },
-]
+// M9-3: 档位文案按租户配置下发（默认 30/50/90），tab 短标签取档位天数
+const TAB_TONES: Record<string, string> = {
+  not_due: 'info',
+  b1: 'warn',
+  b2: 'warn',
+  b3: 'danger',
+  b4: 'danger',
+  disputed: 'muted',
+}
+
+function tabsOf(_labels: Record<ArBucket, string>): Array<{ key: string; label: string; tone: string }> {
+  return [
+    { key: '', label: '全部', tone: '' },
+    { key: 'not_due', label: '未到期', tone: TAB_TONES.not_due },
+    { key: 'b1', label: '逾期≤一档', tone: TAB_TONES.b1 },
+    { key: 'b2', label: '二档', tone: TAB_TONES.b2 },
+    { key: 'b3', label: '三档', tone: TAB_TONES.b3 },
+    { key: 'b4', label: '最高档', tone: TAB_TONES.b4 },
+    { key: 'disputed', label: '争议', tone: TAB_TONES.disputed },
+  ]
+}
+
+function tabLabel(labels: Record<ArBucket, string>, key: string): string {
+  if (!key) return '全部'
+  if (key === 'disputed') return '争议'
+  const text = labels[key as ArBucket] ?? key
+  return text.replace('逾期', '')
+}
 
 /**
  * 应收台账（P1 全员端，内勤）：GET /receivables?bucket= 分档 tab（未到期/逾期4档/争议）；
@@ -32,6 +53,9 @@ export default function ClerkReceivablesPage() {
   const [items, setItems] = useState<CustomerReceivableDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [bucketLabels, setBucketLabels] = useState<Record<ArBucket, string>>(defaultArBucketLabels())
+
+  const tabs = tabsOf(bucketLabels)
 
   useDidShow(() => {
     if (!getToken()) {
@@ -39,6 +63,7 @@ export default function ClerkReceivablesPage() {
       return
     }
     void load()
+    agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
   })
 
   async function load(bucket?: string) {
@@ -70,7 +95,7 @@ export default function ClerkReceivablesPage() {
       </View>
 
       <View className='tabs'>
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <Button
             key={t.key || 'all'}
             className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
@@ -92,7 +117,7 @@ export default function ClerkReceivablesPage() {
         <>
           <View className='card'>
             <Text className='card__title'>
-              未结合计（{tab === '' ? '全部' : TABS.find((t) => t.key === tab)?.label}） {fmtMoney(openTotal)} · 共 {items.length} 单
+              未结合计（{tabLabel(bucketLabels, tab)}） {fmtMoney(openTotal)} · 共 {items.length} 单
             </Text>
             <Text className='ar__note'>按到期先后排序，收款按「先到期先结」核销</Text>
           </View>

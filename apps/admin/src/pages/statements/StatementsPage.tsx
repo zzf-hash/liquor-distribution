@@ -9,7 +9,8 @@ import {
   Alert, App as AntApp, Button, Card, Descriptions, Input, Modal, Select, Space, Table,
   Tabs, Tag, Typography,
 } from 'antd';
-import { ApiError, customersApi, statementsApi } from '../../services/api';
+import { DownloadOutlined } from '@ant-design/icons';
+import { ApiError, customersApi, downloadApiFile, statementsApi } from '../../services/api';
 import type { CustomerDTO, DisputeItemDTO, StatementDTO, StatementLineDTO } from '../../services/api';
 import {
   DISPUTE_STATUS_META, DISPUTE_TYPE_META, STATEMENT_STATUS_META, STATEMENT_STATUS_TABS,
@@ -116,6 +117,23 @@ export default function StatementsPage(): JSX.Element {
             options={monthOptions}
           />
           <Button type="primary" onClick={() => setGenerateOpen(true)}>生成对账单</Button>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={async () => {
+              try {
+                const qsParams = new URLSearchParams();
+                if (statusTab !== 'ALL') qsParams.set('status', statusTab);
+                if (filterPeriod) qsParams.set('period', filterPeriod);
+                const qsStr = qsParams.toString();
+                await downloadApiFile(`/statements/export${qsStr ? `?${qsStr}` : ''}`, '对账单');
+                message.success('对账单已导出');
+              } catch (e) {
+                message.error(e instanceof Error ? e.message : '导出失败');
+              }
+            }}
+          >
+            导出 xlsx
+          </Button>
         </Space>
         <Table<StatementDTO>
           size="small"

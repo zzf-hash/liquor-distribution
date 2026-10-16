@@ -53,6 +53,12 @@ class DismissDto {
   @IsString() @MinLength(1) reason!: string;
 }
 
+/** M2-3 临期预警配置 */
+class SaveExpiryConfigDto {
+  @IsOptional() @IsNumber() @Min(1) @Max(365) warnDays?: number;
+  @IsOptional() @IsBoolean() enabled?: boolean;
+}
+
 @Controller('stock-alert')
 export class StockAlertController {
   constructor(private readonly svc: StockAlertService, private readonly cfgReader: SystemConfigReader) {}
@@ -73,6 +79,26 @@ export class StockAlertController {
   @Roles('OWNER', 'CLERK')
   async run(@CurrentUser() user: AuthUser, @Query('create') create?: string): Promise<unknown> {
     return this.svc.runScan(user, { createRestocks: create === '1' || create === 'true' });
+  }
+
+  // ─────────────── M2-3/M7-4 临期预警: 效期维度扫描(与数量预警互补) ───────────────
+
+  @Get('expiry')
+  @Roles('OWNER', 'CLERK')
+  async expiry(@CurrentUser() user: AuthUser): Promise<unknown> {
+    return this.svc.listExpiry(user);
+  }
+
+  @Get('expiry/config')
+  @Roles('OWNER', 'CLERK')
+  async expiryConfig(@CurrentUser() user: AuthUser): Promise<unknown> {
+    return this.svc.getExpiryConfig(user.tenantId);
+  }
+
+  @Post('expiry/config')
+  @Roles('OWNER')
+  async saveExpiryConfig(@CurrentUser() user: AuthUser, @Body() dto: SaveExpiryConfigDto): Promise<unknown> {
+    return this.svc.saveExpiryConfig(user, dto);
   }
 
   @Get('report')

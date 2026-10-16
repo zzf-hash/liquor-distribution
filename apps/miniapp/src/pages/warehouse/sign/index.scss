@@ -126,3 +126,56 @@
 .sign__reject {
   margin-top: $gap-base;
 }
+
+// ───────────────────────── M8-3 手写签名板 / 拍照凭证 ─────────────────────────
+.signpad {
+  margin-top: $gap-base;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signpad__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.signpad__label {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.signpad__clear {
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-primary;
+}
+
+.signpad__canvas {
+  width: 100%;
+  height: 300px;
+  background: $color-bg;
+  border: 1px dashed rgba(138, 127, 122, 0.4);
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.signpad__tip {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.signpad__preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.signpad__photo {
+  width: 100%;
+  height: 360px;
+  border-radius: $radius-base;
+}

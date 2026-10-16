@@ -1,4 +1,4 @@
-// 优惠返利（P1-T08，D02 优惠三式 b/c）：b 除瓶箱后 5%-50% 月末核算 / c 定扣货款；
+// 优惠返利（P1-T08，D02 优惠三式 b/c）：b 除瓶箱后 1%-50% 月末核算 / c 定扣货款；
 // 同客户同一时刻仅一个生效方案（后端 409 互斥，前端捕获展示）；
 // 月末核算：preview 测算基数/返利额 → 确认（GOODS=货补走随单赠下单 / INVOICE=票折冲应收）。
 import { useCallback, useEffect, useState } from 'react';
@@ -18,7 +18,7 @@ import {
 import type { Decimalish } from '../../utils/format';
 import { currentMonth, fmtDate, fmtDateTime, fmtMoney, recentMonths, toNum } from '../../utils/format';
 
-/** 费率展示：0.05-0.50 → 5%-50%（先归整规避 0.05×100 的浮点尾差） */
+/** 费率展示：0.01-0.50 → 1%-50%（先归整规避 0.01×100 的浮点尾差） */
 function fmtRate(rate: Decimalish): string {
   const pct = Math.round(toNum(rate) * 1000) / 10;
   return `${Number.isInteger(pct) ? pct : pct.toFixed(1)}%`;
@@ -103,7 +103,7 @@ function SchemesTab(): JSX.Element {
       <Alert
         type="info"
         showIcon
-        message="互斥规则（D02）：同一客户同一时刻仅一个生效中的返利方案（b/c 任选其一）；b 除瓶箱后按当月回款 5%-50% 月末核算，c 定扣货款直接冲应收。"
+        message="互斥规则（D02）：同一客户同一时刻仅一个生效中的返利方案（b/c 任选其一）；b 除瓶箱后按当月回款 1%-50% 月末核算，c 定扣货款直接冲应收。"
       />
       <Space wrap>
         <Select
@@ -165,7 +165,7 @@ function SchemesTab(): JSX.Element {
   );
 }
 
-// ───────────────────────── 新建方案（客户 + 类型 + 费率滑条 5%-50% + 生效期） ─────────────────────────
+// ───────────────────────── 新建方案（客户 + 类型 + 费率滑条 1%-50% + 生效期） ─────────────────────────
 
 function CreateSchemeModal({
   open, customerOptions, onClose, onCreated,
@@ -194,7 +194,7 @@ function CreateSchemeModal({
 
   async function submit(): Promise<void> {
     if (!customerId) { message.warning('请选择客户'); return; }
-    if (ratePct < 5 || ratePct > 50) { message.warning('费率须在 5% - 50% 之间'); return; }
+    if (ratePct < 1 || ratePct > 50) { message.warning('费率须在 1% - 50% 之间'); return; }
     setSubmitting(true);
     try {
       await rebatesApi.createScheme({
@@ -254,7 +254,7 @@ function CreateSchemeModal({
         <Space wrap align="center">
           <Typography.Text type="secondary">费率</Typography.Text>
           <InputNumber
-            min={5}
+            min={1}
             max={50}
             step={0.5}
             precision={1}
@@ -265,7 +265,7 @@ function CreateSchemeModal({
           />
           <Slider
             style={{ width: 240, marginInline: 8 }}
-            min={5}
+            min={1}
             max={50}
             step={0.5}
             value={ratePct}
@@ -291,7 +291,7 @@ function CreateSchemeModal({
           onChange={(e) => setNote(e.target.value)}
         />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          同一客户已有生效中方案时后端将拒绝（D02 互斥）；费率限定 5% - 50%。
+          同一客户已有生效中方案时后端将拒绝（D02 互斥）；费率限定 1% - 50%（需求 v1.1 M3-2）。
         </Typography.Text>
       </Space>
     </Modal>
