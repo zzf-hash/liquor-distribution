@@ -107,7 +107,8 @@ export class OrdersService {
     const ars = await this.prisma.receivable.findMany({
       where: { customerId, disputeFlag: false },
       // P1-8: 核销口径须含 RETURN_CREDIT/WAIVE/WRITEOFF——漏算会低估已核销额→误拦新单
-      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF', 'REVERSAL'] } } } },
+      // B组: FEE_OFFSET 同样核减未结, 漏算会高估占用→误拦新单
+      include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF', 'FEE_OFFSET', 'REVERSAL'] } } } },
     });
     const openAr = ars.reduce((sum, r) => {
       let settled = 0; let waived = 0; let writtenOff = 0; let returned = 0; let reversal = 0;
@@ -117,6 +118,7 @@ export class OrdersService {
         else if (row.direction === 'WAIVE') waived += amount;
         else if (row.direction === 'WRITEOFF') writtenOff += amount;
         else if (row.direction === 'RETURN_CREDIT') returned += amount;
+        else if (row.direction === 'FEE_OFFSET') waived += amount; // 冲抵核减, 不计回款
         else if (row.direction === 'REVERSAL') { if (row.paymentId) settled -= amount; else reversal += amount; }
       }
       return sum + Math.max(0, Number(r.total) - settled - waived - writtenOff - returned - reversal);

@@ -90,7 +90,7 @@ export class ReceivablesService {
     };
     const all = await this.prisma.receivable.findMany({
       where,
-      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'REVERSAL'] } } } },
+      include: { customer: { select: { name: true } }, ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'WAIVE', 'WRITEOFF', 'RETURN_CREDIT', 'FEE_OFFSET', 'REVERSAL'] } } } },
       orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
     });
     const aging = await readAgingConfig(this.prisma, user.tenantId); // 档位租户级可配(M9-3)
