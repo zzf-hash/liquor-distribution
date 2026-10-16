@@ -79,6 +79,9 @@ export class ApprovalsService {
           await tx.stocktake.updateMany({ where: { id: s.entityId, status: 'PENDING_APPROVAL' }, data: { status: 'DRAFT' } });
         } else if (s.entityType === 'RETURN') {
           await tx.returnOrder.updateMany({ where: { id: s.entityId, status: 'PENDING_REVIEW' }, data: { status: 'CANCELLED' } });
+        } else if (s.entityType === 'EXPENSE') {
+          // B组: 费用单超时退回→取消(金额/事由变化大, 重报比复活旧单干净)
+          await tx.expense.updateMany({ where: { id: s.entityId, status: 'PENDING_APPROVAL' }, data: { status: 'CANCELLED' } });
         }
       }
     });
@@ -166,7 +169,7 @@ export class ApprovalsService {
   }
 
   /** 各审批线实体进入"可决策"状态的前置值; 已流转则 409(不静默吞) */
-  private async assertEntityDecidable(tx: Pick<PrismaService, 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake'>, record: { entityType: string; entityId: string }): Promise<void> {
+  private async assertEntityDecidable(tx: Pick<PrismaService, 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake' | 'expense'>, record: { entityType: string; entityId: string }): Promise<void> {
     const expect: Record<string, string[]> = {
       SPECIAL_ORDER: ['PENDING_PRICE'],
       RETURN: ['PENDING_REVIEW'],
@@ -174,6 +177,7 @@ export class ApprovalsService {
       PRICE_CHANGE: ['PENDING'],
       STOCKTAKE: ['PENDING_APPROVAL'],
       ORDER: ['PENDING_CONFIRM', 'CONFIRMED'],
+      EXPENSE: ['PENDING_APPROVAL'],
     };
     const allowed = expect[record.entityType];
     if (!allowed) return;
@@ -184,13 +188,14 @@ export class ApprovalsService {
     else if (record.entityType === 'PRICE_CHANGE') status = (await tx.priceChangeRequest.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
     else if (record.entityType === 'PURCHASE') status = (await tx.purchaseOrder.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
     else if (record.entityType === 'STOCKTAKE') status = (await tx.stocktake.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
+    else if (record.entityType === 'EXPENSE') status = (await tx.expense.findUnique({ where: { id: record.entityId }, select: { status: true } }))?.status;
     if (!status || !allowed.includes(status)) {
       throw new ConflictException(`关联单据状态已变化(${status ?? '不存在'}), 该审批不再可决策, 请在业务侧处理`);
     }
   }
 
   /** 线内联动副作用: 审批结果回写业务单据(条件更新——实体状态已变则整体回滚) */
-  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake' | 'restockRequest' | 'dailyStockReport'>, user: AuthUser, record: { line: string; entityType: string; entityId: string; tenantId: string }, approved: boolean, opinion?: string): Promise<void> {
+  private async applySideEffects(tx: Pick<PrismaService, 'approvalRecord' | 'specialOrder' | 'returnOrder' | 'salesOrder' | 'priceChangeRequest' | 'purchaseOrder' | 'stocktake' | 'restockRequest' | 'dailyStockReport' | 'expense'>, user: AuthUser, record: { line: string; entityType: string; entityId: string; tenantId: string }, approved: boolean, opinion?: string): Promise<void> {
     if (record.entityType === 'SPECIAL_ORDER') {
       const u = await tx.specialOrder.updateMany({ where: { id: record.entityId, status: 'PENDING_PRICE' }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
       if (u.count === 0) throw new ConflictException('特单状态已变化, 审批副作用未执行');
@@ -227,6 +232,10 @@ export class ApprovalsService {
       // 盘点差异: 批准 PENDING_APPROVAL→RECONCILED(可调账); 驳回 PENDING_APPROVAL→COUNTED(重盘)
       const u = await tx.stocktake.updateMany({ where: { id: record.entityId, status: 'PENDING_APPROVAL' }, data: { status: approved ? 'RECONCILED' : 'COUNTED' } });
       if (u.count === 0) throw new ConflictException('盘点单状态已变化, 审批副作用未执行');
+    } else if (record.entityType === 'EXPENSE') {
+      // B组费用: 批准→APPROVED(待付款/冲抵); 驳回→REJECTED
+      const u = await tx.expense.updateMany({ where: { id: record.entityId, status: 'PENDING_APPROVAL' }, data: { status: approved ? 'APPROVED' : 'REJECTED' } });
+      if (u.count === 0) throw new ConflictException('费用单状态已变化, 审批副作用未执行');
     }
   }
 }

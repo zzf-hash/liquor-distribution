@@ -75,6 +75,7 @@ model User {
   ordersCreated    SalesOrder[]   @relation("OrderCreator")
   paymentsReported Payment[]      @relation("PaymentReporter")
   paymentsEntered  Payment[]      @relation("PaymentClerk")
+  expensesCreated  Expense[]      @relation("ExpenseCreator")
   auditLogs        AuditLog[]
   approvalsAsApplicant ApprovalRecord[] @relation("ApprovalApplicant")
 
@@ -128,6 +129,7 @@ model Product {
   priceChanges  PriceChangeRequest[]
   purchaseLines PurchaseLine[]
   stockReports  DailyStockReport[]
+  capFeePolicy  CapFeePolicy?
   restocks      RestockRequest[]
 
   @@unique([tenantId, skuCode])
@@ -273,6 +275,8 @@ model Customer {
   statements   Statement[]
   visits       Visit[]
   payments      Payment[]
+  expenses      Expense[] // 客户级费用(陈列/进店/开瓶费, 可冲抵货款)
+  capRecycles   CapRecycleOrder[]
 
   @@unique([tenantId, code])
   @@index([tenantId, name])
@@ -620,6 +624,7 @@ enum ArLedgerDirection {
   CHARGE        // 应收发生(签收/期初)
   SETTLE        // 收款核销(FIFO)
   REBATE_OFFSET // 返利抵扣(c 直接冲应收)
+  FEE_OFFSET    // 费用冲抵(B组: 陈列费/进店费/开瓶费冲减客户货款, 不计回款口径)
   WAIVE         // 抹零减免(审批通过后核减, 单笔/月累计上限)
   WRITEOFF      // 坏账核销(老板审批)
   RETURN_CREDIT // 退货冲减(P1-T03, 不改原单金额)
@@ -981,6 +986,114 @@ model Payroll {
   createdAt   DateTime @default(now())
 
   @@unique([tenantId, month])
+}
+
+// ═══════════ B组 费用域: 费用台账(M4-3/M10-3) + 开瓶费(M3-4/M7-7) + 陈列进店费冲抵(M3-5/M9-7) ═══════════
+// 统一费用单: 办公/油费路桥/维修/装卸/水电等运营支出 + 客户级费用(陈列/进店/开瓶费)。
+// 客户级费用支持 AR_OFFSET 冲抵货款(写 ReceivableLedger FEE_OFFSET 流水, 不计回款口径)。
+// 审批: 全部走 EXPENSE 线(P1-T01), D01 金额路由 ≤阈值出纳(内勤)可批 / >阈值老板。
+enum ExpenseCategory {
+  OFFICE      // 办公费用(M4-3: 申请→出纳审批→付款→上传单据)
+  FUEL_TOLL   // 油费路桥
+  REPAIR      // 车辆维修
+  HANDLING    // 装卸
+  UTILITY     // 水电
+  DISPLAY     // 陈列费(M3-5, 客户级可冲抵)
+  ENTRY       // 进店费(M3-5, 客户级可冲抵)
+  CAP_FEE     // 开瓶费兑付(M3-4, 由瓶盖回收确认/月度自动计提生成)
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING_APPROVAL // 待审批
+  APPROVED         // 已批待付
+  PAID             // 已付款/已冲抵
+  REJECTED         // 已驳回
+  CANCELLED        // 已取消(超时退回联动)
+}
+
+enum ExpensePayMode {
+  CASH       // 现金/转账付出
+  AR_OFFSET  // 冲抵客户货款(FEE_OFFSET 流水 FIFO)
+}
+
+model Expense {
+  id          String         @id @default(cuid())
+  tenantId    String
+  expenseNo   String
+  category    ExpenseCategory
+  title       String
+  amount      Decimal        @db.Decimal(12, 2)
+  customerId  String? // DISPLAY/ENTRY/CAP_FEE 必填(冲抵目标客户)
+  payee       String? // 收款方(外部支出: 供应商/加油站/物业)
+  occurredAt  DateTime       @default(now()) // 费用发生日
+  payMode     ExpensePayMode @default(CASH)
+  status      ExpenseStatus  @default(PENDING_APPROVAL)
+  approvalId  String? // EXPENSE 审批线回链
+  voucherUrl  String? // 付款凭证(base64 内联过渡, 同签名方案)
+  paidAt      DateTime?
+  paidById    String?
+  paidNote    String?
+  note        String?
+  source      String? // MANUAL / CAP_RECYCLE:<recycleNo> / CAP_ACCRUAL:<period> 来源标记
+  createdById String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  createdBy  User      @relation("ExpenseCreator", fields: [createdById], references: [id])
+
+  @@unique([tenantId, expenseNo])
+  @@index([tenantId, category, occurredAt])
+  @@index([tenantId, status])
+}
+
+// 开瓶费政策(商品级): 回瓶盖→按回收数量全额兑付; 不回瓶盖→按比例自动计提(Q3 的"扣减多少"落为可配比例)
+model CapFeePolicy {
+  id           String    @id @default(cuid())
+  tenantId     String
+  productId    String @unique // 1:1 反向关系锚点(cuid 全局唯一); 与下行复合唯一并存以显式租户口径
+  perBottleFee Decimal   @db.Decimal(10, 4) // 每瓶开瓶费
+  requireCap   Boolean   @default(true) // true=回瓶盖兑付; false=不回瓶盖自动计提
+  noCapRate    Decimal   @default(1) @db.Decimal(5, 4) // 不回盖兑付比例(默认全额; 0.5=对折), Q3 可配
+  validFrom    DateTime  @default(now())
+  closedAt     DateTime?
+  createdById  String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([tenantId, productId])
+}
+
+enum CapRecycleStatus {
+  PENDING_CONFIRM // 待出纳确认
+  CONFIRMED       // 已确认(生成 CAP_FEE 费用单进审批)
+  CANCELLED
+}
+
+// 瓶盖回收单(M7-7): 业务员/仓配随车回收登记 → 出纳确认按政策兑付(现金/冲抵)
+model CapRecycleOrder {
+  id            String           @id @default(cuid())
+  tenantId      String
+  recycleNo     String
+  customerId    String
+  status        CapRecycleStatus @default(PENDING_CONFIRM)
+  lines         Json // [{productId, productName, qty(个), perBottleFee, amount}]
+  totalAmount   Decimal          @db.Decimal(12, 2)
+  expenseId     String? // 确认后回链费用单
+  note          String?
+  createdById   String
+  confirmedById String?
+  confirmedAt   DateTime?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+
+  @@unique([tenantId, recycleNo])
+  @@index([tenantId, status, createdAt])
 }
 
 // ═══════════ P1-T10 月结对账 (生成→推送客户确认→差异处理四类→核销) ═══════════

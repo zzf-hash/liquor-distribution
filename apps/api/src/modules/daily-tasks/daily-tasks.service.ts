@@ -4,15 +4,17 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { NotifyService } from '../../common/notify.service';
 import { StatementsService } from '../statements/statements.service';
+import { CapFeesService } from '../cap-fees/cap-fees.service';
 import { readAgingConfig, agingBucketLabels, arOpenOf } from '../receivables/aging';
 import type { AuthUser } from '../../common/current-user.decorator';
 
-// ═══════════════ 每日自动化任务(M9-2/M9-5/M9-8 的"主动触达"补齐) ═══════════════
+// ═══════════════ 每日自动化任务(M9-2/M9-5/M9-8 + B组 M3-4 的"主动触达"补齐) ═══════════════
 // 此前到期提醒是拉取式接口、对账单靠手动逐客户生成、归档 API 无人触发。
-// 本服务复用库存日切(StockAlertDailyTask)的零依赖定时框架, 三个任务:
+// 本服务复用库存日切(StockAlertDailyTask)的零依赖定时框架, 四个任务:
 //   ① 到期提醒: 每日扫描未结应收 → 到期前 N 天(remind_days_before 可配) + 逾期分档摘要 → 飞书推送
 //   ② 月结对账单: 每月 1 日自动生成上月对账单并推送(客户小程序可确认/提异议), 已存在则跳过
 //   ③ 自动归档: 已结满 6 个月的应收单软归档(R8, 客户侧不可见/后台可恢复)
+//   ④ 开瓶费自动计提: 每月 1 日对"不回瓶盖"政策商品按上月签收瓶数自动计提(B组 M3-4)
 // 手动触发端点(演示/补跑): POST /daily-tasks/{reminders|statements|archive}/run
 
 @Injectable()
@@ -24,6 +26,7 @@ export class DailyTasksService {
     private readonly audit: AuditService,
     private readonly notify: NotifyService,
     private readonly statements: StatementsService,
+    private readonly capFees: CapFeesService,
   ) {}
 
   private async cfgNumber(tenantId: string, key: string, dflt: number): Promise<number> {
@@ -141,5 +144,20 @@ export class DailyTasksService {
       await this.audit.log({ user: actor, action: 'AR_AUTO_ARCHIVE_RUN', entityType: 'Receivable', entityId: dayjs().format('YYYY-MM-DD'), after: { archived, candidates } });
     }
     return { archived, candidates };
+  }
+
+  /** ④ 开瓶费自动计提(B组 M3-4): 不回瓶盖政策商品按上月签收瓶数 × 费率 × 兑付比例 系统直入费用单 */
+  async runCapAccrual(actor: AuthUser, period?: string): Promise<unknown> {
+    const result = await this.capFees.accrue(actor, period);
+    const r = result as { expenses: number; totalAmount: number };
+    if (r.expenses > 0) {
+      try {
+        await this.notify.send(`开瓶费自动计提 ${r.totalAmount ? `¥${r.totalAmount.toFixed(2)}` : ''}`, [
+          `生成费用单 ${r.expenses} 张(不回瓶盖模式, 待出纳冲抵货款)`,
+          `明细见费用中心 · 开瓶费 Tab`,
+        ]);
+      } catch { /* 推送失败不阻断 */ }
+    }
+    return result;
   }
 }

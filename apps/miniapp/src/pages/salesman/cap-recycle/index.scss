@@ -1,0 +1,133 @@
+@use '../../../styles/shared' as *;
+@use '../../../styles/tokens' as *;
+
+.crline {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(138, 127, 122, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.crline__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.crline__name {
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.crline__fee {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.crline__ops {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.crline__label {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.crline__ipt {
+  width: 160px;
+  min-height: $touch-min;
+  padding: 0 $gap-base;
+  font-size: $font-body;
+  text-align: center;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.crline__amt {
+  flex: 1;
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-primary;
+  text-align: right;
+}
+
+.crline__del {
+  min-height: $touch-min;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-danger;
+}
+
+.crnote {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px $gap-base;
+  font-size: $font-body;
+  background: $color-bg;
+  border-radius: $radius-base;
+  box-sizing: border-box;
+}
+
+.crtotal {
+  margin-top: 12px;
+  padding: $gap-base;
+  background: rgba(139, 30, 36, 0.04);
+  border-radius: $radius-base;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crtotal__label {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.crtotal__amt {
+  font-size: 56px;
+  font-weight: 700;
+  color: $color-primary;
+}
+
+.crtotal__note {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.crhist {
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(138, 127, 122, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.crhist__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $gap-base;
+}
+
+.crhist__no {
+  font-size: $font-sub;
+  color: $color-text;
+}
+
+.crhist__meta {
+  font-size: $font-sub;
+  color: $color-text-sub;
+  flex: 1;
+}
+
+.crhist__amt {
+  font-size: $font-body;
+  font-weight: 600;
+  color: $color-text;
+}

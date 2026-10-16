@@ -871,3 +871,49 @@ export interface PerfDTO {
 export const performanceApi = {
   monthly: (month: string) => request<PerfDTO>(`/performance?month=${encodeURIComponent(month)}`),
 }
+
+// ───────────────────────── B组 开瓶费: 政策查询 + 瓶盖回收登记(业务员/仓配) ─────────────────────────
+
+export interface CapPolicyDTO {
+  id: string
+  productId: string
+  skuCode: string
+  productName: string
+  unitLabel: string
+  packSize: number
+  perBottleFee: number
+  requireCap: boolean
+  noCapRate: number
+}
+
+export interface CapRecycleDTO {
+  id: string
+  recycleNo: string
+  status: 'PENDING_CONFIRM' | 'CONFIRMED' | 'CANCELLED'
+  customer: { code?: string | null; name: string }
+  lines: Array<{ productId: string; productName: string; qty: number; perBottleFee: number; amount: number }>
+  totalAmount: number
+  note?: string | null
+  createdAt: string
+}
+
+export const CAP_RECYCLE_STATUS_LABELS: Record<string, string> = {
+  PENDING_CONFIRM: '待确认',
+  CONFIRMED: '已兑付',
+  CANCELLED: '已取消',
+}
+
+export const capFeesApi = {
+  /** 生效政策(回瓶盖模式才需要登记回收; 不回盖由系统月度自动计提) */
+  policies: () => request<CapPolicyDTO[]>('/cap-fees/policies'),
+  /** 登记回收单(业务员仅限自己名下客户) */
+  createRecycle: (input: { customerId: string; lines: Array<{ productId: string; qty: number }>; note?: string }) =>
+    request<CapRecycleDTO>('/cap-fees/recycles', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>,
+      idemKey: genIdemKey(),
+    }),
+  /** 我的回收单(业务员只见自己登记的) */
+  myRecycles: (status?: string) =>
+    request<{ items: CapRecycleDTO[]; total: number }>(`/cap-fees/recycles${status ? `?status=${status}&pageSize=50` : '?pageSize=50'}`),
+}

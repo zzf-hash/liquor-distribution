@@ -153,6 +153,40 @@ export const APPROVAL_STATUS_META: Record<string, { label: string; color: string
   EXPIRED_24H: { label: '超时退回', color: 'default' },
 };
 
+// ───────────────────────── B组 费用域 ─────────────────────────
+
+/** 费用科目（后端 ExpenseCategory；客户级三科可冲抵货款） */
+export const EXPENSE_CATEGORY_META: Record<string, { label: string; color: string; customerLevel: boolean }> = {
+  OFFICE: { label: '办公费用', color: 'default', customerLevel: false },
+  FUEL_TOLL: { label: '油费路桥', color: 'default', customerLevel: false },
+  REPAIR: { label: '车辆维修', color: 'default', customerLevel: false },
+  HANDLING: { label: '装卸', color: 'default', customerLevel: false },
+  UTILITY: { label: '水电', color: 'default', customerLevel: false },
+  DISPLAY: { label: '陈列费', color: 'blue', customerLevel: true },
+  ENTRY: { label: '进店费', color: 'blue', customerLevel: true },
+  CAP_FEE: { label: '开瓶费', color: 'purple', customerLevel: true },
+  OTHER: { label: '其他', color: 'default', customerLevel: false },
+};
+
+export const EXPENSE_STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING_APPROVAL: { label: '待审批', color: 'warning' },
+  APPROVED: { label: '已批待付', color: 'processing' },
+  PAID: { label: '已付款', color: 'success' },
+  REJECTED: { label: '已驳回', color: 'error' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
+export const EXPENSE_PAY_MODE_LABELS: Record<string, string> = {
+  CASH: '现金/转账',
+  AR_OFFSET: '冲抵货款',
+};
+
+export const CAP_RECYCLE_STATUS_META: Record<string, { label: string; color: string }> = {
+  PENDING_CONFIRM: { label: '待确认', color: 'warning' },
+  CONFIRMED: { label: '已兑付', color: 'success' },
+  CANCELLED: { label: '已取消', color: 'default' },
+};
+
 /** P1-T02 特单状态（草稿灰/待审批橙/通过绿/已转单蓝/驳回红） */
 export const SPECIAL_ORDER_STATUS_META: Record<string, { label: string; color: string }> = {
   DRAFT: { label: '草稿', color: 'default' },

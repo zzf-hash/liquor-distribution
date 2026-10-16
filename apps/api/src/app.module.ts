@@ -35,6 +35,8 @@ import { DraftsModule } from './modules/drafts/drafts.controller';
 import { ShopModule } from './modules/shop/shop.controller';
 import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
 import { DailyTasksModule } from './modules/daily-tasks/daily-tasks.controller';
+import { ExpensesModule } from './modules/expenses/expenses.controller';
+import { CapFeesModule } from './modules/cap-fees/cap-fees.controller';
 
 @Module({
   imports: [
@@ -66,7 +68,9 @@ import { DailyTasksModule } from './modules/daily-tasks/daily-tasks.controller';
     UsersModule,
     HealthModule,
     StockAlertModule,
-    DailyTasksModule, // 每日自动化: 到期提醒/月结对账单/自动归档
+    DailyTasksModule, // 每日自动化: 到期提醒/月结对账单/自动归档/开瓶费计提
+    ExpensesModule, // B组: 费用台账(办公/运营/陈列进店) + EXPENSE 审批线 + 冲抵货款
+    CapFeesModule, // B组: 开瓶费政策/瓶盖回收/月度自动计提
     TelemetryModule, // 内建遥测: 请求埋点 + 三端错误上报
   ],
   providers: [
