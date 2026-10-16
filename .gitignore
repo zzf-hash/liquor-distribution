@@ -9,3 +9,4 @@ dist-h5/
 project.private.config.json
 apps/api/.env
 logs/
+.github/workflows/
