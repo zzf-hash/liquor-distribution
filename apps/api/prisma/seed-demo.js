@@ -219,11 +219,33 @@ async function main() {
     });
   }
 
-  // ─── ⑦ 返利方案(3%, 1%-50% 新口径) / 拜访 / 语音草稿 / 待确认收款 ───
+  // ─── ⑦ 返利方案(3%, 1%-50% 新口径) / 坎级方案 / 随单赠规则 / 拜访 / 语音草稿 / 待确认收款 ───
   if (!(await prisma.rebateScheme.findFirst({ where: { tenantId: T, note: '演示返利方案' } }))) {
     await prisma.rebateScheme.create({
       data: { tenantId: T, customerId: c2.id, type: 'C', rate: 0.03, note: '演示返利方案(定扣货款3%)', validTo: dateOnly('2026-12-31'), createdById: owner.id },
     });
+  }
+  // C组: 坎级阶梯方案(月回款≥1万→2%, ≥5万→5%; 未达1万无返利)——C0004
+  {
+    const c4 = await cust('C0004');
+    if (c4 && !(await prisma.rebateScheme.findFirst({ where: { tenantId: T, note: { contains: '演示坎级' } } }))) {
+      await prisma.rebateScheme.create({
+        data: {
+          tenantId: T, customerId: c4.id, type: 'B', rate: 0.05,
+          tiers: [{ minAmount: 10000, rate: 0.02 }, { minAmount: 50000, rate: 0.05 }],
+          note: '演示坎级返利(≥1万2%, ≥5万5%)', createdById: owner.id,
+        },
+      });
+    }
+  }
+  // C组: 随单赠规则——青岛啤酒 买10箱送1箱(下单管线自动挂赠品行)
+  {
+    const p3row = await prisma.product.findFirst({ where: { tenantId: T, skuCode: 'SKU0003' } });
+    if (p3row && !(await prisma.promotion.findFirst({ where: { tenantId: T, productId: p3row.id } }))) {
+      await prisma.promotion.create({
+        data: { tenantId: T, productId: p3row.id, buyQty: 10, giftQty: 1, unit: 'BASE', note: '演示: 买10箱送1箱', createdById: owner.id },
+      });
+    }
   }
   if (!(await prisma.visit.findFirst({ where: { tenantId: T, notes: '演示拜访' } }))) {
     await prisma.visit.createMany({

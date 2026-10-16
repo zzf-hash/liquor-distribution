@@ -1,14 +1,14 @@
 // 调价（P1-T05，F7）：草稿→待审批（PRICE_CHANGE 线）→已批→「一键生效」落新价格版本行。
 // D08 红线：只新增版本不覆盖历史，历史单据价格不变；R7/D15：存货增贬值仅测算登记不自动调账。
 // 成本价（COST）调价仅老板可发起，非老板不展示该价级（后端亦强校验）。
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
   Alert, App as AntApp, Button, Card, DatePicker, Descriptions, Input, InputNumber,
-  Modal, Select, Space, Spin, Steps, Table, Tag, Typography,
+  Modal, Select, Space, Spin, Steps, Switch, Table, Tag, Typography,
 } from 'antd';
-import { priceChangesApi, pricesApi, productsApi } from '../../services/api';
+import { approvalsApi, priceChangesApi, pricesApi, productsApi } from '../../services/api';
 import type {
   PriceChangeDTO,
   ProductDTO,
@@ -42,6 +42,8 @@ export default function PriceChangesPage(): JSX.Element {
   const [activeStatus, setActiveStatus] = useState('ALL');
   const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchesOpen, setBatchesOpen] = useState(false);
 
   const reload = (): void => setRefreshKey((k) => k + 1);
 
@@ -151,7 +153,7 @@ export default function PriceChangesPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="调价" subTitle="F7 调价引擎 · 只新增版本不覆盖历史（D08） · 存货增贬值仅测算登记（R7）">
+    <PageContainer title="调价" subTitle="F7 调价引擎 · 一键批量调价（C组） · 只新增版本不覆盖历史（D08） · 存货增贬值仅测算登记（R7）">
       <Card>
         <Space style={{ marginBottom: 12 }} wrap>
           <Select
@@ -161,6 +163,8 @@ export default function PriceChangesPage(): JSX.Element {
             options={PRICE_CHANGE_STATUS_TABS}
           />
           <Button type="primary" onClick={() => setCreateOpen(true)}>发起调价</Button>
+          <Button onClick={() => setBatchOpen(true)}>一键批量调价</Button>
+          <Button onClick={() => setBatchesOpen(true)}>批量调价批次</Button>
         </Space>
         <ProTable<PriceChangeDTO>
           rowKey="id"
@@ -192,7 +196,256 @@ export default function PriceChangesPage(): JSX.Element {
         onClose={() => setCreateOpen(false)}
         onDone={() => { setCreateOpen(false); reload(); }}
       />
+
+      <BatchPriceChangeModal
+        open={batchOpen}
+        onClose={() => setBatchOpen(false)}
+        onDone={() => { setBatchOpen(false); reload(); }}
+      />
+
+      <BatchesModal
+        open={batchesOpen}
+        onClose={() => setBatchesOpen(false)}
+        onChanged={reload}
+      />
     </PageContainer>
+  );
+}
+
+// ───────────────────────── C组: 一键批量调价（多商品同理由/生效日，逐单提审） ─────────────────────────
+
+function BatchPriceChangeModal({
+  open, onClose, onDone,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onDone: () => void;
+}): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [products, setProducts] = useState<ProductDTO[]>([]);
+  const [rows, setRows] = useState<Array<{ productId?: string; levelType: string; newPrice?: number }>>([{ levelType: 'TERMINAL' }]);
+  const [effectiveDate, setEffectiveDate] = useState<string>();
+  const [reason, setReason] = useState('');
+  const [customerSync, setCustomerSync] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setRows([{ levelType: 'TERMINAL' }]);
+      setEffectiveDate(undefined);
+      setReason('');
+      setCustomerSync(false);
+      productsApi.list({ page: 1, pageSize: 200 }).then((r) => setProducts(r.items)).catch(() => setProducts([]));
+    }
+  }, [open]);
+
+  async function submit(): Promise<void> {
+    const items = rows.filter((r) => r.productId && r.newPrice !== undefined && r.newPrice >= 0)
+      .map((r) => ({ productId: r.productId!, levelType: r.levelType, newPrice: r.newPrice! }));
+    if (items.length === 0) { message.warning('至少一行完整的商品+新价'); return; }
+    if (!effectiveDate) { message.warning('请选择生效日'); return; }
+    if (!reason.trim()) { message.warning('请填写调价理由'); return; }
+    setSubmitting(true);
+    try {
+      const res = await priceChangesApi.createBatch({ items, effectiveDate, reason: reason.trim(), customerSync });
+      message.success(`批量调价已创建：${res.batchNo}（${res.count} 单已逐单提审，请到审批中心处理）`);
+      onDone();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '批量创建失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const productOptions = products.map((p) => ({ value: p.id, label: `${p.name}（${p.skuCode}）` }));
+
+  return (
+    <Modal
+      open={open}
+      title="一键批量调价（C组 M2-7）"
+      okText="批量创建并提审"
+      cancelText="取消"
+      confirmLoading={submitting}
+      onOk={submit}
+      onCancel={onClose}
+      destroyOnClose
+      width={680}
+    >
+      <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        {rows.map((r, i) => (
+          <Space key={i} wrap>
+            <Select
+              style={{ width: 260 }} showSearch optionFilterProp="label"
+              placeholder="商品"
+              value={r.productId}
+              onChange={(v) => setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, productId: v } : x)))}
+              options={productOptions}
+            />
+            <Select
+              style={{ width: 110 }}
+              value={r.levelType}
+              onChange={(v) => setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, levelType: v } : x)))}
+              options={[
+                { value: 'TIER1', label: '一批价' },
+                { value: 'TIER2', label: '二批价' },
+                { value: 'TERMINAL', label: '终端供货' },
+                { value: 'RETAIL', label: '零售指导' },
+                { value: 'COST', label: '成本价' },
+              ]}
+            />
+            <InputNumber
+              min={0} precision={2} style={{ width: 120 }} prefix="¥" placeholder="新价"
+              value={r.newPrice}
+              onChange={(v) => setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, newPrice: v ?? undefined } : x)))}
+            />
+            {rows.length > 1 && (
+              <a style={{ color: '#cf1322' }} onClick={() => setRows((prev) => prev.filter((_, idx) => idx !== i))}>删除</a>
+            )}
+          </Space>
+        ))}
+        <Button size="small" onClick={() => setRows((prev) => [...prev, { levelType: 'TERMINAL' }])}>＋ 加一行</Button>
+        <Space wrap>
+          <Typography.Text type="secondary">生效日</Typography.Text>
+          <DatePicker style={{ width: 160 }} placeholder="不得早于今天" onChange={(d) => setEffectiveDate(d ? d.format('YYYY-MM-DD') : undefined)} />
+          <Switch checked={customerSync} onChange={setCustomerSync} checkedChildren="联动客户专属价" unCheckedChildren="不联动" />
+        </Space>
+        <Input.TextArea rows={2} maxLength={200} placeholder="调价理由（共用，必填）" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+          每个商品一张调价单（各自留存货增贬值测算），共用批次号/生效日/理由，逐单进 PRICE_CHANGE 审批；
+          联动客户专属价＝生效时按价差平移该商品全部专属价（版本化留痕，COST 级不联动）。
+        </Typography.Text>
+      </Space>
+    </Modal>
+  );
+}
+
+// ───────────────────────── C组: 批次工作台（批量审批/批量生效） ─────────────────────────
+
+interface BatchDTO {
+  batchNo: string;
+  createdAt: string;
+  total: number;
+  draft: number;
+  pending: number;
+  approved: number;
+  effective: number;
+  rejected: number;
+  items: Array<{ id: string; approvalId: string | null; product: string; skuCode: string; levelType: string; oldPrice: number; newPrice: number; status: string; customerSync: boolean; customerSyncResult?: { customers: number } | null }>;
+}
+
+function BatchesModal({
+  open, onClose, onChanged,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onChanged: () => void;
+}): JSX.Element {
+  const { message, modal } = AntApp.useApp();
+  const [rows, setRows] = useState<BatchDTO[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      setRows(await priceChangesApi.listBatches());
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载批次失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => { if (open) void load(); }, [open, load]);
+
+  function bulkApprove(b: BatchDTO): void {
+    const ids = b.items.filter((it) => it.status === 'PENDING' && it.approvalId).map((it) => it.approvalId!);
+    if (ids.length === 0) { message.info('该批次没有待审批单'); return; }
+    let opinion = '';
+    modal.confirm({
+      title: `批量通过 ${b.batchNo}（${ids.length} 单）`,
+      content: <Input placeholder="审批意见（必填）" onChange={(e) => { opinion = e.target.value; }} />,
+      okText: '批量通过',
+      onOk: async () => {
+        if (!opinion.trim()) { message.warning('请填写审批意见'); return Promise.reject(); }
+        try {
+          const res = await approvalsApi.bulkDecide(ids, 'approve', opinion.trim());
+          message.success(`已通过 ${res.applied} 单${res.failed.length ? `，失败 ${res.failed.length} 单（超阈值需老板）` : ''}`);
+          void load(); onChanged();
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '批量审批失败');
+        }
+      },
+    });
+  }
+
+  function effectuateBatch(b: BatchDTO): void {
+    modal.confirm({
+      title: `批量生效 ${b.batchNo}`,
+      content: `该批次 ${b.approved} 单已批待生效；生效即插入新价格版本（含存货增贬值登记与客户价联动）。`,
+      okText: '批量生效',
+      onOk: async () => {
+        try {
+          const res = await priceChangesApi.effectuateBatch(b.batchNo);
+          message.success(`已生效 ${res.applied} 单${res.failed.length ? `，失败 ${res.failed.length} 单` : ''}`);
+          void load(); onChanged();
+        } catch (e) {
+          message.error(e instanceof Error ? e.message : '批量生效失败');
+        }
+      },
+    });
+  }
+
+  return (
+    <Modal
+      open={open}
+      title="批量调价批次（C组 一键调价工作台）"
+      footer={null}
+      onCancel={onClose}
+      width={860}
+      destroyOnClose
+    >
+      <Table<BatchDTO>
+        rowKey="batchNo"
+        size="small"
+        loading={loading}
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '暂无批量调价批次' }}
+        expandable={{
+          expandedRowRender: (b) => (
+            <Table
+              size="small" rowKey="id" pagination={false}
+              dataSource={b.items}
+              columns={[
+                { title: '商品', render: (_v, it: BatchDTO['items'][number]) => `${it.product}（${it.skuCode}）` },
+                { title: '层级', dataIndex: 'levelType', width: 90 },
+                { title: '旧价', dataIndex: 'oldPrice', width: 90, align: 'right' as const },
+                { title: '新价', dataIndex: 'newPrice', width: 90, align: 'right' as const },
+                { title: '状态', dataIndex: 'status', width: 100 },
+                { title: '联动', width: 130, render: (_v, it: BatchDTO['items'][number]) => (it.customerSyncResult ? `已联动${it.customerSyncResult.customers}客户` : it.customerSync ? '生效时联动' : '—') },
+              ]}
+            />
+          ),
+        }}
+        columns={[
+          { title: '批次号', dataIndex: 'batchNo', width: 190 },
+          { title: '创建时间', dataIndex: 'createdAt', width: 150, render: (v: string) => fmtDateTime(v) },
+          { title: '单数', dataIndex: 'total', width: 60, align: 'right' as const },
+          { title: '待审', dataIndex: 'pending', width: 60, align: 'right' as const },
+          { title: '已批', dataIndex: 'approved', width: 60, align: 'right' as const },
+          { title: '已生效', dataIndex: 'effective', width: 70, align: 'right' as const },
+          {
+            title: '操作', width: 190,
+            render: (_v, b) => (
+              <Space size={4}>
+                {b.pending > 0 && <a onClick={() => bulkApprove(b)}>批量通过({b.pending})</a>}
+                {b.approved > 0 && <a onClick={() => effectuateBatch(b)}>批量生效({b.approved})</a>}
+              </Space>
+            ),
+          },
+        ]}
+      />
+    </Modal>
   );
 }
 

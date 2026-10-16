@@ -22,9 +22,9 @@ import { fmtDate, fmtDateTime, fmtMoney, recentMonths } from '../../utils/format
 
 const NEG = '#cf1322';
 
-/** 手工可建科目（开瓶费只能由系统链路生成） */
+/** 手工可建科目（开瓶费/返利现金只能由系统链路生成） */
 const MANUAL_CATEGORIES = Object.entries(EXPENSE_CATEGORY_META)
-  .filter(([k]) => k !== 'CAP_FEE')
+  .filter(([k]) => k !== 'CAP_FEE' && k !== 'REBATE')
   .map(([value, meta]) => ({ value, label: meta.label, customerLevel: meta.customerLevel }));
 
 function monthStr(m: { format: (f: string) => string } | null): string | undefined {
@@ -151,7 +151,10 @@ function LedgerTab(): JSX.Element {
           placeholder="全部科目"
           value={category}
           onChange={setCategory}
-          options={MANUAL_CATEGORIES.concat([{ value: 'CAP_FEE', label: '开瓶费', customerLevel: true }]).map((c) => ({ value: c.value, label: c.label }))}
+          options={MANUAL_CATEGORIES.concat([
+            { value: 'CAP_FEE', label: '开瓶费', customerLevel: true },
+            { value: 'REBATE', label: '返利现金', customerLevel: true },
+          ]).map((c) => ({ value: c.value, label: c.label }))}
         />
         <Select
           style={{ width: 120 }}

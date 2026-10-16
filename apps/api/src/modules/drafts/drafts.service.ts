@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { OrdersService } from '../orders/orders.service';
 import { QwenEngineService } from './qwen-engine.service';
+import { AsrService } from '../../common/asr.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P1-T12 语音/照片/文字 → 可编辑草稿 → 确认转单 ═══════════════
@@ -32,10 +33,23 @@ export class DraftsService {
     private readonly audit: AuditService,
     private readonly orders: OrdersService,
     private readonly engine: QwenEngineService,
+    private readonly asr: AsrService,
   ) {}
 
-  /** 创建草稿: 文本走 qwen 解析; 引擎失败 → 空草稿人工填(兜底为默认路径) */
-  async create(user: AuthUser, dto: { source: 'VOICE' | 'PHOTO' | 'TEXT'; text?: string; photoUrl?: string }): Promise<unknown> {
+  /** 创建草稿: 录音先过 ASR 转写(C组), 文本走 qwen 解析; 引擎失败 → 空草稿人工填(兜底为默认路径) */
+  async create(user: AuthUser, dto: { source: 'VOICE' | 'PHOTO' | 'TEXT'; text?: string; photoUrl?: string; audioBase64?: string; audioFormat?: 'mp3' | 'wav' | 'm4a' | 'aac' }): Promise<unknown> {
+    let asrText: string | null = null;
+    let asrError: string | null = null;
+    if (dto.audioBase64 && !dto.text?.trim()) {
+      // 语音链路: 录音 → 腾讯云 ASR → 文本(转写文本进 rawText 可编辑兜底, 红线不变)
+      try {
+        asrText = (await this.asr.transcribe(dto.audioBase64, dto.audioFormat ?? 'mp3')).text;
+        dto.text = asrText;
+      } catch (e) {
+        asrError = e instanceof Error ? e.message : String(e);
+        throw new BadRequestException(`语音转写失败: ${asrError}(可改用文字提交)`);
+      }
+    }
     if (!dto.text && !dto.photoUrl) throw new BadRequestException('文本与照片至少一项');
     let customerHint: string | null = null;
     let items: DraftItem[] = [];
@@ -48,7 +62,7 @@ export class DraftsService {
         customerHint = parsed.customerHint;
         confidence = parsed.confidence;
         ambiguities = parsed.ambiguities;
-        engineTag = 'qwen3.8-27b';
+        engineTag = asrText ? 'asr-tencent+qwen3.8-27b' : 'qwen3.8-27b';
         // 别名/电话解析
         const resolved = await this.resolveAliases(user, parsed.items, dto.text);
         items = resolved.items;

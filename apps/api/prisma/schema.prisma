@@ -130,6 +130,8 @@ model Product {
   purchaseLines PurchaseLine[]
   stockReports  DailyStockReport[]
   capFeePolicy  CapFeePolicy?
+  promotions    Promotion[]
+  giftPromotions Promotion[]     @relation("PromotionGift")
   restocks      RestockRequest[]
 
   @@unique([tenantId, skuCode])
@@ -780,6 +782,8 @@ model PriceChangeRequest {
   reason        String
   stockImpact   Json? // 存货增贬值测算(在库量×价差, 仅登记不自动调账 D15/R7)
   customerSync  Boolean           @default(false) // 客户专属价联动提示(不自动改专属价)
+  batchNo       String? // C组 M2-7: 一键批量调价的批次号(同批共用理由/生效日, 审批与生效仍逐单)
+  customerSyncResult Json? // C组: customerSync 生效时的联动结果(影响客户数/明细)
   status        PriceChangeStatus @default(DRAFT)
   approvalId    String?
   createdById   String
@@ -789,6 +793,7 @@ model PriceChangeRequest {
   product Product @relation(fields: [productId], references: [id])
 
   @@index([tenantId, status])
+  @@index([tenantId, batchNo])
 }
 
 // ═══════════ P1-T04 回包装闭环 (有单回填 + F11 无单回收 + 周转箱押金台账, 押金单价 cfg) ═══════════
@@ -934,6 +939,7 @@ enum RebateType {
 enum RebateSettleType {
   GOODS // 货补(走随单赠下单, 不反改原单)
   INVOICE // 票折(REBATE_OFFSET 流水冲应收)
+  CASH // 现金(C组 M3-2: 生成 REBATE 费用单走付款)
 }
 
 model RebateScheme {
@@ -941,7 +947,8 @@ model RebateScheme {
   tenantId    String
   customerId  String
   type        RebateType
-  rate        Decimal  @db.Decimal(5, 4) // 0.01-0.50(需求 v1.1 M3-2: 1%-50% 可配)
+  rate        Decimal  @db.Decimal(5, 4) // 0.01-0.50(需求 v1.1 M3-2: 1%-50% 可配); 无坎级时为单一费率
+  tiers       Json? // 坎级阶梯(C组 M3-2): [{minAmount, rate}] 按月累计基数取最高命中档, 未达最低坎=无返利
   note        String?
   validFrom   DateTime @default(now())
   validTo     DateTime?
@@ -1001,6 +1008,7 @@ enum ExpenseCategory {
   DISPLAY     // 陈列费(M3-5, 客户级可冲抵)
   ENTRY       // 进店费(M3-5, 客户级可冲抵)
   CAP_FEE     // 开瓶费兑付(M3-4, 由瓶盖回收确认/月度自动计提生成)
+  REBATE      // 返利现金(C组 M3-2: 核算 settleType=CASH 生成)
   OTHER
 }
 
@@ -1094,6 +1102,34 @@ model CapRecycleOrder {
 
   @@unique([tenantId, recycleNo])
   @@index([tenantId, status, createdAt])
+}
+
+// ═══════════ C组 随单赠规则引擎 (M3-1: 买N送M, 下单管线自动挂赠品行) ═══════════
+enum PromotionKind {
+  BUY_N_GET_M // 买 N 送 M(同品或指定赠品)
+}
+
+model Promotion {
+  id            String        @id @default(cuid())
+  tenantId      String
+  kind          PromotionKind @default(BUY_N_GET_M)
+  productId     String // 主商品(计数品)
+  giftProductId String? // 赠品(缺省=主商品)
+  buyQty        Int // 买 N(按 unit 计)
+  giftQty       Int // 送 M
+  unit          PriceUnit     @default(BASE)
+  validFrom     DateTime      @default(now())
+  validTo       DateTime?
+  closedAt      DateTime?
+  note          String?
+  createdById   String
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  product     Product  @relation(fields: [productId], references: [id])
+  giftProduct Product? @relation("PromotionGift", fields: [giftProductId], references: [id])
+
+  @@index([tenantId, productId])
 }
 
 // ═══════════ P1-T10 月结对账 (生成→推送客户确认→差异处理四类→核销) ═══════════

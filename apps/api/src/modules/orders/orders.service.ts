@@ -7,6 +7,7 @@ import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
 import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
+import { computeGiftLines } from '../promotions/promotions.controller';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
@@ -212,6 +213,39 @@ export class OrdersService {
       });
     }
 
+    // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用)
+    const promoRules = await this.prisma.promotion.findMany({
+      where: {
+        productId: { in: productIds }, closedAt: null, validFrom: { lte: new Date() },
+        OR: [{ validTo: null }, { validTo: { gte: new Date() } }],
+      },
+    });
+    if (promoRules.length > 0) {
+      const gifts = computeGiftLines(
+        dto.lines.map((l) => ({ productId: l.productId, unit: l.unit, qty: l.qty, isGift: l.isGift })),
+        promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: r.unit as 'BASE' | 'MIN' })),
+      );
+      const giftProductIds = [...new Set(gifts.map((g) => g.giftProductId).filter((id) => !productMap.has(id)))];
+      if (giftProductIds.length > 0) {
+        const extra = await this.prisma.product.findMany({ where: { id: { in: giftProductIds } } });
+        for (const p of extra) productMap.set(p.id, p);
+      }
+      for (const g of gifts) {
+        const gp = productMap.get(g.giftProductId);
+        if (!gp) continue;
+        lineData.push({
+          tenantId: user.tenantId,
+          productId: gp.id, productName: gp.name, specText: gp.specText,
+          unit: g.rule.unit, conversionRate: gp.packSize,
+          qty: new Prisma.Decimal(g.giftQty),
+          unitPrice: new Prisma.Decimal(0), amount: new Prisma.Decimal(0),
+          priceType: 'MANUAL' as never, priceVersion: 'gift',
+          isGift: true, promoNote: `买${g.rule.buyQty}送${g.rule.giftQty}`,
+          createdById: user.id,
+        });
+      }
+    }
+
     // P1-15: deliveryDate 无格式校验, 非法串 new Date()=Invalid Date 落库/序列化 500 → 显式 400
     if (dto.deliveryDate !== undefined) {
       const d = new Date(dto.deliveryDate);
@@ -227,10 +261,11 @@ export class OrdersService {
     const creditOk = customer.settlement === 'CASH'
       ? creditNeed <= limit // 现结: 全额+在途必须被额度覆盖(额度0则恒 false, 款到发货)
       : creditNeed <= limit - credit.openAr - credit.inTransit;
-    const stock = await this.stockProjection(productIds);
-    const inventory = productIds.map((pid) => {
+    const stock = await this.stockProjection([...new Set(lineData.map((l) => l.productId))]); // 含随单赠品
+    const inventory = [...new Set(lineData.map((l) => l.productId))].map((pid) => {
       const s = stock.get(pid) ?? { onHand: 0, occupied: 0 };
-      const need = dto.lines!.filter((l) => l.productId === pid).reduce((sum, l) => sum + l.qty * (l.unit === 'BASE' ? (productMap.get(pid)?.packSize ?? 1) : 1), 0);
+      // C组: 需求按最终行(含赠品行)折最小单位——赠品也占库存
+      const need = lineData.filter((l) => l.productId === pid).reduce((sum, l) => sum + Number(l.qty) * (l.unit === 'BASE' ? (productMap.get(pid)?.packSize ?? 1) : 1), 0);
       return { productId: pid, productName: productMap.get(pid)?.name ?? pid, ok: s.onHand - s.occupied >= need, onHand: s.onHand, occupied: s.occupied, need };
     });
     const minOrder = { ok: totalNum >= Number(customer.minOrderAmount), amount: totalNum, min: Number(customer.minOrderAmount) };

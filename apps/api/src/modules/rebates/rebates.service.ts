@@ -17,11 +17,26 @@ export class RebatesService {
     private readonly audit: AuditService,
   ) {}
 
-  /** 建方案(D02 互斥硬校验: 同客户存在生效中方案→409) */
-  async createScheme(user: AuthUser, dto: { customerId: string; type: 'B' | 'C'; rate: number; note?: string; validTo?: string }): Promise<unknown> {
+  /** 建方案(D02 互斥硬校验: 同客户存在生效中方案→409)。
+   *  C组 M3-2: tiers 坎级阶梯——按月累计基数取最高命中档(minAmount ≤ 基数), 未达最低坎=无返利;
+   *  不传 tiers 时 rate 为单一费率(旧行为不变)。 */
+  async createScheme(user: AuthUser, dto: {
+    customerId: string; type: 'B' | 'C'; rate: number; note?: string; validTo?: string;
+    tiers?: Array<{ minAmount: number; rate: number }>;
+  }): Promise<unknown> {
     const rate = Number(dto.rate);
     // 2026-10 口径修订(需求 v1.1 M3-2): 客户明确返利比例 1%-50% 可配, 原 5% 下限排除小额月返
     if (!(rate >= 0.01 && rate <= 0.5)) throw new BadRequestException('费率须在 1%-50% 之间(D02)');
+    let tiers: Array<{ minAmount: number; rate: number }> | undefined;
+    if (dto.tiers?.length) {
+      tiers = dto.tiers.map((t) => ({ minAmount: Number(t.minAmount), rate: Number(t.rate) }))
+        .sort((a, b) => a.minAmount - b.minAmount);
+      if (tiers.some((t) => !(t.minAmount > 0))) throw new BadRequestException('坎级门槛必须大于 0');
+      if (tiers.some((t) => !(t.rate >= 0.01 && t.rate <= 0.5))) throw new BadRequestException('每档费率须在 1%-50% 之间');
+      for (let i = 1; i < tiers.length; i++) {
+        if (tiers[i].minAmount <= tiers[i - 1].minAmount) throw new BadRequestException('坎级门槛须严格递增');
+      }
+    }
     const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId } });
     if (!customer) throw new NotFoundException('客户不存在');
     const active = await this.prisma.rebateScheme.findFirst({
@@ -33,12 +48,21 @@ export class RebatesService {
     const created = await this.prisma.rebateScheme.create({
       data: {
         tenantId: user.tenantId, customerId: dto.customerId, type: dto.type,
-        rate: new Prisma.Decimal(rate), note: dto.note,
+        rate: new Prisma.Decimal(rate), tiers: (tiers ?? undefined) as never, note: dto.note,
         validTo: dto.validTo ? new Date(dto.validTo) : undefined, createdById: user.id,
       },
     });
-    await this.audit.log({ user, action: 'REBATE_SCHEME_CREATE', entityType: 'RebateScheme', entityId: created.id, after: { customer: customer.name, type: dto.type, rate } });
+    await this.audit.log({ user, action: 'REBATE_SCHEME_CREATE', entityType: 'RebateScheme', entityId: created.id, after: { customer: customer.name, type: dto.type, rate, tiers } });
     return created;
+  }
+
+  /** 坎级解析: 基数命中最高 minAmount 档 → 该档费率; 未达最低坎 → 0(无返利); 无 tiers → 单一费率 */
+  private effectiveRate(scheme: { rate: unknown; tiers: unknown }, baseAmount: number): { rate: number; tierHit: number | null; tiers: Array<{ minAmount: number; rate: number }> | null } {
+    const tiers = Array.isArray(scheme.tiers) ? (scheme.tiers as Array<{ minAmount: number; rate: number }>) : null;
+    if (!tiers || tiers.length === 0) return { rate: Number(scheme.rate), tierHit: null, tiers: null };
+    let hit: { minAmount: number; rate: number } | null = null;
+    for (const t of tiers) if (baseAmount >= t.minAmount) hit = t;
+    return { rate: hit ? Number(hit.rate) : 0, tierHit: hit ? hit.minAmount : null, tiers };
   }
 
   async closeScheme(user: AuthUser, id: string): Promise<unknown> {
@@ -85,21 +109,29 @@ export class RebatesService {
     const payments = Number(payAgg._sum.amount ?? 0);
     const bottles = Math.abs(Number(pkgAgg._sum.depositPaid ?? 0));
     const baseAmount = Number(Math.max(0, payments - bottles).toFixed(2));
-    const rebateAmount = Number((baseAmount * Number(scheme.rate)).toFixed(2));
+    // C组 M3-2: 坎级阶梯——基数命中最高档的费率, 未达最低坎=0
+    const eff = this.effectiveRate(scheme, baseAmount);
+    const rebateAmount = Number((baseAmount * eff.rate).toFixed(2));
     void user;
-    return { customerId, period, schemeType: scheme.type, rate: Number(scheme.rate), payments, bottlesDeposit: bottles, baseAmount, rebateAmount };
+    return {
+      customerId, period, schemeType: scheme.type, rate: eff.rate, flatRate: Number(scheme.rate),
+      tiers: eff.tiers, tierHit: eff.tierHit, tierMissed: eff.tiers !== null && eff.tierHit === null,
+      payments, bottlesDeposit: bottles, baseAmount, rebateAmount,
+    };
   }
 
-  /** 确认核算: 票折=REBATE_OFFSET 流水冲应收(FIFO 未结单); 货补=登记+走随单赠 */
-  async settle(user: AuthUser, dto: { customerId: string; period: string; settleType: 'GOODS' | 'INVOICE'; note?: string }): Promise<unknown> {
+  /** 确认核算: 票折=REBATE_OFFSET 流水冲应收(FIFO 未结单); 货补=登记+走随单赠; 现金=生成 REBATE 费用单(已批待付, C组 M3-2) */
+  async settle(user: AuthUser, dto: { customerId: string; period: string; settleType: 'GOODS' | 'INVOICE' | 'CASH'; note?: string }): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(dto.period)) throw new BadRequestException('期间格式 YYYY-MM');
     const dup = await this.prisma.rebateSettlement.findUnique({ where: { tenantId_customerId_period: { tenantId: user.tenantId, customerId: dto.customerId, period: dto.period } } });
     if (dup) throw new ConflictException(`该客户 ${dto.period} 已核算(唯一)`);
-    const preview = await this.preview(user, dto.customerId, dto.period) as { schemeType: string; rate: number; baseAmount: number; rebateAmount: number };
+    const preview = await this.preview(user, dto.customerId, dto.period) as { schemeType: string; rate: number; baseAmount: number; rebateAmount: number; tierHit: number | null; tierMissed: boolean };
+    if (preview.tierMissed) throw new ConflictException(`当月基数 ¥${preview.baseAmount.toFixed(2)} 未达坎级最低门槛, 无返利可核算`);
     const scheme = (await this.prisma.rebateScheme.findFirst({ where: { customerId: dto.customerId, closedAt: null } }))!;
+    const customer = await this.prisma.customer.findUnique({ where: { id: dto.customerId }, select: { name: true } });
     // P1-12: 核算单与 REBATE_OFFSET 流水同事务(原实现分离, 中途失败留"已核算但应收未冲"的半截账,
     // 且 (tenantId,customerId,period) 唯一键阻止重做)
-    const { created, unapplied } = await this.prisma.$transaction(async (tx) => {
+    const { created, unapplied, cashExpenseNo } = await this.prisma.$transaction(async (tx) => {
       const created = await tx.rebateSettlement.create({
         data: {
           tenantId: user.tenantId, customerId: dto.customerId, schemeId: scheme.id, period: dto.period,
@@ -107,7 +139,32 @@ export class RebatesService {
           settleType: dto.settleType, note: dto.note, createdById: user.id,
         },
       });
-      let unapplied = preview.rebateAmount; // GOODS: 货补全额待兑付
+      let cashExpenseNo: string | null = null;
+      if (dto.settleType === 'CASH' && preview.rebateAmount > 0) {
+        // C组: 现金返利 → REBATE 费用单(系统直入已批, 出纳在费用中心付款)
+        const fyDay = dayjs().format('YYYYMMDD');
+        let expense: { id: string; expenseNo: string } | null = null;
+        for (let attempt = 0; attempt < 5 && !expense; attempt++) {
+          const seq = (await tx.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+          try {
+            expense = await tx.expense.create({
+              data: {
+                tenantId: user.tenantId, expenseNo: `FY${fyDay}-${String(seq).padStart(4, '0')}`,
+                category: 'REBATE', title: `返利现金 ${dto.period}(${customer?.name ?? dto.customerId})`,
+                amount: new Prisma.Decimal(preview.rebateAmount), customerId: dto.customerId,
+                payMode: 'CASH', status: 'APPROVED',
+                note: `核算单 ${created.id.slice(-6)}; 基数 ¥${preview.baseAmount.toFixed(2)}×${(preview.rate * 100).toFixed(1)}%${preview.tierHit !== null ? `(坎级≥${preview.tierHit})` : ''}`,
+                source: `REBATE_SETTLE:${dto.period}:${dto.customerId}`, createdById: user.id,
+              },
+            });
+          } catch (e) {
+            if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+            throw e;
+          }
+        }
+        cashExpenseNo = expense?.expenseNo ?? null;
+      }
+      let unapplied = preview.rebateAmount; // GOODS: 货补全额待兑付; CASH: 费用单待付
       if (dto.settleType === 'INVOICE' && preview.rebateAmount > 0) {
         // 票折: FIFO 冲未结应收(与收款核销同序, D4)
         const ars = await tx.receivable.findMany({
@@ -138,10 +195,15 @@ export class RebatesService {
         // P1-12: 未冲完的剩余不再静默蒸发, 返回给调用方并落审计
         unapplied = Number(remain.toFixed(2));
       }
-      return { created, unapplied };
+      return { created, unapplied, cashExpenseNo };
     });
-    await this.audit.log({ user, action: 'REBATE_SETTLE', entityType: 'RebateSettlement', entityId: created.id, after: { customerId: dto.customerId, period: dto.period, ...preview, settleType: dto.settleType, unapplied } });
-    return { ...created, unapplied, hint: dto.settleType === 'GOODS' ? '货补请以随单赠下单兑付(不反改原单, D02)' : unapplied > 0.0001 ? `未结应收不足, 返利 ¥${unapplied.toFixed(2)} 未冲减(请联系老板处理)` : undefined };
+    await this.audit.log({ user, action: 'REBATE_SETTLE', entityType: 'RebateSettlement', entityId: created.id, after: { customerId: dto.customerId, period: dto.period, ...preview, settleType: dto.settleType, unapplied, cashExpenseNo } });
+    const hint = dto.settleType === 'GOODS'
+      ? '货补请以随单赠下单兑付(不反改原单, D02)'
+      : dto.settleType === 'CASH'
+        ? `现金返利费用单 ${cashExpenseNo} 已生成(已批待付), 请到费用中心执行付款`
+        : unapplied > 0.0001 ? `未结应收不足, 返利 ¥${unapplied.toFixed(2)} 未冲减(请联系老板处理)` : undefined;
+    return { ...created, unapplied, cashExpenseNo, hint };
   }
 
   async settlements(q: { period?: string; customerId?: string }): Promise<unknown> {

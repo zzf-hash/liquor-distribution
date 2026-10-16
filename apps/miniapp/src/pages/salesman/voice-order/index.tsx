@@ -5,17 +5,40 @@ import { LOGIN_PAGE, draftsApi, fmtDateTime, getToken, toNum } from '../../../se
 import type { RepDraftDTO } from '../../../services/api'
 import './index.scss'
 
+/** 录音文件 → base64（weapp: FileSystemManager；H5: FileReader） */
+function audioToBase64(filePath: string): Promise<string> {
+  if (filePath.startsWith('blob:') || filePath.startsWith('http')) {
+    return fetch(filePath)
+      .then((r) => r.blob())
+      .then((blob) => new Promise<string>((resolve, reject) => {
+        const fr = new FileReader()
+        fr.onload = () => resolve(String(fr.result))
+        fr.onerror = () => reject(new Error('录音读取失败'))
+        fr.readAsDataURL(blob)
+      }))
+  }
+  return new Promise<string>((resolve, reject) => {
+    Taro.getFileSystemManager().readFile({
+      filePath,
+      encoding: 'base64',
+      success: (r) => resolve(String(r.data)),
+      fail: () => reject(new Error('录音读取失败')),
+    })
+  })
+}
+
 /**
- * 业务员语音报单（P1-T12，rep token）：语音/文字两模式 → POST /drafts → 后端 qwen 解析成可编辑草稿。
- * 试点期端侧 ASR 转写未接入：录音仅本地留档（Taro.getRecorderManager），
- * 口述内容请敲成文字后提交（页面有简提示：试点期建议文字）；确认转单在内勤后台
- * 「转单草稿」工作台完成（客户测试期简化，本页只生成草稿）。触控元素均 ≥ $touch-min。
+ * 业务员语音报单（P1-T12 + C组 ASR，rep token）：
+ * 语音模式=按住流程录音 → 停止后自动上传（POST /drafts audioBase64）→ 腾讯云 ASR 转写
+ * → qwen 解析成可编辑草稿；转写文本落 rawText 可编辑兜底（红线不变）。
+ * ASR 未配置/失败时回退：提示后把录音丢弃，改文字模式提交。确认转单在内勤后台「转单草稿」。
  */
 export default function SalesmanVoiceOrderPage() {
   const [mode, setMode] = useState<'voice' | 'text'>('voice')
   const [text, setText] = useState('')
   const [recording, setRecording] = useState(false)
   const [recordedSec, setRecordedSec] = useState(0)
+  const [transcribing, setTranscribing] = useState(false)
   const [result, setResult] = useState<RepDraftDTO | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const rmRef = useRef<ReturnType<typeof Taro.getRecorderManager> | null>(null)
@@ -26,24 +49,51 @@ export default function SalesmanVoiceOrderPage() {
     }
   })
 
-  /** 录音（本地留档演示；ASR 转写后续接入。开始前重挂回调，录音中切文字模式自动停） */
+  /** 停止录音后：录音 → base64 → 后端 ASR+qwen → 草稿（失败回退文字模式） */
+  async function submitVoice(res: { tempFilePath: string; duration: number }): Promise<void> {
+    setTranscribing(true)
+    try {
+      const audioBase64 = await audioToBase64(res.tempFilePath)
+      const draft = await draftsApi.createVoice({
+        audioBase64,
+        audioFormat: 'mp3',
+        rawText: text.trim() || undefined, // 手敲文字非空时优先人工文本(兜底红线)
+      })
+      setResult(draft)
+      setRecordedSec(Math.round(Number(res.duration) / 1000))
+      setText('')
+      Taro.showToast({ title: `识别完成, 草稿 ${draft.draftNo}`, icon: 'success' })
+    } catch (e) {
+      Taro.showToast({
+        title: e instanceof Error ? e.message : '语音提交失败, 请改用文字',
+        icon: 'none',
+        duration: 3000,
+      })
+    } finally {
+      setTranscribing(false)
+      setRecordedSec(0)
+    }
+  }
+
+  /** 录音(C组: 停止即上传转写, 不再只本地留档) */
   function toggleRecord() {
+    if (transcribing) return
     if (recording) {
       rmRef.current?.stop()
       return
     }
     const rm = Taro.getRecorderManager()
-    rm.onStart(() => setRecording(true))
+    rm.onStart(() => { setRecording(true); setRecordedSec(0) })
     rm.onStop((res) => {
       setRecording(false)
-      setRecordedSec(Math.round(Number(res.duration) / 1000))
+      void submitVoice(res as unknown as { tempFilePath: string; duration: number })
     })
     rm.onError(() => {
       setRecording(false)
       Taro.showToast({ title: '录音失败，请改用文字模式', icon: 'none' })
     })
     rmRef.current = rm
-    rm.start({ duration: 60000 })
+    rm.start({ duration: 60000, format: 'mp3' })
   }
 
   function switchMode(next: 'voice' | 'text') {
@@ -55,7 +105,7 @@ export default function SalesmanVoiceOrderPage() {
     if (submitting) return
     if (!text.trim()) {
       Taro.showToast({
-        title: mode === 'voice' ? '请先把口述内容敲成文字' : '请填写报单内容',
+        title: mode === 'voice' ? '请先录音或填写口述内容' : '请填写报单内容',
         icon: 'none',
       })
       return
@@ -93,12 +143,20 @@ export default function SalesmanVoiceOrderPage() {
           <View className='vo__voice'>
             <Button
               className={`vo__rec ${recording ? 'vo__rec--on' : ''}`}
+              loading={transcribing}
+              disabled={transcribing}
               onClick={toggleRecord}
             >
-              {recording ? '■ 停止录音' : recordedSec ? `已录音 ${recordedSec}s（点此重录）` : '🎙️ 开始录音（口述报单）'}
+              {transcribing
+                ? '语音识别中…'
+                : recording
+                  ? '■ 停止录音并识别'
+                  : recordedSec
+                    ? `已识别（重录点此）`
+                    : '🎙️ 开始录音（口述报单，≤60秒）'}
             </Button>
             <Text className='vo__hint'>
-              试点期语音转写未接入：录音仅留档，请把口述内容敲成下方文字后提交（建议直接用文字模式）
+              停止录音后自动上传识别生成草稿（识别文本可编辑兜底）；识别失败或口语过重时，请改用文字模式
             </Text>
           </View>
         )}

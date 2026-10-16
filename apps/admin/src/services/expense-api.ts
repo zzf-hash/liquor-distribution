@@ -40,7 +40,7 @@ function qs(params: Record<string, string | number | boolean | undefined | null>
 
 // ───────────────────────── 类型 ─────────────────────────
 
-export type ExpenseCategoryDTO = 'OFFICE' | 'FUEL_TOLL' | 'REPAIR' | 'HANDLING' | 'UTILITY' | 'DISPLAY' | 'ENTRY' | 'CAP_FEE' | 'OTHER';
+export type ExpenseCategoryDTO = 'OFFICE' | 'FUEL_TOLL' | 'REPAIR' | 'HANDLING' | 'UTILITY' | 'DISPLAY' | 'ENTRY' | 'CAP_FEE' | 'REBATE' | 'OTHER';
 export type ExpenseStatusDTO = 'PENDING_APPROVAL' | 'APPROVED' | 'PAID' | 'REJECTED' | 'CANCELLED';
 export type ExpensePayModeDTO = 'CASH' | 'AR_OFFSET';
 
@@ -84,7 +84,7 @@ export interface ExpenseSummaryDTO {
 }
 
 export interface CreateExpenseInput {
-  category: Exclude<ExpenseCategoryDTO, 'CAP_FEE'>;
+  category: Exclude<ExpenseCategoryDTO, 'CAP_FEE' | 'REBATE'>; // 系统链路科目(CAP_FEE/REBATE)不可手工建
   title: string;
   amount: number;
   customerId?: string;

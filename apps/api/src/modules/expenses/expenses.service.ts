@@ -13,7 +13,7 @@ import type { AuthUser } from '../../common/current-user.decorator';
 // 口径: FEE_OFFSET 核减客户未结但不计入回款(与 REBATE_OFFSET 区别在对账单"当期核销"列不进)
 
 /** 客户级费用科目(必须关联客户, 可冲抵货款) */
-const CUSTOMER_CATEGORIES = new Set(['DISPLAY', 'ENTRY', 'CAP_FEE']);
+const CUSTOMER_CATEGORIES = new Set(['DISPLAY', 'ENTRY', 'CAP_FEE', 'REBATE']);
 
 export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   OFFICE: '办公费用',
@@ -24,6 +24,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   DISPLAY: '陈列费',
   ENTRY: '进店费',
   CAP_FEE: '开瓶费',
+  REBATE: '返利现金',
   OTHER: '其他',
 };
 
@@ -36,7 +37,7 @@ export class ExpensesService {
   ) {}
 
   async create(user: AuthUser, dto: {
-    category: 'OFFICE' | 'FUEL_TOLL' | 'REPAIR' | 'HANDLING' | 'UTILITY' | 'DISPLAY' | 'ENTRY' | 'CAP_FEE' | 'OTHER';
+    category: 'OFFICE' | 'FUEL_TOLL' | 'REPAIR' | 'HANDLING' | 'UTILITY' | 'DISPLAY' | 'ENTRY' | 'CAP_FEE' | 'REBATE' | 'OTHER';
     title: string; amount: number; customerId?: string; payee?: string;
     occurredAt?: string; payMode?: 'CASH' | 'AR_OFFSET'; note?: string; voucherUrl?: string; source?: string;
   }): Promise<unknown> {
@@ -45,9 +46,12 @@ export class ExpensesService {
     if (CUSTOMER_CATEGORIES.has(dto.category) && !dto.customerId) {
       throw new BadRequestException(`${EXPENSE_CATEGORY_LABELS[dto.category]}为客户级费用, 必须关联客户`);
     }
-    // 开瓶费只能由瓶盖回收确认生成(系统链路), 不接受手工直建(避免绕过回收单留痕)
+    // 系统链路科目不接受手工直建(留痕唯一来源): 开瓶费=回收确认, 返利现金=月末核算
     if (dto.category === 'CAP_FEE' && !(dto.source ?? '').startsWith('CAP_RECYCLE:')) {
       throw new BadRequestException('开瓶费费用单由瓶盖回收确认自动生成, 不可手工创建');
+    }
+    if (dto.category === 'REBATE' && !(dto.source ?? '').startsWith('REBATE_SETTLE:')) {
+      throw new BadRequestException('返利现金费用单由月末核算(CASH 形式)自动生成, 不可手工创建');
     }
     if (dto.payMode === 'AR_OFFSET' && !dto.customerId) throw new BadRequestException('冲抵货款必须关联客户');
     let customer: { id: string; name: string } | null = null;

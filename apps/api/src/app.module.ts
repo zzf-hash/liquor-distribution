@@ -4,6 +4,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { TelemetryModule } from './common/telemetry.controller';
 import { TelemetryInterceptor } from './common/telemetry.interceptor';
 import { NotifyModule } from './common/notify.module';
+import { AsrModule } from './common/asr.module';
 import { PrismaService } from './prisma/prisma.service';
 import { AuthModule } from './modules/auth/auth.module';
 import { AuthGuard } from './common/auth.guard';
@@ -37,11 +38,13 @@ import { StockAlertModule } from './modules/stock-alert/stock-alert.controller';
 import { DailyTasksModule } from './modules/daily-tasks/daily-tasks.controller';
 import { ExpensesModule } from './modules/expenses/expenses.controller';
 import { CapFeesModule } from './modules/cap-fees/cap-fees.controller';
+import { PromotionsModule } from './modules/promotions/promotions.controller';
 
 @Module({
   imports: [
     PrismaModule,
     NotifyModule,
+    AsrModule, // C组: 腾讯云 ASR(语音下单转写)
     AuthModule,
     AuditModule,
     ProductsModule, // L3 子agent 交付
@@ -71,6 +74,7 @@ import { CapFeesModule } from './modules/cap-fees/cap-fees.controller';
     DailyTasksModule, // 每日自动化: 到期提醒/月结对账单/自动归档/开瓶费计提
     ExpensesModule, // B组: 费用台账(办公/运营/陈列进店) + EXPENSE 审批线 + 冲抵货款
     CapFeesModule, // B组: 开瓶费政策/瓶盖回收/月度自动计提
+    PromotionsModule, // C组: 买N送M 随单赠规则
     TelemetryModule, // 内建遥测: 请求埋点 + 三端错误上报
   ],
   providers: [

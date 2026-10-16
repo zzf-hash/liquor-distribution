@@ -572,6 +572,17 @@ export const draftsApi = {
       method: 'POST',
       body: { source: input.source, text: input.text },
     }),
+  /** C组 M12-1: 真语音——录音 base64 直传(≤60s)，后端腾讯云 ASR 转写→qwen 解析；rawText 手敲文本可兜底优先 */
+  createVoice: (input: { audioBase64: string; audioFormat: 'mp3' | 'wav' | 'm4a' | 'aac'; rawText?: string }) =>
+    request<RepDraftDTO>('/drafts', {
+      method: 'POST',
+      body: {
+        source: 'VOICE',
+        audioBase64: input.audioBase64,
+        audioFormat: input.audioFormat,
+        ...(input.rawText ? { text: input.rawText } : {}),
+      },
+    }),
 }
 
 // ───────────────────────── 员工端·订单行/详情（P1 全员端，契约对齐 apps/api OrdersService） ─────────────────────────

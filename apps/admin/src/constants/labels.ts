@@ -155,7 +155,7 @@ export const APPROVAL_STATUS_META: Record<string, { label: string; color: string
 
 // ───────────────────────── B组 费用域 ─────────────────────────
 
-/** 费用科目（后端 ExpenseCategory；客户级三科可冲抵货款） */
+/** 费用科目（后端 ExpenseCategory；客户级科目可冲抵货款；CAP_FEE/REBATE 只由系统链路生成） */
 export const EXPENSE_CATEGORY_META: Record<string, { label: string; color: string; customerLevel: boolean }> = {
   OFFICE: { label: '办公费用', color: 'default', customerLevel: false },
   FUEL_TOLL: { label: '油费路桥', color: 'default', customerLevel: false },
@@ -165,6 +165,7 @@ export const EXPENSE_CATEGORY_META: Record<string, { label: string; color: strin
   DISPLAY: { label: '陈列费', color: 'blue', customerLevel: true },
   ENTRY: { label: '进店费', color: 'blue', customerLevel: true },
   CAP_FEE: { label: '开瓶费', color: 'purple', customerLevel: true },
+  REBATE: { label: '返利现金', color: 'geekblue', customerLevel: true },
   OTHER: { label: '其他', color: 'default', customerLevel: false },
 };
 
@@ -307,6 +308,7 @@ export const REBATE_TYPE_META: Record<string, { label: string; color: string }> 
 export const REBATE_SETTLE_TYPE_META: Record<string, { label: string; color: string }> = {
   GOODS: { label: '货补', color: 'success' },
   INVOICE: { label: '票折', color: 'processing' },
+  CASH: { label: '现金', color: 'gold' },
 };
 
 export const REBATE_SETTLEMENT_STATUS_META: Record<string, { label: string; color: string }> = {

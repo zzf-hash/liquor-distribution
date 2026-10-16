@@ -1,16 +1,19 @@
-// 优惠返利（P1-T08，D02 优惠三式 b/c）：b 除瓶箱后 1%-50% 月末核算 / c 定扣货款；
+// 优惠返利（P1-T08，D02 优惠三式 b/c + C组坎级/现金/随单赠）：
+// b 除瓶箱后 1%-50% 月末核算（可选坎级阶梯：月累计基数取最高命中档）/ c 定扣货款；
 // 同客户同一时刻仅一个生效方案（后端 409 互斥，前端捕获展示）；
-// 月末核算：preview 测算基数/返利额 → 确认（GOODS=货补走随单赠下单 / INVOICE=票折冲应收）。
+// 月末核算：GOODS=货补走随单赠下单 / INVOICE=票折冲应收 / CASH=现金(生成返利费用单付款)；
+// 随单赠：买N送M 规则，下单管线自动追加 0 价赠品行。
 import { useCallback, useEffect, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
+import { PlusOutlined } from '@ant-design/icons';
 import {
   Alert, App as AntApp, Button, Card, Col, DatePicker, Descriptions, Input, InputNumber,
-  Modal, Radio, Row, Select, Slider, Space, Statistic, Table, Tabs, Tag, Typography,
+  Modal, Radio, Row, Select, Slider, Space, Statistic, Switch, Table, Tabs, Tag, Typography,
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
-import { customersApi, rebatesApi, ApiError } from '../../services/api';
+import { customersApi, productsApi, promotionsApi, rebatesApi, ApiError } from '../../services/api';
 import type {
-  CustomerDTO, RebateSchemeDTO, RebateSettlementDTO, RebateSettlementPreviewDTO, RebateSettleTypeDTO, RebateTypeDTO,
+  CustomerDTO, ProductDTO, PromotionDTO, RebateSchemeDTO, RebateSettlementDTO, RebateSettlementPreviewDTO, RebateSettleTypeDTO, RebateTierDTO, RebateTypeDTO,
 } from '../../services/api';
 import {
   REBATE_SETTLEMENT_STATUS_META, REBATE_SETTLE_TYPE_META, REBATE_TYPE_META,
@@ -33,17 +36,161 @@ function schemeStatusTag(s: RebateSchemeDTO): JSX.Element {
 
 export default function RebatesPage(): JSX.Element {
   return (
-    <PageContainer title="优惠返利" subTitle="D02 b/c 互斥 · 月末核算（货补=随单赠下单 / 票折=冲应收）">
+    <PageContainer title="优惠返利" subTitle="D02 b/c 互斥 · 坎级阶梯 · 月末核算（货补/票折/现金） · 随单赠买N送M">
       <Card>
         <Tabs
           defaultActiveKey="schemes"
           items={[
             { key: 'schemes', label: '返利方案', children: <SchemesTab /> },
             { key: 'settlements', label: '月末核算', children: <SettlementsTab /> },
+            { key: 'promotions', label: '随单赠(买N送M)', children: <PromotionsTab /> },
           ]}
         />
       </Card>
     </PageContainer>
+  );
+}
+
+// ───────────────────────── Tab3 随单赠·买N送M（C组 M3-1，下单管线自动挂赠品行） ─────────────────────────
+
+function PromotionsTab(): JSX.Element {
+  const { message, modal } = AntApp.useApp();
+  const [rows, setRows] = useState<PromotionDTO[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [products, setProducts] = useState<ProductDTO[]>([]);
+  const [productId, setProductId] = useState<string>();
+  const [giftProductId, setGiftProductId] = useState<string>();
+  const [buyQty, setBuyQty] = useState(10);
+  const [giftQty, setGiftQty] = useState(1);
+  const [validTo, setValidTo] = useState<string>();
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = useCallback(async (): Promise<void> => {
+    setLoading(true);
+    try {
+      setRows(await promotionsApi.list());
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载随单赠规则失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (createOpen) {
+      productsApi.list({ page: 1, pageSize: 200 }).then((r) => setProducts(r.items)).catch(() => setProducts([]));
+      setProductId(undefined); setGiftProductId(undefined); setBuyQty(10); setGiftQty(1); setValidTo(undefined); setNote('');
+    }
+  }, [createOpen]);
+
+  async function submit(): Promise<void> {
+    if (!productId) { message.warning('请选择商品'); return; }
+    if (!(buyQty >= 1 && giftQty >= 1)) { message.warning('买/送数量须 ≥ 1'); return; }
+    setSubmitting(true);
+    try {
+      await promotionsApi.create({ productId, giftProductId: giftProductId || undefined, buyQty, giftQty, validTo: validTo || undefined, note: note.trim() || undefined });
+      message.success('规则已创建并即时生效（下单自动挂赠品行）');
+      setCreateOpen(false);
+      void load();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '创建失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const productOptions = products.map((p) => ({ value: p.id, label: `${p.name}（${p.skuCode}）` }));
+
+  return (
+    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+      <Alert
+        type="info" showIcon
+        message="买N送M：内勤开单/业务员代下/客户商城三入口下单时自动按规则追加 0 价赠品行（计入库存与拣货，不占信用），行的促销说明留痕在订单明细。"
+      />
+      <Space wrap>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>新建规则</Button>
+      </Space>
+      <Table<PromotionDTO>
+        size="small"
+        rowKey="id"
+        loading={loading}
+        dataSource={rows}
+        locale={{ emptyText: '暂无随单赠规则' }}
+        columns={[
+          {
+            title: '商品', width: 220,
+            render: (_v, r) => (
+              <Space size={0} direction="vertical">
+                <span>{r.productName}（{r.skuCode}）</span>
+              </Space>
+            ),
+          },
+          {
+            title: '规则', width: 160,
+            render: (_v, r) => <Tag color="red">买{r.buyQty}{r.unitLabel}送{r.giftQty}{r.giftProductName === r.productName ? '' : `(${r.giftProductName})`}</Tag>,
+          },
+          { title: '生效期', width: 200, render: (_v, r) => `${fmtDate(r.validFrom)} ~ ${r.validTo ? fmtDate(r.validTo) : '长期'}` },
+          { title: '状态', width: 90, render: (_v, r) => (r.active ? <Tag color="success">生效中</Tag> : <Tag>{r.closedAt ? '已关闭' : '未生效/已过期'}</Tag>) },
+          { title: '备注', dataIndex: 'note', ellipsis: true, render: (v) => v ?? '-' },
+          {
+            title: '操作', width: 90,
+            render: (_v, r) => r.active ? (
+              <a onClick={() => modal.confirm({
+                title: `关闭规则：${r.productName} 买${r.buyQty}送${r.giftQty}？`,
+                content: '关闭后新订单不再自动挂赠品；历史订单不受影响。',
+                okText: '关闭规则',
+                okButtonProps: { danger: true },
+                onOk: async () => {
+                  try { await promotionsApi.close(r.id, '手动关闭'); message.success('已关闭'); void load(); }
+                  catch (e) { message.error(e instanceof Error ? e.message : '操作失败'); }
+                },
+              })}>关闭</a>
+            ) : '-',
+          },
+        ]}
+      />
+      <Modal
+        open={createOpen}
+        title="新建随单赠规则（买N送M）"
+        okText="创建并生效"
+        cancelText="取消"
+        confirmLoading={submitting}
+        onOk={submit}
+        onCancel={() => setCreateOpen(false)}
+        destroyOnClose
+      >
+        <Space direction="vertical" style={{ width: '100%' }} size={12}>
+          <Select
+            style={{ width: '100%' }} showSearch optionFilterProp="label"
+            placeholder="商品（买了它才计数，按箱）"
+            value={productId}
+            onChange={setProductId}
+            options={productOptions}
+          />
+          <Select
+            style={{ width: '100%' }} showSearch optionFilterProp="label" allowClear
+            placeholder="赠品（选填，默认=商品本身）"
+            value={giftProductId}
+            onChange={setGiftProductId}
+            options={productOptions}
+          />
+          <Space wrap>
+            <Typography.Text>买</Typography.Text>
+            <InputNumber min={1} precision={0} style={{ width: 90 }} value={buyQty} onChange={(v) => setBuyQty(v ?? 1)} />
+            <Typography.Text>箱 送</Typography.Text>
+            <InputNumber min={1} precision={0} style={{ width: 90 }} value={giftQty} onChange={(v) => setGiftQty(v ?? 1)} />
+          </Space>
+          <Space wrap>
+            <Typography.Text type="secondary">结束日期</Typography.Text>
+            <DatePicker placeholder="选填=长期" onChange={(d) => setValidTo(d ? d.format('YYYY-MM-DD') : undefined)} />
+          </Space>
+          <Input.TextArea rows={2} maxLength={100} placeholder="备注（选填，如：旺季促销）" value={note} onChange={(e) => setNote(e.target.value)} />
+        </Space>
+      </Modal>
+    </Space>
   );
 }
 
@@ -141,7 +288,12 @@ function SchemesTab(): JSX.Element {
               return <Tag color={meta?.color}>{meta?.label ?? r.type}</Tag>;
             },
           },
-          { title: '费率', dataIndex: 'rate', width: 80, align: 'right' as const, render: (_v, r) => fmtRate(r.rate) },
+          {
+            title: '费率', dataIndex: 'rate', width: 150, align: 'right' as const,
+            render: (_v, r) => (r.tiers?.length
+              ? <span>{[...r.tiers].sort((a, b) => toNum(a.minAmount) - toNum(b.minAmount)).map((t) => `≥${toNum(t.minAmount) / 10000}万:${fmtRate(t.rate)}`).join(' ')}</span>
+              : fmtRate(r.rate)),
+          },
           {
             title: '生效期', width: 200,
             render: (_v, r) => `${fmtDate(r.validFrom)} ~ ${r.validTo ? fmtDate(r.validTo) : '长期'}`,
@@ -179,6 +331,8 @@ function CreateSchemeModal({
   const [customerId, setCustomerId] = useState<string>();
   const [type, setType] = useState<RebateTypeDTO>('B');
   const [ratePct, setRatePct] = useState(10);
+  const [useTiers, setUseTiers] = useState(false);
+  const [tiers, setTiers] = useState<Array<{ minAmount: number; ratePct: number }>>([{ minAmount: 10000, ratePct: 2 }, { minAmount: 50000, ratePct: 5 }]);
   const [validTo, setValidTo] = useState<string>();
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -188,25 +342,40 @@ function CreateSchemeModal({
     setCustomerId(undefined);
     setType('B');
     setRatePct(10);
+    setUseTiers(false);
+    setTiers([{ minAmount: 10000, ratePct: 2 }, { minAmount: 50000, ratePct: 5 }]);
     setValidTo(undefined);
     setNote('');
   }, [open]);
 
   async function submit(): Promise<void> {
     if (!customerId) { message.warning('请选择客户'); return; }
-    if (ratePct < 1 || ratePct > 50) { message.warning('费率须在 1% - 50% 之间'); return; }
+    let tierInput: RebateTierDTO[] | undefined;
+    if (useTiers) {
+      const valid = tiers.filter((t) => t.minAmount > 0 && t.ratePct > 0);
+      if (valid.length === 0) { message.warning('坎级至少一档（门槛与费率 > 0）'); return; }
+      const sorted = [...valid].sort((a, b) => a.minAmount - b.minAmount);
+      if (sorted.some((t) => t.ratePct < 1 || t.ratePct > 50)) { message.warning('每档费率须在 1% - 50% 之间'); return; }
+      for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i].minAmount <= sorted[i - 1].minAmount) { message.warning('坎级门槛须严格递增'); return; }
+      }
+      tierInput = sorted.map((t) => ({ minAmount: t.minAmount, rate: t.ratePct / 100 }));
+    } else if (ratePct < 1 || ratePct > 50) {
+      message.warning('费率须在 1% - 50% 之间'); return;
+    }
     setSubmitting(true);
     try {
       await rebatesApi.createScheme({
         customerId,
         type,
-        rate: ratePct / 100,
+        rate: (useTiers ? Math.max(...(tierInput ?? []).map((t) => t.rate)) : ratePct / 100),
+        tiers: tierInput,
         validTo: validTo || undefined,
         note: note.trim() || undefined,
       });
       // 创建响应不带客户信息，名字从本地选项取
       const cust = customerOptions.find((o) => o.value === customerId)?.label ?? customerId;
-      message.success(`方案已创建并生效（今天起）：${cust} · ${REBATE_TYPE_META[type]?.label ?? type} ${ratePct}%`);
+      message.success(`方案已创建并生效（今天起）：${cust} · ${REBATE_TYPE_META[type]?.label ?? type} ${useTiers ? `坎级${tierInput?.length}档` : `${ratePct}%`}`);
       onCreated();
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
@@ -230,6 +399,7 @@ function CreateSchemeModal({
       onOk={submit}
       onCancel={onClose}
       destroyOnClose
+      width={560}
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Select
@@ -251,29 +421,63 @@ function CreateSchemeModal({
           optionType="button"
           buttonStyle="solid"
         />
+        {!useTiers && (
+          <Space wrap align="center">
+            <Typography.Text type="secondary">费率</Typography.Text>
+            <InputNumber
+              min={1}
+              max={50}
+              step={0.5}
+              precision={1}
+              style={{ width: 100 }}
+              suffix="%"
+              value={ratePct}
+              onChange={(v) => setRatePct(v ?? 5)}
+            />
+            <Slider
+              style={{ width: 240, marginInline: 8 }}
+              min={1}
+              max={50}
+              step={0.5}
+              value={ratePct}
+              onChange={setRatePct}
+              marks={{ 5: '5%', 20: '20%', 35: '35%', 50: '50%' }}
+              tooltip={{ formatter: (v) => `${v ?? 0}%` }}
+            />
+          </Space>
+        )}
         <Space wrap align="center">
-          <Typography.Text type="secondary">费率</Typography.Text>
-          <InputNumber
-            min={1}
-            max={50}
-            step={0.5}
-            precision={1}
-            style={{ width: 100 }}
-            suffix="%"
-            value={ratePct}
-            onChange={(v) => setRatePct(v ?? 5)}
-          />
-          <Slider
-            style={{ width: 240, marginInline: 8 }}
-            min={1}
-            max={50}
-            step={0.5}
-            value={ratePct}
-            onChange={setRatePct}
-            marks={{ 5: '5%', 20: '20%', 35: '35%', 50: '50%' }}
-            tooltip={{ formatter: (v) => `${v ?? 0}%` }}
-          />
+          <Switch checked={useTiers} onChange={setUseTiers} checkedChildren="坎级阶梯" unCheckedChildren="单一费率" />
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            坎级：按月累计基数取最高命中档费率；未达最低门槛当月无返利（M3-2）
+          </Typography.Text>
         </Space>
+        {useTiers && (
+          <Space direction="vertical" style={{ width: '100%' }} size={8}>
+            {tiers.map((t, i) => (
+              <Space key={i} wrap>
+                <Typography.Text type="secondary">月基数 ≥</Typography.Text>
+                <InputNumber
+                  min={1} precision={0} style={{ width: 130 }}
+                  prefix="¥" value={t.minAmount}
+                  onChange={(v) => setTiers((prev) => prev.map((x, idx) => (idx === i ? { ...x, minAmount: v ?? 1 } : x)))}
+                />
+                <Typography.Text type="secondary">费率</Typography.Text>
+                <InputNumber
+                  min={1} max={50} step={0.5} precision={1} style={{ width: 90 }}
+                  suffix="%" value={t.ratePct}
+                  onChange={(v) => setTiers((prev) => prev.map((x, idx) => (idx === i ? { ...x, ratePct: v ?? 1 } : x)))}
+                />
+                {tiers.length > 1 && (
+                  <a style={{ color: '#cf1322' }} onClick={() => setTiers((prev) => prev.filter((_, idx) => idx !== i))}>删除</a>
+                )}
+              </Space>
+            ))}
+            <Button size="small" onClick={() => setTiers((prev) => [...prev, { minAmount: Math.max(...prev.map((t) => t.minAmount)) * 2, ratePct: 5 }])}>
+              ＋ 加一档
+            </Button>
+          </Space>
+        )}
         <Space wrap>
           <Typography.Text type="secondary">生效期：今天起</Typography.Text>
           <DatePicker
@@ -365,7 +569,9 @@ function SettlementsTab(): JSX.Element {
             showIcon
             message={settleType === 'INVOICE'
               ? '票折：确认后写入 REBATE_OFFSET 流水直接冲减该客户应收，不可撤销。'
-              : '货补：确认后仅登记返利额，请走随单赠下单发放（不反改原单）。'}
+              : settleType === 'CASH'
+                ? '现金：确认后生成「返利现金」费用单（已批待付），到费用中心执行付款。'
+                : '货补：确认后仅登记返利额，请走随单赠下单发放（不反改原单）。'}
           />
         </div>
       ),
@@ -381,11 +587,13 @@ function SettlementsTab(): JSX.Element {
           });
           message.success(settleType === 'INVOICE'
             ? '票折核算完成，已冲减该客户应收'
-            : '货补核算完成，请走随单赠下单发放');
+            : settleType === 'CASH'
+              ? '现金核算完成，返利费用单已生成（费用中心执行付款）'
+              : '货补核算完成，请走随单赠下单发放');
           setPreview(null);
           setRefreshKey((k) => k + 1);
         } catch (e) {
-          message.error(e instanceof Error ? e.message : '核算失败（该客户该月可能已核算过）');
+          message.error(e instanceof Error ? e.message : '核算失败（该客户该月可能已核算过，或未达坎级门槛）');
         } finally {
           setConfirming(false);
         }
@@ -428,7 +636,7 @@ function SettlementsTab(): JSX.Element {
           {(preview.payments !== undefined || preview.rate !== undefined) && (
             <Typography.Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
               口径：当月确认回款 {fmtMoney(preview.payments ?? 0)} − 瓶箱押金支出 {fmtMoney(preview.bottlesDeposit ?? 0)}
-              {preview.rate !== undefined && <> × 费率 {fmtRate(preview.rate)}（{REBATE_TYPE_META[preview.schemeType ?? 'B']?.label}）</>}
+              {preview.rate !== undefined && <> × 费率 {fmtRate(preview.rate)}（{REBATE_TYPE_META[preview.schemeType ?? 'B']?.label}{preview.tierHit !== null && preview.tierHit !== undefined ? ` · 坎级命中≥${toNum(preview.tierHit as number)}` : ''}）</>}
             </Typography.Paragraph>
           )}
           <Space style={{ marginTop: 12 }} wrap align="center">
@@ -439,6 +647,7 @@ function SettlementsTab(): JSX.Element {
               options={[
                 { value: 'INVOICE', label: '票折（冲应收）' },
                 { value: 'GOODS', label: '货补（随单赠下单）' },
+                { value: 'CASH', label: '现金（费用单付款）' },
               ]}
               optionType="button"
               buttonStyle="solid"
@@ -446,7 +655,9 @@ function SettlementsTab(): JSX.Element {
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {settleType === 'INVOICE'
                 ? '票折：REBATE_OFFSET 流水直接冲减该客户应收。'
-                : '货补：不反改原单，请走随单赠下单发放。'}
+                : settleType === 'CASH'
+                  ? '现金：生成返利现金费用单，出纳在费用中心付款（留付款凭证）。'
+                  : '货补：不反改原单，请走随单赠下单发放。'}
             </Typography.Text>
           </Space>
         </Card>

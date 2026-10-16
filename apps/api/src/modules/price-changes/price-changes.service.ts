@@ -71,7 +71,8 @@ export class PriceChangesService {
     return { id, status: 'PENDING', approvalId: approval.id };
   }
 
-  /** 一键生效: 审批通过后插入新价格版本行(D08: 不覆盖历史) */
+  /** 一键生效: 审批通过后插入新价格版本行(D08: 不覆盖历史)。
+   *  C组 M2-7: customerSync=true 时同步平移该商品全部客户专属价(新版本 validFrom=生效日, 价差=新价-旧价, 保持客户与层级价差) */
   async effectuate(user: AuthUser, id: string): Promise<unknown> {
     const r = await this.prisma.priceChangeRequest.findUnique({ where: { id } });
     if (!r) throw new NotFoundException('调价单不存在');
@@ -84,9 +85,102 @@ export class PriceChangesService {
         note: `调价生效: ${r.reason}`, createdBy: user.id,
       },
     });
-    await this.prisma.priceChangeRequest.update({ where: { id }, data: { status: 'EFFECTIVE', effectuatedAt: new Date() } });
-    await this.audit.log({ user, action: 'PRICE_CHANGE_EFFECT', entityType: 'PRICE_CHANGE', entityId: id, after: { priceRowId: price.id, validFrom: r.effectiveDate, newPrice: Number(r.newPrice) } });
-    return { id, status: 'EFFECTIVE', priceRowId: price.id };
+    // C组: 客户专属价联动(平移价差, 版本化留痕; COST 级不联动)
+    let customerSyncResult: { customers: number; delta: number } | null = null;
+    if (r.customerSync && r.levelType !== 'COST') {
+      const delta = Number(r.newPrice) - Number(r.oldPrice);
+      if (Math.abs(delta) > 0.0001) {
+        const exclusives = await this.prisma.customerPrice.findMany({
+          where: { productId: r.productId, unit: r.unit, validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
+          orderBy: { validFrom: 'desc' },
+        });
+        const latestByCustomer = new Map<string, typeof exclusives[number]>();
+        for (const cp of exclusives) if (!latestByCustomer.has(cp.customerId)) latestByCustomer.set(cp.customerId, cp);
+        let synced = 0;
+        for (const [, cp] of latestByCustomer) {
+          const next = Number(cp.price) + delta;
+          if (next < 0) continue; // 价差不至于把专属价打到负
+          await this.prisma.customerPrice.create({
+            data: {
+              tenantId: user.tenantId, customerId: cp.customerId, productId: r.productId, unit: r.unit,
+              price: new Prisma.Decimal(next.toFixed(2)), validFrom: r.effectiveDate,
+              approvalRef: `PC-${id.slice(0, 8)}`, note: `调价联动 ${Number(r.oldPrice)}→${Number(r.newPrice)}`, createdBy: user.id,
+            },
+          });
+          synced += 1;
+        }
+        customerSyncResult = { customers: synced, delta: Number(delta.toFixed(2)) };
+        await this.audit.log({ user, action: 'PRICE_CUSTOMER_SYNC', entityType: 'PRICE_CHANGE', entityId: id, after: customerSyncResult });
+      }
+    }
+    await this.prisma.priceChangeRequest.update({ where: { id }, data: { status: 'EFFECTIVE', effectuatedAt: new Date(), customerSyncResult: customerSyncResult as never } });
+    await this.audit.log({ user, action: 'PRICE_CHANGE_EFFECT', entityType: 'PRICE_CHANGE', entityId: id, after: { priceRowId: price.id, validFrom: r.effectiveDate, newPrice: Number(r.newPrice), customerSyncResult } });
+    return { id, status: 'EFFECTIVE', priceRowId: price.id, customerSyncResult };
+  }
+
+  // ─────────────── C组 M2-7 一键批量调价 ───────────────
+
+  /** 批量创建(DRAFT, 共用批次号/生效日/理由/联动开关) → 自动逐单提审 */
+  async createBatch(user: AuthUser, dto: {
+    items: Array<{ productId: string; unit?: 'BASE' | 'MIN'; levelType: string; newPrice: number }>;
+    effectiveDate: string; reason: string; customerSync?: boolean;
+  }): Promise<unknown> {
+    if (!dto.items?.length) throw new BadRequestException('批量调价至少一个商品');
+    if (dto.items.length > 100) throw new BadRequestException('单批最多 100 个商品');
+    const batchNo = `PC-B${dayjs().format('YYYYMMDDHHmmss')}`;
+    const created: Array<{ id: string; productId: string; oldPrice: number; newPrice: number; approvalId: string }> = [];
+    for (const item of dto.items) {
+      const row = (await this.create(user, {
+        productId: item.productId, unit: item.unit ?? 'BASE', levelType: item.levelType,
+        newPrice: item.newPrice, effectiveDate: dto.effectiveDate, reason: `${dto.reason}(批量 ${batchNo})`,
+        customerSync: dto.customerSync,
+      })) as { id: string; oldPrice: number; newPrice: number };
+      await this.prisma.priceChangeRequest.update({ where: { id: row.id }, data: { batchNo } });
+      const submitted = (await this.submit(user, row.id)) as { approvalId: string };
+      created.push({ id: row.id, productId: item.productId, oldPrice: row.oldPrice, newPrice: item.newPrice, approvalId: submitted.approvalId });
+    }
+    await this.audit.log({ user, action: 'PRICE_CHANGE_BATCH_CREATE', entityType: 'PRICE_CHANGE', entityId: batchNo, after: { batchNo, count: created.length, effectiveDate: dto.effectiveDate, customerSync: dto.customerSync ?? false } });
+    return { batchNo, count: created.length, items: created };
+  }
+
+  /** 批量生效: 该批次全部已批未生效单一次落价(逐单幂等, 单条失败不拖垮批次) */
+  async effectuateBatch(user: AuthUser, batchNo: string): Promise<unknown> {
+    const rows = await this.prisma.priceChangeRequest.findMany({ where: { batchNo }, orderBy: { createdAt: 'asc' } });
+    if (rows.length === 0) throw new NotFoundException('批次不存在');
+    const applied: Array<{ id: string; status: string; customerSyncResult?: { customers: number } | null }> = [];
+    const failed: Array<{ id: string; error: string }> = [];
+    for (const r of rows) {
+      try {
+        const res = (await this.effectuate(user, r.id)) as { status: string; customerSyncResult?: { customers: number } | null };
+        applied.push({ id: r.id, status: res.status, customerSyncResult: res.customerSyncResult ?? null });
+      } catch (e) {
+        failed.push({ id: r.id, error: String((e as Error).message ?? e).slice(0, 120) });
+      }
+    }
+    return { batchNo, applied: applied.length, failed, items: applied };
+  }
+
+  /** 批次列表(一键调价工作台) */
+  async batches(): Promise<unknown> {
+    const rows = await this.prisma.priceChangeRequest.findMany({
+      where: { batchNo: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      include: { product: { select: { skuCode: true, name: true } } },
+      take: 300,
+    });
+    const byBatch = new Map<string, { batchNo: string; createdAt: string; total: number; draft: number; pending: number; approved: number; effective: number; rejected: number; items: unknown[] }>();
+    for (const r of rows) {
+      const b = byBatch.get(r.batchNo!) ?? { batchNo: r.batchNo!, createdAt: r.createdAt.toISOString(), total: 0, draft: 0, pending: 0, approved: 0, effective: 0, rejected: 0, items: [] };
+      b.total += 1;
+      if (r.status === 'DRAFT') b.draft += 1;
+      else if (r.status === 'PENDING') b.pending += 1;
+      else if (r.status === 'APPROVED') b.approved += 1;
+      else if (r.status === 'EFFECTIVE') b.effective += 1;
+      else if (r.status === 'REJECTED') b.rejected += 1;
+      (b.items as unknown[]).push({ id: r.id, approvalId: r.approvalId, product: r.product.name, skuCode: r.product.skuCode, levelType: r.levelType, oldPrice: Number(r.oldPrice), newPrice: Number(r.newPrice), status: r.status, customerSync: r.customerSync, customerSyncResult: r.customerSyncResult });
+      byBatch.set(r.batchNo!, b);
+    }
+    return [...byBatch.values()];
   }
 
   async list(q: { status?: string; page?: number; pageSize?: number }): Promise<unknown> {
