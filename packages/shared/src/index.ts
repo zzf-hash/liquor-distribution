@@ -12,7 +12,7 @@
 
 // ── API 统一响应外壳(对齐 apps/api 全局 ResponseInterceptor / HttpExceptionFilter) ──
 // 成功: { code: 0, data }
-// 失败: { code: <HTTP 状态码>, message }
+// 失败: { code: <HTTP 状态码>, message, data? }。data 只在 422 预检等受控场景出现，不含堆栈
 //   401=认证失败 403=越权 409=状态机非法转换 422=业务预检拦截 500=内部错误
 export interface ApiResponse<T = unknown> {
   code: 0;
@@ -21,6 +21,8 @@ export interface ApiResponse<T = unknown> {
 export interface ApiFailure {
   code: number;
   message: string;
+  /** 422 预检等受控业务数据；不含堆栈 */
+  data?: unknown;
 }
 export type ApiResult<T = unknown> = ApiResponse<T> | ApiFailure;
 
@@ -63,4 +65,36 @@ export function isPositiveAmount(v: unknown): v is number {
 /** 非空字符串(trim 后非空) */
 export function isNonEmpty(v: unknown): v is string {
   return typeof v === 'string' && v.trim().length > 0;
+}
+
+// ── 计价单位 ──
+// Price.unit / OrderLine.unit 只有 BASE / MIN。特单、语音草稿、页面和价格导入模板写中文。
+// 函数必须定义在本文件：再导出成 CJS getter 时，管理端 Vite 会认为没有这个导出。
+
+export type PriceUnitCode = 'BASE' | 'MIN';
+
+/** 允许的写法。报错时整列展示。 */
+export const PRICE_UNIT_INPUTS = ['BASE', 'MIN', '箱', '件', '瓶', '个', '主单位', '最小单位'] as const;
+
+const TO_PRICE_UNIT: Record<string, PriceUnitCode> = {
+  BASE: 'BASE',
+  MIN: 'MIN',
+  ['箱']: 'BASE',
+  ['件']: 'BASE',
+  ['主单位']: 'BASE',
+  ['瓶']: 'MIN',
+  ['个']: 'MIN',
+  ['最小单位']: 'MIN',
+};
+
+/** 能映射则返回枚举，不能映射返回 null。不抛 HTTP 错误，调用方自己决定状态码。 */
+export function toPriceUnit(raw: unknown): PriceUnitCode | null {
+  if (typeof raw !== 'string') return null;
+  return TO_PRICE_UNIT[raw.trim()] ?? null;
+}
+
+/** 非法单位的说明。允许值含枚举和中文写法。 */
+export function priceUnitErrorMessage(raw: unknown): string {
+  const shown = typeof raw === 'string' ? raw.trim() : raw == null ? '' : String(raw);
+  return `单位「${shown}」无法识别为计价单位，允许：${PRICE_UNIT_INPUTS.join('、')}`;
 }

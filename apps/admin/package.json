@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@liquor/shared": "workspace:*",
     "@ant-design/icons": "^5.5.1",
     "@ant-design/pro-components": "^2.8.2",
     "antd": "^5.22.2",
