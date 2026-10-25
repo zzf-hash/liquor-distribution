@@ -1,14 +1,36 @@
 import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, registerDecorator, ValidateNested, ValidationArguments, ValidationOptions } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import dayjs from 'dayjs';
 import { OrdersService, CreateOrderDto } from './orders.service';
+import { BUSINESS_TZ } from '../../common/business-time';
 import { ORDER_STATUS_LABELS } from '../../statemachine/order-state';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { buildXlsx, sendXlsx, exportFilename, ExportSheet } from '../../common/export.util';
+import { signProofMessage, type SignProofInput } from './sign-proof';
+
+/** 挂在 type 上，校验整张签收单：电子签要签名，纸单和拍照要照片。 */
+function SignProofPresent(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string): void {
+    registerDecorator({
+      name: 'signProofPresent',
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: {
+        validate(_value: unknown, args: ValidationArguments): boolean {
+          return signProofMessage(args.object as SignProofInput) === null;
+        },
+        defaultMessage(args: ValidationArguments): string {
+          return signProofMessage(args.object as SignProofInput) ?? '签收凭证缺失';
+        },
+      },
+    });
+  };
+}
 
 class LineDto {
   @IsString() productId!: string;
@@ -40,8 +62,10 @@ class ApproveSpecialDto {
   @IsOptional() @IsNumber() amount?: number;
 }
 
-class SignDto {
-  @IsEnum(['E_SIGN', 'PHOTO', 'PAPER']) type!: 'E_SIGN' | 'PHOTO' | 'PAPER';
+export class SignDto {
+  @IsEnum(['E_SIGN', 'PHOTO', 'PAPER'])
+  @SignProofPresent()
+  type!: 'E_SIGN' | 'PHOTO' | 'PAPER';
   @IsOptional() @IsString() signerName?: string;
   @IsOptional() @IsString() photoUrl?: string;
   @IsOptional() @IsString() signatureData?: string;
@@ -64,7 +88,7 @@ class ReverseLineDto {
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
 
-  /** P0-T20 三入口接单(内勤/业务员/客户), 统一进订单池; Idempotency-Key 幂等(重试不重复下单) */
+  /** P0-T20 三入口接单(内勤/业务员/客户), 统一进订单池; Idempotency-Key 必填, 重试回放首次响应 */
   @Post()
   @Roles('CLERK', 'OWNER', 'REP', 'CUSTOMER')
   async create(@Body() dto: CreateOrderBody, @CurrentUser() user: AuthUser, @Headers('idempotency-key') idemKey: string, @Ip() ip: string): Promise<unknown> {
@@ -127,8 +151,8 @@ export class OrdersController {
         { key: 'source', header: '来源', width: 10 },
         { key: 'lineCount', header: '行数', width: 8 },
         { key: 'specialApproved', header: '特批', width: 8 },
-        { key: 'createdAt', header: '创建时间', width: 18, value: (r) => dayjs(r.createdAt as string).format('YYYY-MM-DD HH:mm') },
-        { key: 'deliveryDate', header: '配送日期', width: 12, value: (r) => (r.deliveryDate ? dayjs(r.deliveryDate as string).format('YYYY-MM-DD') : null) },
+        { key: 'createdAt', header: '创建时间', width: 18, value: (r) => dayjs(r.createdAt as string).tz(BUSINESS_TZ).format('YYYY-MM-DD HH:mm') },
+        { key: 'deliveryDate', header: '配送日期', width: 12, value: (r) => (r.deliveryDate ? dayjs(r.deliveryDate as string).tz(BUSINESS_TZ).format('YYYY-MM-DD') : null) },
         { key: 'addressSnapshot', header: '配送地址', width: 28 },
       ],
       rows,

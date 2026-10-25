@@ -31,5 +31,7 @@ COPY --from=build /app/apps/api/prisma ./prisma
 # 从根 store 链一份到运行时 node_modules, 避免 MODULE_NOT_FOUND
 RUN EXPRESS_DIR=$(ls -d /app/node_modules/.pnpm/express@*/node_modules/express | head -1) && \
     ln -sfn "$EXPRESS_DIR" /app/apps/api/node_modules/express
+COPY --from=build /app/apps/api/docker-entrypoint.sh ./docker-entrypoint.sh
+RUN chmod +x docker-entrypoint.sh
 EXPOSE 3000
-CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main.js"]
+CMD ["./docker-entrypoint.sh"]

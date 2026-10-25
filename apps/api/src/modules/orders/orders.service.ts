@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUSINESS_TZ, bizDayStamp } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
@@ -9,6 +11,8 @@ import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import { computeGiftLines } from '../promotions/promotions.controller';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
+import { assertSignProof } from './sign-proof';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
 // 设计依据: docs/baseline/开发任务书_MVP分期_v1.md WS-2 + docs/M0/业务适配清单.md
@@ -132,13 +136,24 @@ export class OrdersService {
   }
 
   // ─────────────── P0-T20 三入口下单 + P0-T21 审单预检 ───────────────
-  async create(dto: CreateOrderDto, user: AuthUser, idemKey?: string, ip?: string): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult; replay?: boolean }> {
+  async create(
+    dto: CreateOrderDto,
+    user: AuthUser,
+    idemKey?: string,
+    ip?: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult; replay?: boolean }> {
     if (!dto.lines?.length) throw new BadRequestException('订单至少一行商品');
-    // 下单接入幂等基座(2026-10 审查修复: 此前后端不消费 Idempotency-Key, 防重复下单只剩前端布尔位;
-    // 客户端 miniapp api.ts orders.create 与 admin 均已随请求携带)。快照在 CUSTOMER source 改写前,
-    // 保证 check 与落库两侧指纹一致。
+    // 箱/件/瓶先收成 PriceUnit。非法单位在查库之前 422，避免 Prisma 枚举校验变成 500。
+    for (const line of dto.lines) line.unit = requirePriceUnit(line.unit);
+    // 下单必须带 Idempotency-Key。出库确认、收款已经强制；下单若放行空键，
+    // 网络重试会各建一张待确认单。按客户+商品+金额去重会把合法的重复订货也拒掉，所以只认键。
+    // 草稿转单 / 特单转单由服务端用稳定键调用，不走这条 HTTP 头。
+    const key = idemKey?.trim() ?? '';
+    if (!key) throw new BadRequestException('下单必须携带 Idempotency-Key 头');
+    // 快照在 CUSTOMER source 改写前，保证 check 与落库两侧指纹一致。
     const idemPayload = { ...dto } as unknown as Record<string, unknown>;
-    const dup = await this.idem.check(user, 'orders.create', idemKey ?? '', idemPayload);
+    const dup = await this.idem.check(user, 'orders.create', key, idemPayload);
     if (dup) return { ...(dup.summary as { id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult }), replay: true };
     // P1-5: 客户身份一律取自 token
     let customerId = dto.customerId;
@@ -216,6 +231,7 @@ export class OrdersService {
     // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用)
     const promoRules = await this.prisma.promotion.findMany({
       where: {
+        tenantId: user.tenantId,
         productId: { in: productIds }, closedAt: null, validFrom: { lte: new Date() },
         OR: [{ validTo: null }, { validTo: { gte: new Date() } }],
       },
@@ -223,7 +239,7 @@ export class OrdersService {
     if (promoRules.length > 0) {
       const gifts = computeGiftLines(
         dto.lines.map((l) => ({ productId: l.productId, unit: l.unit, qty: l.qty, isGift: l.isGift })),
-        promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: r.unit as 'BASE' | 'MIN' })),
+        promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: requirePriceUnit(r.unit) })),
       );
       const giftProductIds = [...new Set(gifts.map((g) => g.giftProductId).filter((id) => !productMap.has(id)))];
       if (giftProductIds.length > 0) {
@@ -285,18 +301,25 @@ export class OrdersService {
 
     // 单号: SO{yyyymmdd}-{seq}
     // P1-14: count+1 并发撞号 → P2002 500。序号在事务内取且失败按 seq+1 重试(≤5 次)
-    const today = dayjs().format('YYYYMMDD');
+    // 外层已持有事务时只插一次: 失败语句会中止整个事务, 不能在里面重试。
+    const today = bizDayStamp();
     const prefix = `SO${today}`;
     let orderNo = '';
     let order: { id: string; orderNo: string; status: string } | null = null;
-    for (let attempt = 0; attempt < 5 && !order; attempt++) {
-      const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1 + attempt;
+    if (tx) {
+      const seq = (await tx.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1;
       orderNo = `${prefix}-${String(seq).padStart(4, '0')}`;
-      try {
-        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, idemKey, idemPayload);
-      } catch (e) {
-        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
-        throw e;
+      order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, key, idemPayload, tx);
+    } else {
+      for (let attempt = 0; attempt < 5 && !order; attempt++) {
+        const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1 + attempt;
+        orderNo = `${prefix}-${String(seq).padStart(4, '0')}`;
+        try {
+          order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, key, idemPayload);
+        } catch (e) {
+          if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+          throw e;
+        }
       }
     }
     if (!order) throw new ConflictException('单号生成冲突, 请重试');
@@ -314,8 +337,9 @@ export class OrdersService {
     customer: { name: string; salespersonId: string | null; signMode: string; address: string | null },
     dto: CreateOrderDto, lineData: unknown[], totalAmount: number, precheck: PrecheckResult,
     specialApproved: boolean, idemKey?: string, idemPayload?: Record<string, unknown>,
+    outer?: Prisma.TransactionClient,
   ) {
-    return this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       const created = await tx.salesOrder.create({
         data: {
           tenantId: user.tenantId, // 显式租户(双保险: 中间件注入失败也不至 Argument missing)
@@ -359,7 +383,9 @@ export class OrdersService {
         });
       }
       return created;
-    });
+    };
+    if (outer) return run(outer);
+    return this.prisma.$transaction((client) => run(client as Prisma.TransactionClient));
   }
 
   async list(user: AuthUser, q: { status?: string; customerId?: string; keyword?: string; page?: number; pageSize?: number }): Promise<{ items: unknown[]; total: number }> {
@@ -559,7 +585,7 @@ export class OrdersService {
         }
         if (remaining > 0) throw new ConflictException(`商品 ${line.productName} 库存不足(需 ${need}, 缺 ${remaining}), FIFO 无法分配`);
       }
-      const obDay = dayjs().format('YYYYMMDD');
+      const obDay = bizDayStamp();
       let outbound: Awaited<ReturnType<typeof tx.outbound.create>> | null = null;
       for (let attempt = 0; attempt < 5 && !outbound; attempt++) {
         const seq = (await tx.outbound.count({ where: { outboundNo: { startsWith: `OB${obDay}` } } })) + 1 + attempt;
@@ -658,7 +684,7 @@ export class OrdersService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.outbound.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -680,6 +706,8 @@ export class OrdersService {
     body: { type: 'E_SIGN' | 'PHOTO' | 'PAPER'; signerName?: string; photoUrl?: string; signatureData?: string; deviceInfo?: string; returnPackages?: Array<{ category: string; qty: number }>; lines?: Array<{ orderLineId: string; actualQty: number }> },
     ip?: string,
   ): Promise<unknown> {
+    // 缺凭证直接 400，不读库、不进事务（DTO 层同一规则；这里兜住绕过管道的调用）
+    assertSignProof(body);
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true, customer: true, outbounds: { include: { lines: true } } } });
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status !== 'DELIVERING') throw new ConflictException('仅配送中订单可签收(未签收不可销账由状态机保证)');
@@ -721,6 +749,8 @@ export class OrdersService {
     const signedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      // 事务内、任何写入之前再查一次：没有凭证就不能改状态、落签收记录或生成应收
+      assertSignProof(body);
       // 抢占式状态推进: 并发签收/拒收/重复请求只有一个能提交(check-then-act 竞态修复),
       // 否则 sign×reject 并发会同时落"应收+全量回冲"两套矛盾数据
       const claimed = await tx.salesOrder.updateMany({
@@ -769,7 +799,7 @@ export class OrdersService {
         });
       }
       // T23/D4: 签收完成 = 应收生成时点; 到期日 = 生成日 + 账期天数(现结=0)
-      const dueDate = dayjs(signedAt).add(order.customer.termsDays ?? 0, 'day').endOf('day').toDate();
+      const dueDate = dayjs(signedAt).tz(BUSINESS_TZ).add(order.customer.termsDays ?? 0, 'day').endOf('day').toDate();
       await tx.receivable.create({
         data: {
           tenantId: user.tenantId, sourceType: 'ORDER', sourceDocNo: order.orderNo,

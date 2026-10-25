@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDateKey, bizDayStamp } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { ApprovalsService } from '../approvals/approvals.service';
@@ -28,16 +29,16 @@ export class PurchasesService {
     for (const l of dto.lines) {
       if (l.qty <= 0 || l.unitCost < 0) throw new BadRequestException('数量须>0, 成本须≥0');
       if (!l.batchNo?.trim()) throw new BadRequestException('批次号必填');
-      if (l.expiryDate && l.expiryDate < dayjs().format('YYYY-MM-DD')) throw new BadRequestException('已过期批次拒入');
+      if (l.expiryDate && l.expiryDate < bizDateKey()) throw new BadRequestException('已过期批次拒入');
     }
     const products = await this.prisma.product.findMany({ where: { id: { in: dto.lines.map((l) => l.productId) } } });
     if (products.length !== new Set(dto.lines.map((l) => l.productId)).size) throw new BadRequestException('存在无效商品');
     const totalAmount = dto.lines.reduce((s, l) => s + l.qty * l.unitCost, 0);
-    const seq = (await this.prisma.purchaseOrder.count({ where: { purNo: { startsWith: `CG${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.purchaseOrder.count({ where: { purNo: { startsWith: `CG${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.purchaseOrder.create({
       data: {
         tenantId: user.tenantId,
-        purNo: `CG${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        purNo: `CG${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         supplier: dto.supplier, type: dto.type, status: 'DRAFT',
         totalAmount: new Prisma.Decimal(totalAmount.toFixed(2)),
         payeeNote: dto.payeeNote, note: dto.note, createdById: user.id,
@@ -173,7 +174,7 @@ export class PurchasesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.purchaseOrder.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { lines: { include: { product: { select: { name: true, skuCode: true } } } } } }),
       this.prisma.purchaseOrder.count({ where }),
     ]);
