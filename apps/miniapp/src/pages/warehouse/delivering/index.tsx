@@ -96,7 +96,7 @@ export default function WarehouseDeliveringPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/warehouse/home/index' })}>工作台</Text>
       </View>
 
-      <View className='tabs'>
+      <View className='tabs tabs--segment'>
         <Button className={`tabs__btn ${tab === 'OUTBOUND' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('OUTBOUND')}>
           待发运
         </Button>
@@ -114,7 +114,8 @@ export default function WarehouseDeliveringPage() {
         <Text className='tip'>正在加载…</Text>
       ) : items.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>{tab === 'OUTBOUND' ? '没有待发运订单' : '没有配送中订单'}</Text>
+          <Text className='state__title'>{tab === 'OUTBOUND' ? '没有待发运订单' : '没有配送中订单'}</Text>
+          <Text className='state__txt'>{tab === 'OUTBOUND' ? '拣货复核完成后，订单会出现在这里' : '发运之后，送达的单在这里签收'}</Text>
         </View>
       ) : (
         items.map((o) => (
@@ -135,21 +136,21 @@ export default function WarehouseDeliveringPage() {
             </View>
             {tab === 'OUTBOUND' ? (
               <Button
-                className='btn-inline'
+                className='btn-primary btn-sm'
                 loading={shipping === o.id}
                 disabled={shipping !== ''}
                 onClick={() => { void deliver(o) }}
               >
-                发运
+                <Text className='btn-label'>发运</Text>
               </Button>
             ) : (
               <Button
-                className='btn-inline'
+                className='btn-ghost btn-sm'
                 onClick={() => Taro.navigateTo({
                   url: `/pages/warehouse/sign/index?id=${o.id}&no=${encodeURIComponent(o.orderNo)}`,
                 })}
               >
-                去签收
+                <Text className='btn-label'>去签收</Text>
               </Button>
             )}
           </View>

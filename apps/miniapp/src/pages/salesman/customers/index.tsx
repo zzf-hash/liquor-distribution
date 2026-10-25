@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
+import Icon from '../../../components/Icon'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, SETTLEMENT_LABELS, customersApi, getToken } from '../../../services/api'
 import type { CustomerRowDTO } from '../../../services/api'
@@ -56,16 +57,16 @@ export default function SalesmanCustomersPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
       </View>
 
-      <View className='sc__search'>
+      <View className='search-pill'>
+        <Icon name='search' color='#6B5F5A' size={44} />
         <Input
-          className='sc__ipt'
-          placeholder='搜客户名称 / 编码 / 电话'
+          className='search-pill__input'
+          placeholder='搜客户名称、编码、电话'
           value={keyword}
           confirmType='search'
           onInput={(e) => setKeyword(e.detail.value)}
           onConfirm={search}
         />
-        <Button className='btn-inline' onClick={search}>搜索</Button>
       </View>
 
       {error ? (
@@ -77,14 +78,17 @@ export default function SalesmanCustomersPage() {
         <Text className='tip'>正在加载客户…</Text>
       ) : items.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>{keyword ? '没有匹配的客户' : '名下还没有客户'}</Text>
+          <Text className='state__title'>{keyword ? '没有匹配的客户' : '名下还没有客户'}</Text>
+          <Text className='state__txt'>{keyword ? '换个名称或电话再搜' : '客户建档后会出现在这里'}</Text>
         </View>
       ) : (
         items.map((c) => (
-          <View key={c.id} className='card ccard' onClick={() => call(c.phone)}>
+          <View key={c.id} className='card ccard'>
             <View className='ccard__row'>
               <Text className='ccard__name'>{c.name}</Text>
-              <Text className='ccard__call'>拨号</Text>
+              <Text className='icon-hit' onClick={() => call(c.phone)}>
+                <Icon name='phone' color='#7A1F2B' size={40} />
+              </Text>
             </View>
             <View className='ccard__row'>
               <Text className='ccard__meta'>

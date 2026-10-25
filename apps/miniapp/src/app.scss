@@ -10,3 +10,10 @@ page {
 .weui-tabbar__icon {
   display: none;
 }
+
+// 线性图标按 750 稿的 size 绘制。H5 的 aspectFit 会按 svg 固有 24px 左对齐，
+// 放大镜和占位文字之间就会多出一截空白。
+.ld-icon .taro-img__mode-aspectfit {
+  width: 100%;
+  height: 100%;
+}

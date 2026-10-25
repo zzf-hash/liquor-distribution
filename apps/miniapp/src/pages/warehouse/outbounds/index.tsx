@@ -56,7 +56,8 @@ export default function WarehouseOutboundsPage() {
         <Text className='tip'>正在加载拣货任务…</Text>
       ) : items.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>当前没有待拣货的出库单</Text>
+          <Text className='state__title'>暂时没有待拣货单</Text>
+          <Text className='state__txt'>新的出库单生成后会出现在这里</Text>
         </View>
       ) : (
         items.map((ob) => (
@@ -66,7 +67,7 @@ export default function WarehouseOutboundsPage() {
             onClick={() => Taro.navigateTo({ url: `/pages/warehouse/outbound/index?no=${encodeURIComponent(ob.outboundNo)}` })}
           >
             <View className='obcard__row'>
-              <Text className='obcard__no'>{ob.outboundNo}</Text>
+              <Text className='num obcard__no'>{ob.outboundNo}</Text>
               <Text className='tag tag--info'>{(ob.lines ?? []).length} 行</Text>
             </View>
             <View className='obcard__row'>

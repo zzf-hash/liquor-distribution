@@ -735,6 +735,196 @@
   gap: $space-lg;
 }
 
+.grid-home__logout {
+  justify-content: center;
+  margin-top: $space-xl;
+  margin-bottom: $space-lg;
+}
+
+.task-row {
+  display: flex;
+  gap: $space-md;
+  margin-bottom: $space-lg;
+}
+
+.task-card {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  min-height: 160px;
+  padding: $space-md;
+  background: $color-card;
+  border: none;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+  text-align: left;
+
+  &::after { border: none; }
+
+  .tile__icon {
+    background: $color-brand-primary-light;
+    margin-bottom: 0;
+  }
+}
+
+.task-card__title {
+  display: block;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
+  color: $color-text;
+}
+
+.task-card__desc {
+  display: block;
+  margin-top: $space-xxs;
+  font-size: $font-caption;
+  color: $color-text-sub;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: $space-md;
+  margin-bottom: $space-lg;
+}
+
+.mini-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: $space-xs;
+  margin-bottom: $space-lg;
+  padding: $space-md $space-xxs;
+  background: $color-card;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.mini-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: $space-xxs;
+  padding: 0;
+  background: transparent;
+  border: none;
+  line-height: 1.2;
+
+  &::after { border: none; }
+}
+
+.mini-grid__label {
+  font-size: 22px;
+  color: $color-text;
+  text-align: center;
+}
+
+.brand-card {
+  margin-bottom: $space-lg;
+  padding: $space-lg;
+  border-radius: $radius-md;
+  background: linear-gradient(135deg, $color-primary, $color-primary-pressed);
+  color: $color-neutral-white;
+}
+
+.brand-card__k {
+  display: block;
+  font-size: $font-caption;
+  color: $color-on-brand;
+}
+
+.brand-card__v {
+  display: block;
+  margin: $space-xxs 0 $space-md;
+  font-size: 52px;
+  font-weight: $weight-bold;
+  color: $color-neutral-white;
+  @include num;
+}
+
+.brand-card__stats {
+  display: flex;
+  gap: $space-xs;
+}
+
+.brand-card__stat {
+  flex: 1;
+  padding: $space-xs;
+  border-radius: $radius-sm;
+  background: $color-on-brand-fill;
+}
+
+.brand-card__stat-k {
+  display: block;
+  font-size: 22px;
+  color: $color-on-brand;
+}
+
+.brand-card__stat-v {
+  display: block;
+  margin-top: 4px;
+  font-size: $font-body-lg;
+  font-weight: $weight-bold;
+  color: $color-neutral-white;
+  @include num;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+  margin-left: $space-xxs;
+  padding: 0 $space-xxs;
+  border-radius: $radius-pill;
+  background: $color-danger;
+  color: $color-neutral-white;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.search-pill {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  height: $size-input;
+  margin-bottom: $space-md;
+  padding: 0 $space-lg;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
+}
+
+.search-pill .search-pill__input {
+  flex: 1;
+  width: 0;
+  height: calc(#{$size-input} - #{$border-width} * 2);
+  margin: 0;
+  padding: 0;
+  border: none;
+  line-height: calc(#{$size-input} - #{$border-width} * 2);
+  font-size: $font-body;
+  color: $color-text;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.icon-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: $touch-min;
+  height: $touch-min;
+  flex-shrink: 0;
+}
+
+.req {
+  color: $color-functional-danger-text;
+  margin-right: 4px;
+}
+
 .tile {
   display: flex;
   flex-direction: column;

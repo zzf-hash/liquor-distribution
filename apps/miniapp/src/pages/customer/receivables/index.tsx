@@ -66,15 +66,34 @@ export default function CustomerReceivablesPage() {
 
   return (
     <View className='rlist'>
-      <View className='rlist__tabs'>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>待结金额</Text>
+          <Text className='page-head__sub'>先到期的先结</Text>
+        </View>
+      </View>
+      {!loading && !error && tab === 'open' ? (
+        <View className='sumcard'>
+          <Text className='sumcard__label'>待结金额合计</Text>
+          <Text className='sumcard__amount num'>{fmtMoney(openTotal)}</Text>
+          <Text className='sumcard__note'>按先到期先结的顺序结算；到期前请备好款项</Text>
+          <Button
+            className='sumcard__link'
+            onClick={() => Taro.navigateTo({ url: '/pages/customer/statements/index' })}
+          >
+            月结对账单 ›
+          </Button>
+        </View>
+      ) : null}
+      <View className='tabs tabs--segment'>
         <Button
-          className={`tabbtn ${tab === 'open' ? 'tabbtn--on' : ''}`}
+          className={`tabs__btn ${tab === 'open' ? 'tabs__btn--on' : ''}`}
           onClick={() => setTab('open')}
         >
           待结（{openRows.length}）
         </Button>
         <Button
-          className={`tabbtn ${tab === 'settled' ? 'tabbtn--on' : ''}`}
+          className={`tabs__btn ${tab === 'settled' ? 'tabs__btn--on' : ''}`}
           onClick={() => setTab('settled')}
         >
           已结（{settledRows.length}）
@@ -89,18 +108,7 @@ export default function CustomerReceivablesPage() {
       ) : loading ? (
         <Text className='rlist__tip'>正在加载…</Text>
       ) : tab === 'open' ? (
-        <View className='rlist__body'>
-          <View className='sumcard'>
-            <Text className='sumcard__label'>待结金额合计</Text>
-            <Text className='sumcard__amount'>{fmtMoney(openTotal)}</Text>
-            <Text className='sumcard__note'>按先到期先结的顺序结算；到期前请备好款项</Text>
-            <Button
-              className='sumcard__link'
-              onClick={() => Taro.navigateTo({ url: '/pages/customer/statements/index' })}
-            >
-              月结对账单（确认数字 / 提差异）›
-            </Button>
-          </View>
+          <View className='rlist__body'>
           {openRows.length === 0 ? (
             <Text className='rlist__tip'>当前没有待结单据</Text>
           ) : openRows.map((r) => {

@@ -1,4 +1,4 @@
-@use '../../../styles/tokens' as *;
+@use '../../../styles/shared' as *;
 
 .rlist {
   min-height: 100vh;
@@ -70,7 +70,7 @@
   margin-top: 12px;
   font-size: 56px;
   font-weight: 700;
-  color: $color-primary;
+  color: $color-text;
 }
 
 .sumcard__note {
@@ -89,7 +89,7 @@
   font-size: $font-sub;
   font-weight: 600;
   color: $color-primary;
-  background: rgba(139, 30, 36, 0.06);
+  background: $color-brand-primary-light;
   border: none;
   border-radius: $radius-base;
   line-height: 1.2;

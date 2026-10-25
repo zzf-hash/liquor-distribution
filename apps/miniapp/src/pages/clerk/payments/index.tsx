@@ -136,7 +136,7 @@ export default function ClerkPaymentsPage() {
           onChange={(e) => setCustomerId(customers[Number(e.detail.value)]?.id ?? '')}
         >
           <View className='frow'>
-            <Text className='frow__label'>客户</Text>
+            <Text className='frow__label'>客户<Text className='frow__req'>*</Text></Text>
             <Text className={selected ? 'frow__value' : 'frow__placeholder'}>
               {selected ? selected.name : '点此选择客户'}
             </Text>
@@ -144,9 +144,9 @@ export default function ClerkPaymentsPage() {
           </View>
         </Picker>
         <View className='frow'>
-          <Text className='frow__label'>金额</Text>
+          <Text className='frow__label'>金额<Text className='frow__req'>*</Text></Text>
           <Input
-            className='pay__ipt'
+            className='pay__ipt pay__ipt--num'
             type='digit'
             placeholder='收款金额'
             value={amount}
@@ -180,7 +180,7 @@ export default function ClerkPaymentsPage() {
           disabled={submitting}
           onClick={() => { void submit() }}
         >
-          登记并销账
+          <Text className='btn-label'>登记并销账</Text>
         </Button>
       </View>
 
@@ -205,14 +205,16 @@ export default function ClerkPaymentsPage() {
               </View>
               <View className='pcard__row'>
                 <Text className='pcard__cust'>{p.customer?.name ?? '-'}</Text>
-                <Text className='pcard__amount'>{fmtMoney(p.amount)}</Text>
+                <Text className='pcard__amount num'>{fmtMoney(p.amount)}</Text>
               </View>
               <View className='pcard__row'>
                 <Text className='pcard__meta'>
                   {p.method ?? '未填方式'}{p.voucher ? ` · 凭证 ${p.voucher}` : ''} · {fmtDateTime(p.createdAt)}
                 </Text>
               </View>
-              <Button className='btn-inline' onClick={() => confirmPay(p)}>确认销账</Button>
+              <Button className='btn-primary btn-sm' onClick={() => confirmPay(p)}>
+                <Text className='btn-label'>确认销账</Text>
+              </Button>
             </View>
           ))
         )}

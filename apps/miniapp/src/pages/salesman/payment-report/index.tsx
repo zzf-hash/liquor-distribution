@@ -108,7 +108,7 @@ export default function SalesmanPaymentReportPage() {
           onChange={(e) => setCustomerId(customers[Number(e.detail.value)]?.id ?? '')}
         >
           <View className='frow'>
-            <Text className='frow__label'>客户</Text>
+            <Text className='frow__label'>客户<Text className='frow__req'>*</Text></Text>
             <Text className={selected ? 'frow__value' : 'frow__placeholder'}>
               {selected ? selected.name : '点此选择客户'}
             </Text>
@@ -116,9 +116,9 @@ export default function SalesmanPaymentReportPage() {
           </View>
         </Picker>
         <View className='frow'>
-          <Text className='frow__label'>金额</Text>
+          <Text className='frow__label'>金额<Text className='frow__req'>*</Text></Text>
           <Input
-            className='pr__ipt'
+            className='pr__ipt pr__ipt--num'
             type='digit'
             placeholder='实收金额'
             value={amount}
@@ -152,7 +152,7 @@ export default function SalesmanPaymentReportPage() {
           disabled={submitting}
           onClick={() => { void submit() }}
         >
-          提交上报
+          <Text className='btn-label'>提交上报</Text>
         </Button>
         <Text className='pr__note'>上报后状态为「待确认」，内勤确认后才会销账；请勿重复提交同一笔收款</Text>
       </View>
@@ -170,9 +170,13 @@ export default function SalesmanPaymentReportPage() {
           <Text className='tip'>当前没有待确认的上报收款</Text>
         ) : (
           pending.map((p) => (
-            <View key={p.id} className='kv'>
-              <Text className='kv__k'>{p.paymentNo} · {fmtDateTime(p.createdAt)}</Text>
-              <Text className='kv__v'>{p.customer?.name ?? '-'} {fmtMoney(p.amount)}</Text>
+            <View key={p.id} className='pr__row'>
+              <View className='pr__row-main'>
+                <Text className='pr__no num'>{p.paymentNo}</Text>
+                <Text className='pr__meta'>{p.customer?.name ?? '-'} · {fmtDateTime(p.createdAt)}</Text>
+              </View>
+              <Text className='pr__amt num'>{fmtMoney(p.amount)}</Text>
+              <Text className='tag tag--warn'>待确认</Text>
             </View>
           ))
         )}

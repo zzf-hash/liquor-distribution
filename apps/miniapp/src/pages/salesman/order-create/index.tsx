@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Button, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import {
@@ -182,7 +183,7 @@ export default function SalesmanOrderCreatePage() {
               onChange={(e) => setCustomerId(customers[Number(e.detail.value)]?.id ?? '')}
             >
               <View className='frow'>
-                <Text className='frow__label'>客户</Text>
+                <Text className='frow__label'>客户<Text className='frow__req'>*</Text></Text>
                 <Text className={selected ? 'frow__value' : 'frow__placeholder'}>
                   {selected ? selected.name : '点此选择客户'}
                 </Text>
@@ -194,16 +195,19 @@ export default function SalesmanOrderCreatePage() {
           {/* 搜商品加行 */}
           <View className='card'>
             <Text className='card__title'>② 搜索商品加行</Text>
-            <View className='oc__search'>
+            <View className='search-pill oc__search'>
+              <Icon name='search' color='#6B5F5A' size={44} />
               <Input
-                className='oc__ipt'
+                className='search-pill__input'
                 placeholder='品名 / 编码 / 拼音首字母'
                 value={keyword}
                 confirmType='search'
                 onInput={(e) => setKeyword(e.detail.value)}
                 onConfirm={search}
               />
-              <Button className='btn-inline' onClick={() => { void search() }}>搜索</Button>
+              <Button className='btn-ghost btn-sm oc__search-btn' onClick={() => { void search() }}>
+                <Text className='btn-label'>搜索</Text>
+              </Button>
             </View>
             {searched && results.length === 0 && <Text className='tip'>没有匹配的商品</Text>}
             {results.map((p) => (
@@ -249,9 +253,9 @@ export default function SalesmanOrderCreatePage() {
                       {fmtMoney(l.price)}/{UNIT_LABELS[l.unit] ?? l.unit} · {PRICE_TYPE_LABELS[l.priceType] ?? l.priceType}
                     </Text>
                   </View>
-                  <View className='oc__line-ops'>
+                  <View className='stepper'>
                     <Button className='stepper__btn' onClick={() => step(l, -1)}>−</Button>
-                    <Text className='stepper__val'>{l.qty}</Text>
+                    <Text className='stepper__num'>{l.qty}</Text>
                     <Button className='stepper__btn' onClick={() => step(l, 1)}>＋</Button>
                   </View>
                 </View>
@@ -259,10 +263,10 @@ export default function SalesmanOrderCreatePage() {
             )}
           </View>
 
-          <View className='oc__footer'>
-            <View className='oc__total'>
-              <Text className='oc__total-label'>预估金额</Text>
-              <Text className='oc__total-num'>{fmtMoney(total)}</Text>
+          <View className='settle'>
+            <View>
+              <Text className='settle__sum'>{fmtMoney(total)}</Text>
+              <Text className='settle__meta'>预估金额，以服务端快照为准</Text>
             </View>
             <Button
               className='btn-primary'
@@ -270,10 +274,9 @@ export default function SalesmanOrderCreatePage() {
               disabled={submitting || lines.length === 0}
               onClick={() => { void submit() }}
             >
-              提交订单
+              <Text className='btn-label'>提交订单</Text>
             </Button>
           </View>
-          <Text className='tip'>价格按当前生效价预估，最终以服务端下单快照为准</Text>
         </>
       )}
       <RoleTabBar />

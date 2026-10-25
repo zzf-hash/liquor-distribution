@@ -1,4 +1,4 @@
-@use '../../../styles/tokens' as *;
+@use '../../../styles/shared' as *;
 
 // 拜访打卡（P1-T13）：表单卡+八步骤勾选芯片+时间线；全部可点元素 ≥ $touch-min 触控红线。
 .visit {
@@ -25,9 +25,10 @@
 }
 
 .visit__stat-num {
-  font-size: $font-title;
-  font-weight: 700;
-  color: $color-primary;
+  font-size: $font-amount;
+  font-weight: $weight-bold;
+  color: $color-text;
+  @include num;
 }
 
 .visit__tip {
@@ -99,7 +100,7 @@
     gap: 8px;
     width: 300px;
     height: 300px;
-    border: 2px dashed rgba(138, 127, 122, 0.5);
+    border: $border-width dashed $color-neutral-line-strong;
     border-radius: $radius-base;
   }
 }
@@ -133,8 +134,8 @@
   right: 0;
   bottom: 0;
   padding: 8px;
-  background: rgba(0, 0, 0, 0.45);
-  color: #fff;
+  background: $color-neutral-mask;
+  color: $color-neutral-white;
   font-size: 22px;
   line-height: 1.4;
 }
@@ -172,7 +173,7 @@
   box-sizing: border-box;
 
   &--on {
-    background: rgba(139, 30, 36, 0.06);
+    background: $color-brand-primary-light;
     border-color: $color-primary;
   }
 }
@@ -186,13 +187,11 @@
   height: 36px;
   font-size: 26px;
   line-height: 1;
-  color: transparent;
-  border: 2px solid rgba(138, 127, 122, 0.6);
-  border-radius: 8px;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-xs;
   box-sizing: border-box;
 
   &--on {
-    color: #fff;
     background: $color-primary;
     border-color: $color-primary;
   }
@@ -251,7 +250,7 @@
   width: 2px;
   margin-top: -6px;
   margin-bottom: -$gap-base;
-  background: rgba(138, 127, 122, 0.35);
+  background: $color-neutral-line;
 }
 
 .tl__card {
@@ -294,39 +293,6 @@
   color: $color-text-sub;
 }
 
-// 空态/错误态
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: $gap-base;
-  padding: 160px $gap-base;
-}
-
-.state__txt {
-  font-size: $font-body;
-  color: $color-text-sub;
-}
-
-.btn-primary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  margin-top: $gap-lg;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
-  background: $color-primary;
-  border: none;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
-
-  &:active {
-    background: $color-primary-pressed;
-  }
+.fcard .btn-primary {
+  margin-top: $space-lg;
 }

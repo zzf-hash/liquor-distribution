@@ -1,4 +1,4 @@
-@use '../../../styles/tokens' as *;
+@use '../../../styles/shared' as *;
 
 // 语音报单（P1-T12）：模式切换+录音+文字域+解析结果卡；全部可点元素 ≥ $touch-min 触控红线。
 .vo {
@@ -31,65 +31,40 @@
   color: $color-text-sub;
 }
 
-// 语音/文字模式切换（两块整点可点）
-.vo__modes {
-  display: flex;
-  gap: $gap-base;
+.vo .tabs {
+  margin-bottom: 0;
 }
 
-.vo__mode {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: 1;
-  min-height: $touch-min;
-  background: $color-bg;
-  border: 2px solid transparent;
-  border-radius: $radius-base;
-  box-sizing: border-box;
-
-  &--on {
-    background: rgba(139, 30, 36, 0.06);
-    border-color: $color-primary;
-  }
-}
-
-.vo__mode-txt {
-  font-size: $font-body;
-  color: $color-text;
-}
-
-.vo__mode--on .vo__mode-txt {
-  font-weight: 600;
-}
-
-// 语音模式：录音大按钮 + 试点期简提示
+// 语音模式：主色圆形录音按钮（750 稿 ≥160）
 .vo__voice {
-  margin-top: $gap-base;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: $space-lg;
 }
 
 .vo__rec {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 120px;
-  width: 100%;
+  width: 160px;
+  height: 160px;
+  min-height: 160px;
+  margin: 0;
+  padding: 0;
   font-size: $font-body;
-  font-weight: 600;
-  color: $color-primary;
-  background: $color-bg;
-  border: 2px dashed rgba(139, 30, 36, 0.5);
-  border-radius: $radius-base;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-pill;
 
   &::after {
     border: none;
   }
 
   &--on {
-    color: #fff;
-    background: $color-primary;
-    border-style: solid;
-    border-color: $color-primary;
+    background: $color-primary-pressed;
   }
 }
 
@@ -133,9 +108,9 @@
 .vo__alert {
   padding: 16px $gap-base;
   margin-bottom: $gap-base;
-  background: rgba(139, 30, 36, 0.08);
-  border-left: 8px solid $color-primary;
-  border-radius: 8px;
+  background: $color-functional-danger-light;
+  border-left: 8px solid $color-danger;
+  border-radius: $radius-xs;
 }
 
 .vo__alert-txt {
@@ -191,16 +166,16 @@
   flex-shrink: 0;
   padding: 4px 12px;
   font-size: 24px;
-  border-radius: 8px;
+  border-radius: $radius-xs;
 
   &--warn {
-    color: #8a6116;
-    background: rgba(230, 162, 60, 0.18);
+    color: $color-functional-warning-text;
+    background: $color-functional-warning-light;
   }
 
   &--alias {
     color: $color-primary;
-    background: rgba(139, 30, 36, 0.08);
+    background: $color-brand-primary-light;
   }
 }
 
@@ -214,7 +189,7 @@
 
 .vo__amb-txt {
   font-size: $font-sub;
-  color: #b4730f;
+  color: $color-functional-warning-text;
 }
 
 // 去后台确认提示（确认动作在内勤后台工作台）
@@ -238,26 +213,6 @@
   line-height: 1.6;
 }
 
-// 提交按钮（与拜访页同款主按钮）
-.btn-primary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  margin-top: $gap-lg;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
-  background: $color-primary;
-  border: none;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
-
-  &:active {
-    background: $color-primary-pressed;
-  }
+.vo__card .btn-primary {
+  margin-top: $space-lg;
 }

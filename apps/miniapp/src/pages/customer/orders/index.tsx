@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { openAppPage } from '../../../services/navigation'
-import { fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
+import { ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
 import type { CustomerOrderDTO } from '../../../services/api'
 import './index.scss'
 
@@ -18,23 +18,22 @@ const STATUS_LABELS: Record<string, string> = {
   REJECTED: '已拒收',
 }
 
-// 配色档：进行中=主色 / 完成=绿 / 异常=灰或红
-const STATUS_TONES: Record<string, string> = {
-  PENDING_CONFIRM: 'warn',
-  CONFIRMED: 'info',
-  OUTBOUND: 'info',
-  DELIVERING: 'info',
-  SIGNED: 'ok',
-  SETTLED: 'ok',
-  CANCELLED: 'muted',
-  REJECTED: 'danger',
-}
+const FILTERS: Array<{ key: string; label: string }> = [
+  { key: 'ALL', label: '全部' },
+  { key: 'PENDING_CONFIRM', label: '待确认' },
+  { key: 'DELIVERING', label: '配送中' },
+  { key: 'SIGNED', label: '已签收' },
+  { key: 'CANCELLED', label: '已取消' },
+  { key: 'REJECTED', label: '已拒收' },
+]
 
 /**
  * 我的订单（P0-T51）：GET /orders，客户 token 由服务端自动过滤为自己名下订单。
+ * 状态胶囊只在已加载的列表里筛选，不另发请求。
  */
 export default function CustomerOrdersPage() {
   const [items, setItems] = useState<CustomerOrderDTO[]>([])
+  const [filter, setFilter] = useState('ALL')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
@@ -59,39 +58,74 @@ export default function CustomerOrdersPage() {
     }
   }
 
+  const shown = filter === 'ALL' ? items : items.filter((o) => o.status === filter)
+
   return (
-    <View className='olist'>
+    <View className='page olist'>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>我的订单</Text>
+          <Text className='page-head__sub'>最近 50 单</Text>
+        </View>
+      </View>
+
+      <View className='tabs-scroll'>
+        <View className='tabs'>
+          {FILTERS.map((f) => (
+            <Button
+              key={f.key}
+              className={`tabs__btn ${filter === f.key ? 'tabs__btn--on' : ''}`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+            </Button>
+          ))}
+        </View>
+      </View>
+
       {error ? (
         <View className='state'>
+          <Text className='state__title'>没加载出来</Text>
           <Text className='state__txt'>{error}</Text>
-          <Button className='btn-primary' onClick={() => { void load() }}>重新加载</Button>
+          <Button className='btn-ghost' onClick={() => { void load() }}>
+            <Text className='btn-label'>重新加载</Text>
+          </Button>
         </View>
       ) : loading ? (
-        <Text className='olist__tip'>正在加载订单…</Text>
-      ) : items.length === 0 ? (
-        <View className='state'>
-          <Text className='state__txt'>还没有订单，去下一单吧</Text>
-          <Button className='btn-primary' onClick={() => openAppPage('/pages/customer/products/index')}>
-            去选酒
+        <Text className='tip'>正在加载订单…</Text>
+      ) : shown.length === 0 ? (
+        <View className='card state'>
+          <Text className='state__title'>{filter === 'ALL' ? '还没有订单' : '这个状态下没有订单'}</Text>
+          <Text className='state__txt'>去选酒下一单，进度会显示在这里</Text>
+          <Button className='btn-ghost' onClick={() => openAppPage('/pages/customer/products/index')}>
+            <Text className='btn-label'>去选酒</Text>
           </Button>
         </View>
       ) : (
         <View className='olist__body'>
-          {items.map((o) => (
-            <View key={o.id} className='ocard'>
+          {shown.map((o) => (
+            <View key={o.id} className='card ocard'>
               <View className='ocard__row'>
-                <Text className='ocard__no'>{o.orderNo}</Text>
-                <Text className={`tag tag--${STATUS_TONES[o.status] ?? 'muted'}`}>
+                <Text className='num ocard__no'>{o.orderNo}</Text>
+                <Text className={`tag tag--${ORDER_STATUS_TONES[o.status] ?? 'muted'}`}>
                   {o.statusLabel || STATUS_LABELS[o.status] || o.status}
                 </Text>
               </View>
               <View className='ocard__row'>
                 <Text className='ocard__meta'>{fmtDateTime(o.createdAt)} · {o.lineCount ?? 0} 种商品</Text>
-                <Text className='ocard__amount'>{fmtMoney(o.totalAmount)}</Text>
+                <Text className='num ocard__amount'>{fmtMoney(o.totalAmount)}</Text>
+              </View>
+              <View className='ocard__ops'>
+                <Button
+                  className='btn-ghost btn-sm'
+                  onClick={() => openAppPage('/pages/customer/products/index')}
+                >
+                  <Text className='btn-label'>再来一单</Text>
+                </Button>
               </View>
             </View>
           ))}
-          <Text className='olist__tip'>展示最近 50 单；订单进度由商家更新，有疑问请联系您的业务员</Text>
+          <Text className='tip'>订单进度由商家更新，有疑问请联系您的业务员</Text>
         </View>
       )}
     </View>
