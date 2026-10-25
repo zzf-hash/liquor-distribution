@@ -15,7 +15,7 @@ import './index.scss'
 /**
  * 出库单复核（P1 全员端，仓配）：无单条详情接口，按 outboundNo 从列表接口（全量）取单；
  * FIFO 建议批次行=品名/数量/批次号；「复核确认出库」POST /orders/outbounds/:no/confirm，
- * Idempotency-Key=crypto.randomUUID()（uuid() 兼容旧内核），写不可变库存流水并推进订单状态。
+ * Idempotency-Key 按出库单号保持稳定，失败重试复用，成功后下一张再换。写不可变库存流水并推进订单状态。
  */
 export default function WarehouseOutboundPage() {
   const [no, setNo] = useState('')

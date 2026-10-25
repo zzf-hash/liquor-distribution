@@ -747,7 +747,7 @@ export interface ReturnInput {
   lines: Array<{ orderLineId: string; qty: number }>;
 }
 
-/** 收货预览：批次回冲 + 应收冲减摘要（可选能力，未就绪时降级直接确认） */
+/** 收货预览：批次回冲 + 应收冲减。依赖后端 PR #1 的 GET /returns/:id/preview-receive。 */
 export interface ReturnReceivePreviewDTO {
   batches: Array<{ batchNo?: string | null; productId?: string; productName?: string | null; qty: Decimalish }>;
   arCredit: Decimalish;
@@ -759,7 +759,7 @@ export const returnsApi = {
   detail: (id: string) => request<ReturnOrderDTO>(`/returns/${id}`),
   create: (input: ReturnInput) =>
     request<ReturnOrderDTO>('/returns', { method: 'POST', body: input, idemKey: genIdemKey() }),
-  /** 收货预览（回冲批次/应收冲减）；接口 404/未实现时调用方直接走确认 */
+  /** 收货预览。404 表示接口尚未部署；409 表示当前退货单不能收货。 */
   previewReceive: (id: string) => request<ReturnReceivePreviewDTO>(`/returns/${id}/preview-receive`),
   /** 仓库收货确认：批次回冲 + 应收重算（幂等键防重放双写） */
   receive: (id: string) =>

@@ -19,6 +19,7 @@ import { getAuth } from '../../services/auth';
 import type { Role } from '../../constants/roles';
 import { RETURN_STATUS_META, RETURN_STATUS_TABS } from '../../constants/labels';
 import { fmtDateTime, fmtMoney, toNum } from '../../utils/format';
+import { decidePreviewFailure } from './preview-receive';
 
 /** 原订单行净数量：原行数量 + 其红字冲销行（负数）——退货上限 */
 function netQtyMap(lines: OrderLineDTO[]): Map<string, number> {
@@ -44,7 +45,7 @@ export default function ReturnsPage(): JSX.Element {
 
   const reload = (): void => setRefreshKey((k) => k + 1);
 
-  /** APPROVED → 仓库收货确认（先拉预览：回冲批次+应收冲减，未就绪降级直接确认） */
+  /** APPROVED → 仓库收货确认。先展示预览；409 及其他错误停住，只有预览接口 404 才降级确认。 */
   function receiveReturn(r: ReturnOrderDTO): void {
     const doReceive = async (): Promise<void> => {
       try {
@@ -91,11 +92,15 @@ export default function ReturnsPage(): JSX.Element {
           onOk: doReceive,
         });
       })
-      .catch(() => {
-        // 预览能力未上线：直接确认（后端 receive 仍会重算）
+      .catch((error: unknown) => {
+        const decision = decidePreviewFailure(error);
+        if (decision.kind === 'stop') {
+          message.error(decision.message);
+          return;
+        }
         modal.confirm({
           title: `收货确认？${r.returnNo}`,
-          content: '确认后按原出库批次回冲库存，并自动冲减该客户应收（余款重算）。',
+          content: decision.message,
           okText: '确认收货',
           cancelText: '取消',
           onOk: doReceive,

@@ -2,6 +2,7 @@
 // 信封约定与 admin 一致（{code:0,data}）；token 存 Taro storage 'ld_token'；
 // BASE 从环境变量读（构建时 TARO_APP_API_BASE 注入），默认本机开发后端。
 import Taro from '@tarojs/taro'
+import { releaseIdemKey, stableIdemKey } from './idempotency'
 import { reportError, trackEvent } from './telemetry'
 
 const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api'
@@ -72,17 +73,7 @@ export class ApiError extends Error {
   }
 }
 
-/** 下单等写接口幂等键（服务端唯一索引兜底，重试不双写） */
-export function genIdemKey(): string {
-  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
-}
-
-/** UUID 幂等键（出库复核/收款上报）：优先 crypto.randomUUID（H5/新基础库），weapp 旧内核回退拼装 */
-export function uuid(): string {
-  const c: Crypto | undefined = typeof crypto !== 'undefined' ? crypto : undefined
-  if (c && typeof c.randomUUID === 'function') return c.randomUUID()
-  return genIdemKey()
-}
+export { genIdemKey, releaseIdemKey, stableIdemKey, uuid } from './idempotency'
 
 // ───────────────────────── 会话（ld_token） ─────────────────────────
 
@@ -297,13 +288,19 @@ export const ordersApi = {
     if (params?.pageSize) qs.push(`pageSize=${params.pageSize}`)
     return request<PageResult<CustomerOrderDTO>>(`/orders${qs.length ? `?${qs.join('&')}` : ''}`)
   },
-  /** P1-5：customerId 禁传（服务端强制 token 身份），source 固定 CUSTOMER */
-  create: (lines: Array<{ productId: string; unit: ShopUnit; qty: number }>) =>
-    request<CreateOrderResultDTO>('/orders', {
+  /** P1-5：customerId 禁传（服务端强制 token 身份），source 固定 CUSTOMER。键在失败重试时复用。 */
+  create: (lines: Array<{ productId: string; unit: ShopUnit; qty: number }>) => {
+    const body = { source: 'CUSTOMER', lines }
+    return request<CreateOrderResultDTO>('/orders', {
       method: 'POST',
-      body: { source: 'CUSTOMER', lines },
-      idemKey: genIdemKey(),
-    }).then((r) => { trackEvent('customer_order_created', { orderNo: r.orderNo, lines: lines.length }); return r }),
+      body,
+      idemKey: stableIdemKey('orders.create.customer', body),
+    }).then((r) => {
+      releaseIdemKey('orders.create.customer')
+      trackEvent('customer_order_created', { orderNo: r.orderNo, lines: lines.length })
+      return r
+    })
+  },
   // ── 员工端（P1 全员端）──
   /** 订单池（clerk/boss/warehouse）：按状态 tab 过滤，q 搜索单号/客户名 */
   staffList: (params: { status?: string; q?: string; page?: number; pageSize?: number }) => {
@@ -331,18 +328,32 @@ export const ordersApi = {
   reverseLine: (id: string, lineId: string, qty: number, reason: string) =>
     request<Record<string, unknown>>(`/orders/${id}/lines/${lineId}/reverse`, { method: 'POST', body: { qty, reason } }),
   /** 签收（逐行实收 + 签收类型 + 回包装；服务端算差额回冲与应收） */
-  sign: (id: string, body: SignBody) =>
-    request<SignResultDTO>(`/orders/${id}/sign`, { method: 'POST', body: body as unknown as Record<string, unknown> }),
+  sign: (id: string, body: SignBody) => {
+    const payload = { id, ...body }
+    return request<SignResultDTO>(`/orders/${id}/sign`, {
+      method: 'POST',
+      body: body as unknown as Record<string, unknown>,
+      idemKey: stableIdemKey(`orders.sign.${id}`, payload),
+    }).then((r) => {
+      releaseIdemKey(`orders.sign.${id}`)
+      return r
+    })
+  },
   /** 整单拒收（配送中，需原因） */
   reject: (id: string, reason: string) =>
     request<Record<string, unknown>>(`/orders/${id}/reject`, { method: 'POST', body: { reason } }),
-  /** 业务员代下单（source=REP；价格由服务端取价引擎解析） */
-  repCreate: (input: { customerId: string; lines: Array<{ productId: string; unit: ShopUnit; qty: number }> }) =>
-    request<CreateOrderResultDTO>('/orders', {
+  /** 业务员代下单（source=REP；价格由服务端取价引擎解析）。失败重试复用同一个键。 */
+  repCreate: (input: { customerId: string; lines: Array<{ productId: string; unit: ShopUnit; qty: number }> }) => {
+    const body = { customerId: input.customerId, source: 'REP', lines: input.lines }
+    return request<CreateOrderResultDTO>('/orders', {
       method: 'POST',
-      body: { customerId: input.customerId, source: 'REP', lines: input.lines },
-      idemKey: genIdemKey(),
-    }),
+      body,
+      idemKey: stableIdemKey('orders.create.rep', body),
+    }).then((r) => {
+      releaseIdemKey('orders.create.rep')
+      return r
+    })
+  },
 }
 
 // ───────────────────────── 待结单据（文案红线：只说"待结金额"） ─────────────────────────
@@ -456,8 +467,17 @@ export const statementsApi = {
   /** 客户确认（SENT → CONFIRMED） */
   confirm: (id: string) => request<StatementDTO>(`/statements/${id}/confirm`, { method: 'POST', body: {} }),
   /** 客户异议：差异项（四类）进内勤工作池 */
-  dispute: (id: string, items: Array<{ type: DisputeType; content: string }>) =>
-    request<Record<string, unknown>>(`/statements/${id}/dispute`, { method: 'POST', body: { items } }),
+  dispute: (id: string, items: Array<{ type: DisputeType; content: string }>) => {
+    const body = { items }
+    return request<Record<string, unknown>>(`/statements/${id}/dispute`, {
+      method: 'POST',
+      body,
+      idemKey: stableIdemKey(`statements.dispute.${id}`, body),
+    }).then((r) => {
+      releaseIdemKey(`statements.dispute.${id}`)
+      return r
+    })
+  },
 }
 
 // ───────────────────────── 购物车（本地 state + storage 持久化，key=productId+unit） ─────────────────────────
@@ -529,7 +549,10 @@ export const visitsApi = {
     request<VisitDTO>('/visits', {
       method: 'POST',
       body: input as unknown as Record<string, unknown>,
-      idemKey: genIdemKey(),
+      idemKey: stableIdemKey('visits.create', input),
+    }).then((r) => {
+      releaseIdemKey('visits.create')
+      return r
     }),
   /** 我的拜访时间线（rep token 只返回自己） */
   mine: () => request<PageResult<VisitDTO>>('/visits?mine=1'),
@@ -570,22 +593,34 @@ export interface RepDraftDTO {
 
 export const draftsApi = {
   /** 报单入口：语音(试点期口述内容手敲成文字)/文字 → 后端 qwen 解析成草稿；确认转单在内勤后台「转单草稿」工作台 */
-  create: (input: { source: DraftSource; text: string }) =>
-    request<RepDraftDTO>('/drafts', {
+  create: (input: { source: DraftSource; text: string }) => {
+    const body = { source: input.source, text: input.text }
+    return request<RepDraftDTO>('/drafts', {
       method: 'POST',
-      body: { source: input.source, text: input.text },
-    }),
+      body,
+      idemKey: stableIdemKey('drafts.create', body),
+    }).then((r) => {
+      releaseIdemKey('drafts.create')
+      return r
+    })
+  },
   /** C组 M12-1: 真语音——录音 base64 直传(≤60s)，后端腾讯云 ASR 转写→qwen 解析；rawText 手敲文本可兜底优先 */
-  createVoice: (input: { audioBase64: string; audioFormat: 'mp3' | 'wav' | 'm4a' | 'aac'; rawText?: string }) =>
-    request<RepDraftDTO>('/drafts', {
+  createVoice: (input: { audioBase64: string; audioFormat: 'mp3' | 'wav' | 'm4a' | 'aac'; rawText?: string }) => {
+    const body = {
+      source: 'VOICE' as const,
+      audioBase64: input.audioBase64,
+      audioFormat: input.audioFormat,
+      ...(input.rawText ? { text: input.rawText } : {}),
+    }
+    return request<RepDraftDTO>('/drafts', {
       method: 'POST',
-      body: {
-        source: 'VOICE',
-        audioBase64: input.audioBase64,
-        audioFormat: input.audioFormat,
-        ...(input.rawText ? { text: input.rawText } : {}),
-      },
-    }),
+      body,
+      idemKey: stableIdemKey('drafts.voice', body),
+    }).then((r) => {
+      releaseIdemKey('drafts.voice')
+      return r
+    })
+  },
 }
 
 // ───────────────────────── 员工端·订单行/详情（P1 全员端，契约对齐 apps/api OrdersService） ─────────────────────────
@@ -760,12 +795,15 @@ export const outboundsApi = {
   /** status=PICKING 待拣货复核 / CONFIRMED 已出库；不传=全量（详情按 outboundNo 前端查找） */
   list: (status?: string) =>
     request<PageResult<OutboundRowDTO>>(`/orders/outbounds${status ? `?status=${status}&pageSize=100` : '?pageSize=100'}`),
-  /** 复核确认出库（Idempotency-Key=uuid；重试不双写） */
+  /** 复核确认出库。同一张出库单失败重试复用键，成功后下一张再换。 */
   confirm: (outboundNo: string) =>
     request<Record<string, unknown>>(`/orders/outbounds/${encodeURIComponent(outboundNo)}/confirm`, {
       method: 'POST',
       body: {},
-      idemKey: uuid(),
+      idemKey: stableIdemKey(`orders.outbound.confirm.${outboundNo}`, { outboundNo }),
+    }).then((r) => {
+      releaseIdemKey(`orders.outbound.confirm.${outboundNo}`)
+      return r
     }),
 }
 
@@ -795,7 +833,14 @@ export interface PaymentRowDTO {
 export const paymentsApi = {
   /** 收款登记/上报（rep→REPORTED 待确认；clerk/owner→即确认 FIFO 销账） */
   report: (input: { customerId: string; amount: number; method?: string; voucher?: string; note?: string }) =>
-    request<Record<string, unknown>>('/payments', { method: 'POST', body: input as unknown as Record<string, unknown>, idemKey: uuid() }),
+    request<Record<string, unknown>>('/payments', {
+      method: 'POST',
+      body: input as unknown as Record<string, unknown>,
+      idemKey: stableIdemKey('payments.report', input),
+    }).then((r) => {
+      releaseIdemKey('payments.report')
+      return r
+    }),
   /** 注意：该接口 data 直接返回数组（非 {items} 分页） */
   list: (status?: string) =>
     request<PaymentRowDTO[]>(`/payments${status ? `?status=${status}` : ''}`),
@@ -925,7 +970,10 @@ export const capFeesApi = {
     request<CapRecycleDTO>('/cap-fees/recycles', {
       method: 'POST',
       body: input as unknown as Record<string, unknown>,
-      idemKey: genIdemKey(),
+      idemKey: stableIdemKey('cap.recycle', input),
+    }).then((r) => {
+      releaseIdemKey('cap.recycle')
+      return r
     }),
   /** 我的回收单(业务员只见自己登记的) */
   myRecycles: (status?: string) =>
