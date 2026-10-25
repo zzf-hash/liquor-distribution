@@ -1,12 +1,13 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
+import { BadRequestException, ValidationPipe, Logger } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
+import { formatValidationErrors } from './common/validation-message';
 import { tenantContext } from './prisma/tenant-context';
 import type { Request, Response, NextFunction } from 'express';
 
@@ -55,7 +56,12 @@ async function bootstrap(): Promise<void> {
   app.use(urlencoded({ extended: true, limit: '6mb' }));
   app.use(tenantContextMiddleware); // 必须在路由前注册(先于守卫建立store)
   app.setGlobalPrefix('api'); // 统一 /api 前缀 (nginx 反代约定)
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: false }));
+  app.useGlobalPipes(new ValidationPipe({
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: false,
+    exceptionFactory: (errors) => new BadRequestException(formatValidationErrors(errors)),
+  }));
   app.useGlobalFilters(new HttpExceptionFilter());
   app.enableShutdownHooks();
   const port = Number(process.env.PORT ?? 3000);

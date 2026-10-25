@@ -409,7 +409,7 @@ export const ordersApi = {
     request<PageResult<OrderDTO>>(`/orders${qs(params)}`),
   detail: (id: string) => request<OrderDTO>(`/orders/${id}`),
   create: (input: CreateOrderInput) =>
-    request<CreateOrderResultDTO>('/orders', { method: 'POST', body: input }),
+    request<CreateOrderResultDTO>('/orders', { method: 'POST', body: input, idemKey: genIdemKey() }),
   confirm: (id: string) => request<OrderDTO>(`/orders/${id}/confirm`, { method: 'POST', body: {} }),
   approveSpecial: (id: string, type: ApproveSpecialType, reason: string) =>
     request<OrderDTO>(`/orders/${id}/approve-special`, { method: 'POST', body: { type, reason } }),

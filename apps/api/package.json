@@ -7,7 +7,7 @@
     "start": "node dist/main.js",
     "dev": "tsc -p tsconfig.json --watch",
     "prisma:generate": "prisma generate",
-    "test": "jest",
+    "test": "pnpm -C ../../packages/shared run build && node ./scripts/run-jest.cjs",
     "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js && node prisma/seed-p1.js && node prisma/seed-demo.js"
   },
   "dependencies": {
@@ -22,6 +22,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "dayjs": "^1.11.13",
+    "express": "4.22.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "xlsx": "^0.18.5"

@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp, bizMonthRange, bizPrevMonthKey } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -88,7 +88,7 @@ export class CapFeesService {
       });
     }
     const total = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2));
-    const day = dayjs().format('YYYYMMDD');
+    const day = bizDayStamp();
     let order: Awaited<ReturnType<typeof this.prisma.capRecycleOrder.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !order; attempt++) {
       const seq = (await this.prisma.capRecycleOrder.count({ where: { recycleNo: { startsWith: `GAI${day}` } } })) + 1 + attempt;
@@ -167,9 +167,8 @@ export class CapFeesService {
    * 幂等: source=CAP_ACCRUAL:<period>:<customerId> 的费用单已存在则跳过该客户。
    */
   async accrue(actor: AuthUser, periodInput?: string): Promise<{ period: string; customers: number; expenses: number; totalAmount: number; skipped: number }> {
-    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : dayjs().subtract(1, 'month').format('YYYY-MM');
-    const start = dayjs(`${period}-01`).startOf('month').toDate();
-    const end = dayjs(`${period}-01`).endOf('month').toDate();
+    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : bizPrevMonthKey();
+    const { start, end } = bizMonthRange(period);
     const policies = await this.prisma.capFeePolicy.findMany({
       where: { requireCap: false, closedAt: null },
       include: { product: { select: { name: true } } },

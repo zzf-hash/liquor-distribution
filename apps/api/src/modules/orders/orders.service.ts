@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUSINESS_TZ, bizDayStamp } from '../../common/business-time';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
@@ -134,11 +135,14 @@ export class OrdersService {
   // ─────────────── P0-T20 三入口下单 + P0-T21 审单预检 ───────────────
   async create(dto: CreateOrderDto, user: AuthUser, idemKey?: string, ip?: string): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult; replay?: boolean }> {
     if (!dto.lines?.length) throw new BadRequestException('订单至少一行商品');
-    // 下单接入幂等基座(2026-10 审查修复: 此前后端不消费 Idempotency-Key, 防重复下单只剩前端布尔位;
-    // 客户端 miniapp api.ts orders.create 与 admin 均已随请求携带)。快照在 CUSTOMER source 改写前,
-    // 保证 check 与落库两侧指纹一致。
+    // 下单必须带 Idempotency-Key。出库确认、收款已经强制；下单若放行空键，
+    // 网络重试会各建一张待确认单。按客户+商品+金额去重会把合法的重复订货也拒掉，所以只认键。
+    // 草稿转单 / 特单转单由服务端用稳定键调用，不走这条 HTTP 头。
+    const key = idemKey?.trim() ?? '';
+    if (!key) throw new BadRequestException('下单必须携带 Idempotency-Key 头');
+    // 快照在 CUSTOMER source 改写前，保证 check 与落库两侧指纹一致。
     const idemPayload = { ...dto } as unknown as Record<string, unknown>;
-    const dup = await this.idem.check(user, 'orders.create', idemKey ?? '', idemPayload);
+    const dup = await this.idem.check(user, 'orders.create', key, idemPayload);
     if (dup) return { ...(dup.summary as { id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult }), replay: true };
     // P1-5: 客户身份一律取自 token
     let customerId = dto.customerId;
@@ -285,7 +289,7 @@ export class OrdersService {
 
     // 单号: SO{yyyymmdd}-{seq}
     // P1-14: count+1 并发撞号 → P2002 500。序号在事务内取且失败按 seq+1 重试(≤5 次)
-    const today = dayjs().format('YYYYMMDD');
+    const today = bizDayStamp();
     const prefix = `SO${today}`;
     let orderNo = '';
     let order: { id: string; orderNo: string; status: string } | null = null;
@@ -293,7 +297,7 @@ export class OrdersService {
       const seq = (await this.prisma.salesOrder.count({ where: { orderNo: { startsWith: prefix } } })) + 1 + attempt;
       orderNo = `${prefix}-${String(seq).padStart(4, '0')}`;
       try {
-        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, idemKey, idemPayload);
+        order = await this.createOrderTx(user, orderNo, customerId, customer, dto, lineData, totalNum, precheck, specialApproved, key, idemPayload);
       } catch (e) {
         if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
         throw e;
@@ -559,7 +563,7 @@ export class OrdersService {
         }
         if (remaining > 0) throw new ConflictException(`商品 ${line.productName} 库存不足(需 ${need}, 缺 ${remaining}), FIFO 无法分配`);
       }
-      const obDay = dayjs().format('YYYYMMDD');
+      const obDay = bizDayStamp();
       let outbound: Awaited<ReturnType<typeof tx.outbound.create>> | null = null;
       for (let attempt = 0; attempt < 5 && !outbound; attempt++) {
         const seq = (await tx.outbound.count({ where: { outboundNo: { startsWith: `OB${obDay}` } } })) + 1 + attempt;
@@ -769,7 +773,7 @@ export class OrdersService {
         });
       }
       // T23/D4: 签收完成 = 应收生成时点; 到期日 = 生成日 + 账期天数(现结=0)
-      const dueDate = dayjs(signedAt).add(order.customer.termsDays ?? 0, 'day').endOf('day').toDate();
+      const dueDate = dayjs(signedAt).tz(BUSINESS_TZ).add(order.customer.termsDays ?? 0, 'day').endOf('day').toDate();
       await tx.receivable.create({
         data: {
           tenantId: user.tenantId, sourceType: 'ORDER', sourceDocNo: order.orderNo,

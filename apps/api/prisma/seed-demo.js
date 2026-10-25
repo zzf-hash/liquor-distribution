@@ -7,6 +7,7 @@
 //   ④ 已签收订单(今日销售看板) + 待确认订单(审单演示) + 待确认收款(F9②演示)
 //   ⑤ 返利方案(3%, 落在 1%-50% 新口径) + 拜访记录 + 语音转单草稿(qwen 解析结果)
 const { PrismaClient } = require('@prisma/client');
+const { planDemoOutbound } = require('./demo-stock-plan');
 const prisma = new PrismaClient();
 
 const DAY = 24 * 3600 * 1000;
@@ -98,22 +99,62 @@ async function main() {
   }
 
   // ─── ④ 动销历史(库存预警 LOW 演示): 近7日 OUT 流水 ───
-  // 青岛啤酒: 7日销 4440 → 日均~634 → 阈值≈4440 > 在库4080 → LOW; 农夫山泉: 常规动销 OK
+  // 青岛啤酒: 7日销 4440，期初+临期入库只有 4080。直接出 4440 会把净库存打成 -360。
+  // 销量超过现存时先补一笔入库（补在最早批次、时间早于动销窗口），出库后再分摊到各批次余量上，
+  // 出库后在库仍是 4080，且没有任何批次为负。农夫山泉现存够出，不补。
   if (!(await prisma.inventoryLedger.findFirst({ where: { tenantId: T, refNo: 'DEMO-SALES' } }))) {
-    const batchOf = async (productId) => prisma.batchStock.findFirst({ where: { tenantId: T, productId }, orderBy: { createdAt: 'asc' } });
     const salesPlan = [
       { p: p3, perDay: [[6, 620], [5, 620], [4, 620], [3, 640], [2, 640], [1, 640], [0, 660]] }, // 合计 4440
       { p: p7, perDay: [[6, 420], [5, 420], [4, 420], [3, 440], [2, 440], [1, 440], [0, 420]] }, // 合计 3000
     ];
     for (const plan of salesPlan) {
-      const batch = await batchOf(plan.p.id);
-      if (!batch) throw new Error(`缺 ${plan.p.skuCode} 的批次, 先跑主 seed`);
-      for (const [offset, qty] of plan.perDay) {
+      const batches = await prisma.batchStock.findMany({
+        where: { tenantId: T, productId: plan.p.id },
+        include: { ledger: true },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!batches.length) throw new Error(`缺 ${plan.p.skuCode} 的批次, 先跑主 seed`);
+      const nets = batches.map((b) => ({
+        id: b.id,
+        net: b.ledger.reduce((s, l) => s + (l.direction === 'IN' ? Number(l.qty) : -Number(l.qty)), 0),
+      }));
+      const planned = planDemoOutbound(nets, plan.perDay.map(([, qty]) => qty));
+      if (planned.topUp > 0) {
         await prisma.inventoryLedger.create({
-          data: { tenantId: T, productId: plan.p.id, batchId: batch.id, direction: 'OUT', qty, refType: 'OUTBOUND', refNo: 'DEMO-SALES', createdBy: clerk.id, createdAt: dayOffset(-offset) },
+          data: {
+            tenantId: T, productId: plan.p.id, batchId: planned.topUpBatchId, direction: 'IN', qty: planned.topUp,
+            refType: 'INITIAL_IMPORT', refNo: 'DEMO-SALES-TOPUP', note: '动销演示补入库，避免净库存为负',
+            createdBy: owner.id, createdAt: dayOffset(-8),
+          },
         });
       }
+      for (let i = 0; i < plan.perDay.length; i++) {
+        const [offset] = plan.perDay[i];
+        for (const row of planned.perDay[i]) {
+          await prisma.inventoryLedger.create({
+            data: {
+              tenantId: T, productId: plan.p.id, batchId: row.batchId, direction: 'OUT', qty: row.qty,
+              refType: 'OUTBOUND', refNo: 'DEMO-SALES', createdBy: clerk.id, createdAt: dayOffset(-offset),
+            },
+          });
+        }
+      }
     }
+  }
+
+  // 已落下的旧演示出库如果把批次打成负数，再跑 seed 时补一笔入库冲平。不改历史 OUT。
+  const repairBatches = await prisma.batchStock.findMany({ where: { tenantId: T }, include: { ledger: true } });
+  for (const b of repairBatches) {
+    const net = b.ledger.reduce((s, l) => s + (l.direction === 'IN' ? Number(l.qty) : -Number(l.qty)), 0);
+    if (net >= -0.0001) continue;
+    const refNo = `DEMO-STOCK-REPAIR:${b.id}`;
+    if (await prisma.inventoryLedger.findFirst({ where: { tenantId: T, batchId: b.id, refNo } })) continue;
+    await prisma.inventoryLedger.create({
+      data: {
+        tenantId: T, productId: b.productId, batchId: b.id, direction: 'IN', qty: Math.round(-net * 1000) / 1000,
+        refType: 'INITIAL_IMPORT', refNo, note: '种子修复负库存', createdBy: owner.id,
+      },
+    });
   }
 
   // ─── ⑤ 已签收订单(今日销售看板) + 待确认订单(审单演示) ───

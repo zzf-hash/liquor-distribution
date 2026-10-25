@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUSINESS_TZ, bizDayDiff, bizDayStamp, bizNow, bizStartOfMonth } from '../../common/business-time';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertPaymentTransition, PaymentState } from '../../statemachine/payment-state';
@@ -25,6 +26,11 @@ interface ArRow {
   disputeFlag: boolean; bucket: AgingBucket; settledAt?: string;
 }
 
+/** 距到期的上海日历天数。dueDate 是 YYYY-MM-DD。正数=还没到期。 */
+function daysUntil(dueDate: string): number {
+  return -bizDayDiff(dayjs.tz(dueDate, BUSINESS_TZ).toDate());
+}
+
 @Injectable()
 export class ReceivablesService {
   constructor(
@@ -36,7 +42,7 @@ export class ReceivablesService {
 
   private bucketOf(dueDate: Date, disputeFlag: boolean, cfg: AgingConfig): { daysOverdue: number; bucket: AgingBucket } {
     if (disputeFlag) return { daysOverdue: -1, bucket: 'disputed' };
-    const days = dayjs().startOf('day').diff(dayjs(dueDate).startOf('day'), 'day');
+    const days = bizDayDiff(dueDate);
     return { daysOverdue: Math.max(0, days), bucket: bucketOfDays(days, cfg) };
   }
 
@@ -102,10 +108,10 @@ export class ReceivablesService {
         : null;
       return {
         id: r.id, sourceType: r.sourceType, sourceDocNo: r.sourceDocNo, customerName: r.customer.name,
-        total: Number(r.total), settled, open, dueDate: dayjs(r.dueDate).format('YYYY-MM-DD'), daysOverdue, disputeFlag: r.disputeFlag, bucket,
+        total: Number(r.total), settled, open, dueDate: dayjs(r.dueDate).tz(BUSINESS_TZ).format('YYYY-MM-DD'), daysOverdue, disputeFlag: r.disputeFlag, bucket,
         ...(settledAt ? { settledAt: settledAt.toISOString() } : {}),
       };
-    }).filter((r) => r.open > 0.0001 || (includeRecentSettled && !!r.settledAt && dayjs(r.settledAt).isAfter(dayjs().subtract(6, 'month'))));
+    }).filter((r) => r.open > 0.0001 || (includeRecentSettled && !!r.settledAt && dayjs(r.settledAt).isAfter(bizNow().subtract(6, 'month'))));
     return q.bucket ? mapped.filter((r) => r.bucket === q.bucket) : mapped;
   }
 
@@ -157,7 +163,7 @@ export class ReceivablesService {
       throw new BadRequestException(`收款金额 ¥${dto.amount.toFixed(2)} 超过客户未结合计 ¥${totalOpen.toFixed(2)}, 请核对(暂不支持预收挂账)`);
     }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
-    const payDay = dayjs().format('YYYYMMDD');
+    const payDay = bizDayStamp();
     let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !payment; attempt++) {
       const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `PAY${payDay}` } } })) + 1 + attempt;
@@ -278,13 +284,13 @@ export class ReceivablesService {
     const monthMax = await this.cfgNumber('waive_monthly_max', 500);
     if (dto.amount > singleMax) throw new BadRequestException(`单笔抹零超上限 ${singleMax} 元(可配置)`);
     const monthWaived = await this.prisma.receivableLedger.aggregate({
-      where: { direction: 'WAIVE', createdAt: { gte: dayjs().startOf('month').toDate() } }, _sum: { amount: true },
+      where: { direction: 'WAIVE', createdAt: { gte: bizStartOfMonth() } }, _sum: { amount: true },
     });
     if (Number(monthWaived._sum.amount ?? 0) + dto.amount > monthMax) {
       throw new BadRequestException(`本月抹零累计将超上限 ${monthMax} 元(当前 ${Number(monthWaived._sum.amount ?? 0)})`);
     }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
-    const wvDay = dayjs().format('YYYYMMDD');
+    const wvDay = bizDayStamp();
     let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !payment; attempt++) {
       const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `WV${wvDay}` } } })) + 1 + attempt;
@@ -340,7 +346,7 @@ export class ReceivablesService {
     const { open } = this.arOpen(ar);
     if (open <= 0.0001) throw new ConflictException('该应收已结清, 无需核销');
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
-    const bdDay = dayjs().format('YYYYMMDD');
+    const bdDay = bizDayStamp();
     let payment: Awaited<ReturnType<typeof this.prisma.payment.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !payment; attempt++) {
       const seq = (await this.prisma.payment.count({ where: { paymentNo: { startsWith: `BD${bdDay}` } } })) + 1 + attempt;
@@ -375,7 +381,7 @@ export class ReceivablesService {
     const { open } = this.arOpen(ar);
     if (open > 0.0001) throw new ConflictException('仅已结清单据可归档');
     const lastSettle = ar.ledger.find((l) => l.direction === 'SETTLE');
-    if (!lastSettle || lastSettle.createdAt > dayjs().subtract(6, 'month').toDate()) {
+    if (!lastSettle || lastSettle.createdAt > bizNow().subtract(6, 'month').toDate()) {
       throw new ConflictException('已结单据须满 6 个月方可归档(R8)');
     }
     const updated = await this.prisma.receivable.update({ where: { id: receivableId }, data: { archivedAt: new Date(), archivedById: user.id } });
@@ -398,8 +404,8 @@ export class ReceivablesService {
     // P1-7: 原实现只看第一页 50 条, 排序把未到期单压在尾部被截断, 催收提醒整批漏发
     const items = await this.rows(user, {});
     return items
-      .filter((r) => r.bucket === 'not_due' && dayjs(r.dueDate).isBefore(dayjs().add(n, 'day').endOf('day')))
-      .map((r) => ({ sourceDocNo: r.sourceDocNo, dueDate: r.dueDate, open: r.open, daysLeft: dayjs(r.dueDate).diff(dayjs(), 'day') }));
+      .filter((r) => r.bucket === 'not_due' && daysUntil(r.dueDate) >= 0 && daysUntil(r.dueDate) <= n)
+      .map((r) => ({ sourceDocNo: r.sourceDocNo, dueDate: r.dueDate, open: r.open, daysLeft: daysUntil(r.dueDate) }));
   }
 
   /** 收款冲正: 只准红字新单(禁改原收款, B3 同原则) */
