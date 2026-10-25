@@ -10,7 +10,8 @@
     "build:h5:staff": "TARO_APP_ROLE=staff taro build --type h5",
     "dev:weapp": "npm run build:weapp -- --watch",
     "dev:h5": "npm run build:h5 -- --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:bundle": "node scripts/check-no-process-env.mjs"
   },
   "browserslist": [
     "defaults and fully supports es6-module",

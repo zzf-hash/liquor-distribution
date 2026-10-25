@@ -34,11 +34,13 @@ export default defineConfig<'vite'>(async (merge) => {
       ? (process.env.TARO_APP_ROLE === 'staff' ? 'dist-h5-staff' : 'dist-h5')
       : (process.env.TARO_APP_ROLE === 'staff' ? 'dist-staff' : 'dist'),
     plugins: [],
-    // Vite 会把未声明的 process.env 换成 {}，壳层变量到不了页面里。
-    // 脚本显式设置时用 defineConstants 盖过 .env，保证员工包里的 APP_ROLE 真是 staff。
-    defineConstants: process.env.TARO_APP_ROLE
-      ? { 'process.env.TARO_APP_ROLE': JSON.stringify(process.env.TARO_APP_ROLE) }
-      : {},
+    // 无论环境变量是否为空都写入。空值默认 customer。
+    // 漏写时 weapp 的 common.js 会留下 process.env，小程序没有 process，加载即 ReferenceError。
+    // 接口地址同样写成字面量，避免 common.js 里再剩一处 process.env。
+    defineConstants: {
+      'process.env.TARO_APP_ROLE': JSON.stringify((process.env.TARO_APP_ROLE || 'customer').trim() || 'customer'),
+      'process.env.TARO_APP_API_BASE': JSON.stringify((process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api').trim() || 'http://127.0.0.1:3000/api'),
+    },
     copy: {
       patterns: [
       ],
