@@ -1,16 +1,21 @@
 import { Body, Controller, Get, Injectable, Module, Param, Post, Query } from '@nestjs/common';
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PriceChangesService } from './price-changes.service';
 import { ApprovalsModule } from '../approvals/approvals.controller';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { normalizePriceUnitInput } from '../../common/require-price-unit';
 
-class CreatePriceChangeDto {
+const PRICE_LEVELS = ['COST', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL'] as const;
+
+export class CreatePriceChangeDto {
   @IsString() productId!: string;
+  /** 箱/瓶等先收成 BASE/MIN；无法识别的原样留下，由 @IsEnum 回 400。 */
+  @Transform(({ value }) => normalizePriceUnitInput(value))
   @IsEnum(['BASE', 'MIN']) unit!: 'BASE' | 'MIN';
-  @IsEnum(['COST', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL']) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
+  @IsEnum(PRICE_LEVELS) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
   @IsNumber() @Min(0.01) newPrice!: number;
   @IsString() effectiveDate!: string;
   @IsString() reason!: string;
@@ -18,14 +23,16 @@ class CreatePriceChangeDto {
 }
 
 /** C组 M2-7 一键批量调价 */
-class BatchItemDto {
+export class BatchItemDto {
   @IsString() productId!: string;
-  @IsOptional() @IsEnum(['BASE', 'MIN']) unit?: 'BASE' | 'MIN';
-  @IsEnum(['COST', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL']) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
+  @IsOptional()
+  @Transform(({ value }) => normalizePriceUnitInput(value))
+  @IsEnum(['BASE', 'MIN']) unit?: 'BASE' | 'MIN';
+  @IsEnum(PRICE_LEVELS) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
   @IsNumber() @Min(0.01) newPrice!: number;
 }
 
-class CreateBatchDto {
+export class CreateBatchDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => BatchItemDto) items!: BatchItemDto[];
   @IsString() effectiveDate!: string;
   @IsString() reason!: string;
