@@ -6,6 +6,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDateKey, bizNow } from '../../common/business-time';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -77,7 +78,7 @@ export class ImportsService {
     const warn = errs.filter((e) => e.level === 'WARN');
     const passed = validated.length - rejectRow.length;
 
-    const batchNo = `IMP${dayjs().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}`;
+    const batchNo = `IMP${bizNow().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}`;
     const snapshotDate = kind === 'INVENTORY' ? parseDate(rows[0].cells['盘点基准日*'] ?? rows[0].cells['盘点基准日'] ?? '') : null;
     if (kind === 'INVENTORY') {
       const dates = new Set(rows.map((r) => r.cells['盘点基准日*'] ?? r.cells['盘点基准日'] ?? ''));
@@ -177,7 +178,7 @@ export class ImportsService {
         }
         const price = num(r.cells['价格*'] ?? '');
         if (price === null || price < 0) { errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'AMOUNT_NEG', message: '价格须为非负数' }); continue; }
-        const from = parseDate(r.cells['生效日'] ?? dayjs().format('YYYY-MM-DD'));
+        const from = parseDate(r.cells['生效日'] ?? bizDateKey());
         const to = parseDate(r.cells['失效日'] ?? '');
         if (r.cells['生效日'] && !from) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DATE_FMT', message: '生效日格式错(YYYY-MM-DD)' });
         if (from && to && to < from) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DATE_ORDER', message: '失效日早于生效日' });

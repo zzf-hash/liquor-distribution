@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDateKey, bizNow, bizStartOfDay } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -29,7 +30,7 @@ export class PriceChangesService {
     if (Number.isNaN(effective.getTime())) throw new BadRequestException('生效日格式错');
     // #25: 调价不允许回溯生效——生效日早于今天会在 effectuate 时插入一条 validFrom 在历史区间的版本,
     // 被取价引擎的"最新 validFrom"静默淹没(或错误改写历史口径订单的取价)。退改须走新调价单。
-    const todayStart = dayjs().startOf('day').toDate();
+    const todayStart = bizStartOfDay();
     if (effective < todayStart) throw new BadRequestException('生效日不能早于今天(不允许回溯调价)');
     // 旧价快照: 当前最新生效价
     const oldRow = await this.prisma.price.findFirst({
@@ -65,7 +66,7 @@ export class PriceChangesService {
       title: `调价 ${product?.name ?? r.productId} ${r.levelType} ¥${Number(r.oldPrice)}→¥${Number(r.newPrice)}`,
       amount: Number(r.stockImpact ? (r.stockImpact as { deltaAmount?: number }).deltaAmount ?? 0 : 0),
       reason: r.reason,
-      payload: { productId: r.productId, unit: r.unit, levelType: r.levelType, oldPrice: Number(r.oldPrice), newPrice: Number(r.newPrice), effectiveDate: dayjs(r.effectiveDate).format('YYYY-MM-DD'), stockImpact: r.stockImpact },
+      payload: { productId: r.productId, unit: r.unit, levelType: r.levelType, oldPrice: Number(r.oldPrice), newPrice: Number(r.newPrice), effectiveDate: bizDateKey(r.effectiveDate), stockImpact: r.stockImpact },
     });
     await this.prisma.priceChangeRequest.update({ where: { id }, data: { status: 'PENDING', approvalId: approval.id } });
     return { id, status: 'PENDING', approvalId: approval.id };
@@ -127,7 +128,7 @@ export class PriceChangesService {
   }): Promise<unknown> {
     if (!dto.items?.length) throw new BadRequestException('批量调价至少一个商品');
     if (dto.items.length > 100) throw new BadRequestException('单批最多 100 个商品');
-    const batchNo = `PC-B${dayjs().format('YYYYMMDDHHmmss')}`;
+    const batchNo = `PC-B${bizNow().format('YYYYMMDDHHmmss')}`;
     const created: Array<{ id: string; productId: string; oldPrice: number; newPrice: number; approvalId: string }> = [];
     for (const item of dto.items) {
       const row = (await this.create(user, {
@@ -187,7 +188,7 @@ export class PriceChangesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.priceChangeRequest.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { product: { select: { skuCode: true, name: true } } },

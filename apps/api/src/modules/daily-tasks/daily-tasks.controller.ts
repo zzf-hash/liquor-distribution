@@ -1,5 +1,6 @@
 import { Controller, Injectable, Logger, Module, OnApplicationBootstrap, OnModuleDestroy, Post, Query } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizNow } from '../../common/business-time';
 import { tenantContext } from '../../prisma/tenant-context';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -59,11 +60,11 @@ export class DailyTasksTimer implements OnApplicationBootstrap, OnModuleDestroy 
   }
 
   private scheduleNext(): void {
-    const now = new Date();
-    // 每日 08:10 Asia/Shanghai = UTC 00:10
-    const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 10, 0));
-    if (next.getTime() <= now.getTime()) next.setUTCDate(next.getUTCDate() + 1);
-    const delay = Math.max(1000, next.getTime() - now.getTime());
+    const now = bizNow();
+    // 每日 08:10 Asia/Shanghai。上海无夏令时，与原先写死的 UTC 00:10 是同一时刻，但跟业务日历用同一时区。
+    let next = now.hour(8).minute(10).second(0).millisecond(0);
+    if (!next.isAfter(now)) next = next.add(1, 'day');
+    const delay = Math.max(1000, next.valueOf() - now.valueOf());
     this.timer = setTimeout(() => {
       void this.safeRun();
       this.scheduleNext();
@@ -73,7 +74,7 @@ export class DailyTasksTimer implements OnApplicationBootstrap, OnModuleDestroy 
 
   /** 上海时区当日日期(仅用于"每月1日跑对账单"判断) */
   private shanghaiDay(): number {
-    return new Date(Date.now() + 8 * 3600 * 1000).getUTCDate();
+    return bizNow().date();
   }
 
   private async safeRun(): Promise<void> {

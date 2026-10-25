@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { OrdersService } from '../orders/orders.service';
@@ -28,11 +29,11 @@ export class SpecialOrdersService {
   }): Promise<unknown> {
     if (!dto.lines?.length) throw new BadRequestException('特单至少一行');
     if (dto.lines.some((l) => l.qty <= 0 || l.price < 0)) throw new BadRequestException('数量须>0, 价格须≥0');
-    const seq = (await this.prisma.specialOrder.count({ where: { specialNo: { startsWith: `SP${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.specialOrder.count({ where: { specialNo: { startsWith: `SP${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.specialOrder.create({
       data: {
         tenantId: user.tenantId,
-        specialNo: `SP${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        specialNo: `SP${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         title: dto.title, customerId: dto.customerId, customerName: dto.customerName,
         isBanquet: dto.isBanquet ?? false,
         eventDate: dto.eventDate ? new Date(dto.eventDate) : undefined, venue: dto.venue,
@@ -133,6 +134,7 @@ export class SpecialOrdersService {
         note: `特单 ${so.specialNo} 转单${so.isBanquet ? '(宴席)' : ''}`,
       },
       user,
+      `special-convert:${id}`,
     );
     await this.prisma.specialOrder.update({ where: { id }, data: { status: 'CONVERTED', convertedOrderId: (order as { id: string }).id } });
     await this.audit.log({ user, action: 'SPECIAL_CONVERT', entityType: 'SPECIAL_ORDER', entityId: id, after: { specialNo: so.specialNo, orderNo: (order as { orderNo: string }).orderNo, approvalId: approval?.id } });
