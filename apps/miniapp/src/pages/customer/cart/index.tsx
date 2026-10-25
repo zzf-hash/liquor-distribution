@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { openAppPage } from '../../../services/navigation'
 import {
   UNIT_LABELS,
   cartQty,
@@ -66,7 +67,7 @@ export default function CustomerCartPage() {
         showCancel: false,
         confirmText: '查看订单',
       })
-      Taro.switchTab({ url: '/pages/customer/orders/index' })
+      openAppPage('/pages/customer/orders/index')
     } catch (e) {
       // 审单预检拦截（起送量/价格等）直接展示后端 message
       Taro.showModal({
@@ -83,7 +84,7 @@ export default function CustomerCartPage() {
     return (
       <View className='state'>
         <Text className='state__txt'>购物车是空的</Text>
-        <Button className='btn-primary' onClick={() => Taro.switchTab({ url: '/pages/customer/products/index' })}>
+        <Button className='btn-primary' onClick={() => openAppPage('/pages/customer/products/index')}>
           去选酒
         </Button>
       </View>

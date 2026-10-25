@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, fmtDateTime, getToken, visitsApi } from '../../../services/api'
 import type { VisitCustomerDTO, VisitDTO, VisitSteps } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 标准八步骤（任务书 P1-T13：陈列检查/库存盘点/收单/收款/宣传物料/客情沟通/竞品信息/设备检查）
 const VISIT_STEPS: Array<{ key: string; label: string }> = [
@@ -265,6 +266,7 @@ export default function SalesmanVisitPage() {
           </View>
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

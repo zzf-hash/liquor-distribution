@@ -11,6 +11,7 @@ import {
 } from '../../../services/api'
 import type { StaffOrderRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 type TabKey = 'OUTBOUND' | 'DELIVERING'
 
@@ -154,6 +155,7 @@ export default function WarehouseDeliveringPage() {
           </View>
         ))
       )}
+      <RoleTabBar />
     </View>
   )
 }

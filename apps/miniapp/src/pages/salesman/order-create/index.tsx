@@ -16,6 +16,7 @@ import {
 } from '../../../services/api'
 import type { CustomerRowDTO, ProductRowDTO, ShopUnit } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 interface DraftLine {
   productId: string
@@ -270,6 +271,7 @@ export default function SalesmanOrderCreatePage() {
           <Text className='tip'>价格按当前生效价预估，最终以服务端下单快照为准</Text>
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

@@ -417,6 +417,9 @@ export const ordersApi = {
     request<OrderDTO>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
   reject: (id: string, reason: string) =>
     request<OrderDTO>(`/orders/${id}/reject`, { method: 'POST', body: { reason } }),
+  /** 配送前红字冲销一行（POST /orders/:id/lines/:lineId/reverse） */
+  reverseLine: (id: string, lineId: string, qty: number, reason: string) =>
+    request<OrderDTO>(`/orders/${id}/lines/${lineId}/reverse`, { method: 'POST', body: { qty, reason } }),
 };
 
 // ───────────────────────── 应收 / 收款（P0-T30~T31） ─────────────────────────
@@ -486,6 +489,20 @@ export const receivablesApi = {
   createPayment: (input: PaymentInput) =>
     request<PaymentDTO>('/payments', { method: 'POST', body: input, idemKey: genIdemKey() }),
   confirmPayment: (id: string) => request<PaymentDTO>(`/payments/${id}/confirm`, { method: 'POST', body: {} }),
+  /** 抹零：金额与原因必填，幂等键必带 */
+  waive: (id: string, amount: number, reason: string) =>
+    request<Record<string, unknown>>(`/receivables/${id}/waive`, {
+      method: 'POST',
+      body: { amount, reason },
+      idemKey: genIdemKey(),
+    }),
+  /** 坏账：老板执行，原因必填，金额由服务端按未结余额核销 */
+  writeOff: (id: string, reason: string) =>
+    request<Record<string, unknown>>(`/receivables/${id}/write-off`, {
+      method: 'POST',
+      body: { reason },
+      idemKey: genIdemKey(),
+    }),
 };
 
 // ───────────────────────── 数据导入（P0-T13 / P0-07） ─────────────────────────
@@ -747,6 +764,9 @@ export const returnsApi = {
   /** 仓库收货确认：批次回冲 + 应收重算（幂等键防重放双写） */
   receive: (id: string) =>
     request<ReturnOrderDTO>(`/returns/${id}/receive`, { method: 'POST', body: {}, idemKey: genIdemKey() }),
+  /** 待审批退货追加行（数量只增） */
+  appendLines: (id: string, lines: Array<{ orderLineId: string; qty: number; note?: string }>) =>
+    request<{ appended: number }>(`/returns/${id}/lines`, { method: 'POST', body: { lines } }),
 };
 
 // ───────────────────────── 调价（P1-T05，F7 + D08 版本化） ─────────────────────────

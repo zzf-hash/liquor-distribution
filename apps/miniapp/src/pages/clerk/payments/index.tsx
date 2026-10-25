@@ -13,6 +13,7 @@ import {
 } from '../../../services/api'
 import type { CustomerRowDTO, PaymentRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 /**
  * 收款登记（P1 全员端，内勤）：客户 picker + 金额 + 方式 + 凭证号 → POST /payments
@@ -213,6 +214,7 @@ export default function ClerkPaymentsPage() {
       </View>
 
       <Text className='tip'>内勤直录立即按「先到期先结」核销；业务员上报需在此确认</Text>
+      <RoleTabBar />
     </View>
   )
 }

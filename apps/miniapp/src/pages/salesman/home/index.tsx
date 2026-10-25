@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, clearSession, getToken, getUserName } from '../../../services/api'
+import { openAppPage } from '../../../services/navigation'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 宫格磁贴（P1 全员端）：拜访/语音已有页面，本批补 customers/order-create/payment-report/performance
 const TILES: Array<{ icon: string; title: string; desc: string; url: string }> = [
@@ -40,13 +42,14 @@ export default function SalesmanHomePage() {
       <Text className='grid-home__sub'>跑店、报单、收款，一部手机搞定</Text>
       <View className='grid-home__grid'>
         {TILES.map((t) => (
-          <Button key={t.title} className='tile' onClick={() => Taro.navigateTo({ url: t.url })}>
+          <Button key={t.title} className='tile' onClick={() => openAppPage(t.url)}>
             <Text className='tile__icon'>{t.icon}</Text>
             <Text className='tile__title'>{t.title}</Text>
             <Text className='tile__desc'>{t.desc}</Text>
           </Button>
         ))}
       </View>
+      <RoleTabBar />
     </View>
   )
 }

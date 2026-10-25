@@ -1,6 +1,6 @@
 // 退货（P1-T03，F10 全流程）：关联原单（必填）→ 勾行定数（上限=行净数量，红字已扣减）
 // → 待审批（RETURN 线）→ APPROVED 后仓库收货确认（批次回冲+应收冲减二次确认）。
-// R4「数量只能多不少」：提交后行数量禁改小，增量走追加退货——本页只做发起与提示。
+// R4「数量只能多不少」：待审批单可追加行，已审批后不可再加。
 import { useEffect, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
@@ -162,7 +162,15 @@ export default function ReturnsPage(): JSX.Element {
           }}
           columns={columns}
           pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-          expandable={{ expandedRowRender: (r) => <ReturnDetailCard record={r} /> }}
+          expandable={{
+            expandedRowRender: (r) => (
+              <ReturnDetailCard
+                record={r}
+                canAppend={role === 'owner' || role === 'clerk'}
+                onChanged={reload}
+              />
+            ),
+          }}
         />
       </Card>
 
@@ -177,9 +185,22 @@ export default function ReturnsPage(): JSX.Element {
 
 // ───────────────────────── 行展开：退货行明细 ─────────────────────────
 
-function ReturnDetailCard({ record }: { record: ReturnOrderDTO }): JSX.Element {
+function ReturnDetailCard({
+  record, canAppend, onChanged,
+}: {
+  record: ReturnOrderDTO;
+  canAppend: boolean;
+  onChanged: () => void;
+}): JSX.Element {
+  const { message } = AntApp.useApp();
   const [detail, setDetail] = useState<ReturnOrderDTO | null>(null);
   const [error, setError] = useState('');
+  const [tick, setTick] = useState(0);
+  const [appendOpen, setAppendOpen] = useState(false);
+  const [orderDetail, setOrderDetail] = useState<OrderDTO | null>(null);
+  const [appendLineId, setAppendLineId] = useState<string>();
+  const [appendQty, setAppendQty] = useState<number | null>(null);
+  const [appending, setAppending] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -190,14 +211,51 @@ function ReturnDetailCard({ record }: { record: ReturnOrderDTO }): JSX.Element {
       .then((d) => { if (alive) setDetail(d); })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : '加载明细失败'); });
     return () => { alive = false; };
-  }, [record]);
+  }, [record, tick]);
+
+  useEffect(() => {
+    if (!appendOpen) return;
+    setOrderDetail(null);
+    setAppendLineId(undefined);
+    setAppendQty(null);
+    ordersApi.detail(record.sourceOrderId)
+      .then(setOrderDetail)
+      .catch(() => setOrderDetail(null));
+  }, [appendOpen, record.sourceOrderId]);
 
   if (error) return <Alert type="error" message={error} />;
   if (!detail) return <Spin />;
   const lines = detail.lines ?? [];
 
+  const showAppend = canAppend && (detail.status === 'PENDING_REVIEW' || record.status === 'PENDING_REVIEW');
+  const orderLines = (orderDetail?.lines ?? []).filter((l) => !l.reversalOfId);
+  const nets = orderDetail?.lines ? netQtyMap(orderDetail.lines) : new Map<string, number>();
+
+  async function submitAppend(): Promise<void> {
+    if (!appendLineId || !appendQty || appendQty <= 0) {
+      message.warning('请选择原订单行并填写追加数量');
+      return;
+    }
+    setAppending(true);
+    try {
+      await returnsApi.appendLines(record.id, [{ orderLineId: appendLineId, qty: appendQty }]);
+      message.success('已追加退货行');
+      setAppendOpen(false);
+      setTick((n) => n + 1);
+      onChanged();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '追加失败');
+    } finally {
+      setAppending(false);
+    }
+  }
+
   return (
-    <Card size="small" title={`退货行（${lines.length} 行）`}>
+    <Card
+      size="small"
+      title={`退货行（${lines.length} 行）`}
+      extra={showAppend ? <Button size="small" onClick={() => setAppendOpen(true)}>追加退货行</Button> : null}
+    >
       <Descriptions size="small" column={2} bordered style={{ marginBottom: 12 }}>
         <Descriptions.Item label="退货原因" span={2}>{detail.reason}</Descriptions.Item>
         <Descriptions.Item label="收货时间">{detail.receivedAt ? fmtDateTime(detail.receivedAt) : '-'}</Descriptions.Item>
@@ -215,6 +273,37 @@ function ReturnDetailCard({ record }: { record: ReturnOrderDTO }): JSX.Element {
           { title: '备注', dataIndex: 'note', render: (v) => v ?? '-' },
         ]}
       />
+      <Modal
+        open={appendOpen}
+        title="追加退货行"
+        okText="追加"
+        cancelText="取消"
+        confirmLoading={appending}
+        onOk={() => { void submitAppend(); }}
+        onCancel={() => setAppendOpen(false)}
+        destroyOnClose
+      >
+        <Typography.Paragraph type="secondary">
+          仅待审批的退货单可追加。数量只能增加，累计不能超过签收实收。
+        </Typography.Paragraph>
+        <Select
+          style={{ width: '100%', marginBottom: 12 }}
+          placeholder={orderDetail ? '选择原订单行' : '正在加载原订单…'}
+          value={appendLineId}
+          onChange={setAppendLineId}
+          options={orderLines.map((l) => ({
+            value: l.id,
+            label: `${l.productName}（净量 ${nets.get(l.id) ?? toNum(l.qty)}）`,
+          }))}
+        />
+        <InputNumber
+          style={{ width: '100%' }}
+          min={0.001}
+          value={appendQty ?? undefined}
+          placeholder="追加数量"
+          onChange={(v) => setAppendQty(typeof v === 'number' ? v : null)}
+        />
+      </Modal>
     </Card>
   );
 }

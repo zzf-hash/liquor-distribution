@@ -8,6 +8,7 @@ import {
   Select, Space, Table, Tag, Typography,
 } from 'antd';
 import { agingApi, customersApi, downloadApiFile, receivablesApi } from '../../services/api';
+import { getAuth } from '../../services/auth';
 import type {
   AgingConfigDTO,
   ArBucketDTO,
@@ -31,6 +32,10 @@ export default function ReceivablesPage(): JSX.Element {
   const [bucketTabs, setBucketTabs] = useState(AR_BUCKET_TABS);
   const [agingOpen, setAgingOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const role = getAuth()?.role ?? '';
+  const canWaive = role === 'owner' || role === 'clerk';
+  const canWriteOff = role === 'owner';
+  const [fundAction, setFundAction] = useState<{ type: 'waive' | 'writeoff'; row: ReceivableDTO } | null>(null);
 
   useEffect(() => {
     agingApi.get()
@@ -58,6 +63,18 @@ export default function ReceivablesPage(): JSX.Element {
     { title: '争议', dataIndex: 'disputeFlag', width: 80, render: (_, r) => (
       r.disputeFlag ? <Tag color="error">争议</Tag> : <Tag>正常</Tag>
     ) },
+    {
+      title: '操作', width: 140,
+      render: (_, r) => {
+        if (!(r.open > 0) || (!canWaive && !canWriteOff)) return '-';
+        return (
+          <Space size={8}>
+            {canWaive && <a onClick={() => setFundAction({ type: 'waive', row: r })}>抹零</a>}
+            {canWriteOff && <a onClick={() => setFundAction({ type: 'writeoff', row: r })}>坏账</a>}
+          </Space>
+        );
+      },
+    },
   ];
 
   return (
@@ -128,7 +145,101 @@ export default function ReceivablesPage(): JSX.Element {
         onClose={() => setAgingOpen(false)}
         onSaved={() => { setAgingOpen(false); setRefreshKey((k) => k + 1); }}
       />
+      <FundActionModal
+        state={fundAction}
+        onClose={() => setFundAction(null)}
+        onDone={() => { setFundAction(null); setRefreshKey((k) => k + 1); }}
+      />
     </PageContainer>
+  );
+}
+
+function FundActionModal({
+  state, onClose, onDone,
+}: {
+  state: { type: 'waive' | 'writeoff'; row: ReceivableDTO } | null;
+  onClose: () => void;
+  onDone: () => void;
+}): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [amount, setAmount] = useState<number | null>(null);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (state) {
+      setAmount(state.type === 'waive' ? null : state.row.open);
+      setReason('');
+    }
+  }, [state]);
+
+  async function submit(): Promise<void> {
+    if (!state) return;
+    if (!reason.trim()) {
+      message.warning('请填写原因');
+      return;
+    }
+    if (state.type === 'waive' && (!amount || amount <= 0)) {
+      message.warning('请填写抹零金额');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (state.type === 'waive') {
+        await receivablesApi.waive(state.row.id, amount as number, reason.trim());
+        message.success('抹零已提交');
+      } else {
+        await receivablesApi.writeOff(state.row.id, reason.trim());
+        message.success('坏账已核销');
+      }
+      onDone();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={state !== null}
+      title={state?.type === 'writeoff' ? '坏账核销' : '抹零'}
+      okText={state?.type === 'writeoff' ? '确认核销' : '提交抹零'}
+      cancelText="取消"
+      confirmLoading={submitting}
+      onOk={() => { void submit(); }}
+      onCancel={onClose}
+      destroyOnClose
+    >
+      {state && (
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Text>
+            {state.row.sourceDocNo} · {state.row.customerName} · 未结 {fmtMoney(state.row.open)}
+          </Typography.Text>
+          {state.type === 'waive' ? (
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0.01}
+              max={state.row.open}
+              value={amount ?? undefined}
+              placeholder="抹零金额（必填，不超过未结）"
+              onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
+            />
+          ) : (
+            <Typography.Text type="secondary">
+              将按未结余额整笔核销，金额由服务端计算。
+            </Typography.Text>
+          )}
+          <Input.TextArea
+            rows={3}
+            maxLength={200}
+            value={reason}
+            placeholder={state.type === 'waive' ? '抹零原因（必填）' : '坏账原因（必填）'}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Space>
+      )}
+    </Modal>
   );
 }
 

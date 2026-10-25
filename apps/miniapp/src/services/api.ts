@@ -327,6 +327,9 @@ export const ordersApi = {
     request<Record<string, unknown>>(`/orders/${id}/approve-special`, { method: 'POST', body: { type, reason } }),
   /** 发运（OUTBOUND→DELIVERING，仓配） */
   deliver: (id: string) => request<Record<string, unknown>>(`/orders/${id}/deliver`, { method: 'POST', body: {} }),
+  /** 配送前红字冲销（内勤/老板） */
+  reverseLine: (id: string, lineId: string, qty: number, reason: string) =>
+    request<Record<string, unknown>>(`/orders/${id}/lines/${lineId}/reverse`, { method: 'POST', body: { qty, reason } }),
   /** 签收（逐行实收 + 签收类型 + 回包装；服务端算差额回冲与应收） */
   sign: (id: string, body: SignBody) =>
     request<SignResultDTO>(`/orders/${id}/sign`, { method: 'POST', body: body as unknown as Record<string, unknown> }),

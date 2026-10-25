@@ -13,6 +13,7 @@ import {
 } from '../../../services/api'
 import type { ArBucket, CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 账龄分档 tab（bucket 对齐后端 AgingBucket；'' = 全部未结）
 // M9-3: 档位文案按租户配置下发（默认 30/50/90），tab 短标签取档位天数
@@ -151,6 +152,7 @@ export default function ClerkReceivablesPage() {
           )}
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

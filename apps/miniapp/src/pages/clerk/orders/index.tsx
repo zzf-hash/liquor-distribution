@@ -13,6 +13,7 @@ import {
 } from '../../../services/api'
 import type { StaffOrderRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 订单池 tab（与后端 OrderStatus 对齐；已取消/已拒收走服务端历史，不单设 tab）
 const TABS: Array<{ key: string; label: string }> = [
@@ -119,6 +120,7 @@ export default function ClerkOrdersPage() {
       )}
 
       {items.length > 0 && <Text className='tip'>点击订单查看明细与操作 · 已取消/已拒收单据见后台</Text>}
+      <RoleTabBar />
     </View>
   )
 }

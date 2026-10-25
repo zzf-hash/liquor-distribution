@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
+import { openAppPage } from '../../../services/navigation'
 import { authApi, saveSession } from '../../../services/api'
 import './index.scss'
 
@@ -28,7 +29,7 @@ export default function CustomerLoginPage() {
       }
       saveSession(res)
       Taro.showToast({ title: `欢迎，${res.user.name}`, icon: 'none' })
-      Taro.switchTab({ url: '/pages/customer/products/index' })
+      openAppPage('/pages/customer/products/index')
     } catch (e) {
       Taro.showToast({ title: e instanceof Error ? e.message : '登录失败', icon: 'none' })
     } finally {

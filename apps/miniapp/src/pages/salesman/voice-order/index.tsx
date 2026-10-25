@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
 import { Button, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { markAsrUnavailable, readAsrUnavailable, shouldFallbackVoiceToText } from '../../../config/asr-fallback'
 import { LOGIN_PAGE, draftsApi, fmtDateTime, getToken, toNum } from '../../../services/api'
+import RoleTabBar from '../../../components/RoleTabBar'
 import type { RepDraftDTO } from '../../../services/api'
 import './index.scss'
 
@@ -34,7 +36,9 @@ function audioToBase64(filePath: string): Promise<string> {
  * ASR 未配置/失败时回退：提示后把录音丢弃，改文字模式提交。确认转单在内勤后台「转单草稿」。
  */
 export default function SalesmanVoiceOrderPage() {
-  const [mode, setMode] = useState<'voice' | 'text'>('voice')
+  const [mode, setMode] = useState<'voice' | 'text'>(() => (
+    readAsrUnavailable((key) => String(Taro.getStorageSync(key) ?? '')) ? 'text' : 'voice'
+  ))
   const [text, setText] = useState('')
   const [recording, setRecording] = useState(false)
   const [recordedSec, setRecordedSec] = useState(0)
@@ -46,8 +50,18 @@ export default function SalesmanVoiceOrderPage() {
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    if (readAsrUnavailable((key) => String(Taro.getStorageSync(key) ?? ''))) {
+      setMode('text')
     }
   })
+
+  function fallbackToText(message: string): void {
+    if (!shouldFallbackVoiceToText(message)) return
+    markAsrUnavailable((key, value) => Taro.setStorageSync(key, value))
+    setMode('text')
+  }
 
   /** 停止录音后：录音 → base64 → 后端 ASR+qwen → 草稿（失败回退文字模式） */
   async function submitVoice(res: { tempFilePath: string; duration: number }): Promise<void> {
@@ -64,8 +78,10 @@ export default function SalesmanVoiceOrderPage() {
       setText('')
       Taro.showToast({ title: `识别完成, 草稿 ${draft.draftNo}`, icon: 'success' })
     } catch (e) {
+      const message = e instanceof Error ? e.message : '语音提交失败, 请改用文字'
+      fallbackToText(message)
       Taro.showToast({
-        title: e instanceof Error ? e.message : '语音提交失败, 请改用文字',
+        title: shouldFallbackVoiceToText(message) ? '语音识别未配置，已改为文字报单' : message,
         icon: 'none',
         duration: 3000,
       })
@@ -78,6 +94,11 @@ export default function SalesmanVoiceOrderPage() {
   /** 录音(C组: 停止即上传转写, 不再只本地留档) */
   function toggleRecord() {
     if (transcribing) return
+    if (readAsrUnavailable((key) => String(Taro.getStorageSync(key) ?? ''))) {
+      setMode('text')
+      Taro.showToast({ title: '语音识别未配置，请直接填写文字', icon: 'none' })
+      return
+    }
     if (recording) {
       rmRef.current?.stop()
       return
@@ -90,7 +111,8 @@ export default function SalesmanVoiceOrderPage() {
     })
     rm.onError(() => {
       setRecording(false)
-      Taro.showToast({ title: '录音失败，请改用文字模式', icon: 'none' })
+      setMode('text')
+      Taro.showToast({ title: '录音失败，已改为文字模式', icon: 'none' })
     })
     rmRef.current = rm
     rm.start({ duration: 60000, format: 'mp3' })
@@ -230,6 +252,7 @@ export default function SalesmanVoiceOrderPage() {
           </View>
         </View>
       )}
+      <RoleTabBar />
     </View>
   )
 }
