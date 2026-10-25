@@ -36,6 +36,7 @@ export class UsersController {
   @Post()
   @Roles('OWNER')
   async create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto): Promise<unknown> {
+    if (dto.username.trim().toLowerCase() === 'system') throw new BadRequestException('用户名 system 为系统保留');
     const dataScope = dto.role === 'OWNER' || dto.role === 'CLERK' ? 'ALL' : dto.role === 'REP' ? 'OWN_CUSTOMERS' : 'SELF';
     const created = await this.prisma.user.create({
       data: { tenantId: user.tenantId, username: dto.username, passwordHash: bcrypt.hashSync(dto.password, 10), name: dto.name, role: dto.role, dataScope, phone: dto.phone },

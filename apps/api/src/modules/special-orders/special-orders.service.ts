@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { OrdersService } from '../orders/orders.service';
@@ -31,11 +32,11 @@ export class SpecialOrdersService {
     if (dto.lines.some((l) => l.qty <= 0 || l.price < 0)) throw new BadRequestException('数量须>0, 价格须≥0');
     // 引用了商品的行以后要写入 PriceUnit。这里先拦住非法单位；原文（箱/件）仍落在特单行上。
     for (const l of dto.lines) if (l.productId) requirePriceUnit(l.unit);
-    const seq = (await this.prisma.specialOrder.count({ where: { specialNo: { startsWith: `SP${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.specialOrder.count({ where: { specialNo: { startsWith: `SP${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.specialOrder.create({
       data: {
         tenantId: user.tenantId,
-        specialNo: `SP${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        specialNo: `SP${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         title: dto.title, customerId: dto.customerId, customerName: dto.customerName,
         isBanquet: dto.isBanquet ?? false,
         eventDate: dto.eventDate ? new Date(dto.eventDate) : undefined, venue: dto.venue,

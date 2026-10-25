@@ -2,9 +2,12 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { planReturnReceive, type ReturnReceivePlan } from './return-receive-plan';
 
 // ═══════════════ P1-T03 退货销户 (F10 + R4 + D13) ═══════════════
 // D13: 签收后 48h 窗口 + 关联原单必填 + 老板审批; 退回按原批次回冲库存, 应收按实退重算
@@ -59,7 +62,7 @@ export class ReturnsService {
       if (already + qty > net + 0.0001) throw new BadRequestException(`行退货累计 ${already + qty} 超过原行净量 ${net}(R4 只能多不能少的上限=原量)`);
     }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)
-    const rtDay = dayjs().format('YYYYMMDD');
+    const rtDay = bizDayStamp();
     let created: Awaited<ReturnType<typeof this.prisma.returnOrder.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
       const seq = (await this.prisma.returnOrder.count({ where: { returnNo: { startsWith: `RT${rtDay}` } } })) + 1 + attempt;
@@ -97,7 +100,7 @@ export class ReturnsService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.returnOrder.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { lines: true, order: { select: { orderNo: true } }, customer: { select: { name: true } } },
@@ -145,37 +148,23 @@ export class ReturnsService {
     return { appended: lines.length };
   }
 
+  /** 收货预览：批次回冲 + 应收冲减。字段对齐管理端 ReturnReceivePreviewDTO。 */
+  async previewReceive(id: string): Promise<{ batches: Array<{ batchNo: string | null; productId: string; productName: string | null; qty: number }>; arCredit: number }> {
+    const { plan } = await this.loadReceivePlan(id);
+    return {
+      batches: plan.batches.map((b) => ({ batchNo: b.batchNo, productId: b.productId, productName: b.productName, qty: b.qty })),
+      arCredit: plan.arCredit,
+    };
+  }
+
   /** 收货回冲: 原批次 IN 流水 + 应收 RETURN_CREDIT 冲减; 仓库执行(APPROVED 后) */
   async receive(user: AuthUser, id: string): Promise<unknown> {
-    const r = await this.prisma.returnOrder.findUnique({
-      where: { id },
-      include: { lines: true, order: { include: { lines: true, outbounds: { include: { lines: true } } } } },
-    });
-    if (!r) throw new NotFoundException('退货单不存在');
-    if (r.status !== 'APPROVED') throw new ConflictException('退货审批通过后才可收货回冲');
-    // 应收按应用层关联查询(schema FK 已移除)
+    const { order: r, plan } = await this.loadReceivePlan(id);
+    const { batches, arCredit } = plan;
     const orderReceivables = await this.prisma.receivable.findMany({
       where: { tenantId: r.tenantId, sourceType: 'ORDER', sourceDocNo: r.order.orderNo },
       orderBy: { generatedAt: 'asc' },
     });
-    // 原批次回冲(该行出库批次顺序取)
-    const batches: Array<{ productId: string; batchId: string; qty: number }> = [];
-    let arCredit = 0;
-    for (const l of r.lines) {
-      const orderLine = r.order.lines.find((x) => x.id === l.orderLineId);
-      if (!orderLine) continue;
-      const minQty = Number(l.qty) * (orderLine.unit === 'BASE' ? orderLine.conversionRate : 1);
-      const outLines = r.order.outbounds.filter((o) => o.status === 'CONFIRMED').flatMap((o) => o.lines).filter((ol) => ol.orderLineId === l.orderLineId);
-      let remaining = minQty;
-      for (const ol of outLines) {
-        if (remaining <= 0) break;
-        const take = Math.min(remaining, Number(ol.qty));
-        remaining -= take;
-        batches.push({ productId: l.productId, batchId: ol.batchId, qty: take });
-      }
-      if (remaining > 0.0001) throw new ConflictException(`退货行 ${l.orderLineId} 超过已确认出库数量，无法回冲库存`);
-      arCredit += Number(orderLine.unitPrice) * Number(l.qty);
-    }
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.returnOrder.updateMany({ where: { id, status: 'APPROVED' }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: user.id } });
       if (claimed.count === 0) throw new ConflictException('退货单状态已变化(可能已收货), 请刷新后重试');
@@ -194,6 +183,32 @@ export class ReturnsService {
     });
     await this.audit.log({ user, action: 'RETURN_RECEIVE', entityType: 'RETURN', entityId: id, after: { returnNo: r.returnNo, batches: batches.length, arCredit } });
     return { returnNo: r.returnNo, status: 'RECEIVED', batches, arCredit };
+  }
+
+  private async loadReceivePlan(id: string): Promise<{ order: {
+    id: string; tenantId: string; returnNo: string; reason: string; status: string;
+    order: { orderNo: string };
+  }; plan: ReturnReceivePlan }> {
+    const r = await this.prisma.returnOrder.findUnique({
+      where: { id },
+      include: {
+        lines: true,
+        order: { include: { lines: true, outbounds: { include: { lines: { include: { batch: { select: { batchNo: true } } } } } } } },
+      },
+    });
+    if (!r) throw new NotFoundException('退货单不存在');
+    if (r.status !== 'APPROVED') throw new ConflictException('退货审批通过后才可收货回冲');
+    const plan = planReturnReceive({
+      lines: r.lines.map((l) => ({ orderLineId: l.orderLineId, productId: l.productId, qty: Number(l.qty) })),
+      orderLines: r.order.lines.map((l) => ({
+        id: l.id, productName: l.productName, unit: l.unit, conversionRate: l.conversionRate, unitPrice: Number(l.unitPrice),
+      })),
+      outboundLines: r.order.outbounds
+        .filter((o) => o.status === 'CONFIRMED')
+        .flatMap((o) => o.lines)
+        .map((ol) => ({ orderLineId: ol.orderLineId, batchId: ol.batchId, batchNo: ol.batch?.batchNo ?? null, qty: Number(ol.qty) })),
+    });
+    return { order: r, plan };
   }
 
   async cancel(user: AuthUser, id: string): Promise<unknown> {

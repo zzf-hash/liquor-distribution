@@ -5,7 +5,7 @@ import { tenantContext } from '../../prisma/tenant-context';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
-import { StockAlertService } from './stock-alert.service';
+import { StockAlertService, SYSTEM_USER } from './stock-alert.service';
 import { TelemetryService } from '../../common/telemetry.service';
 import { TelemetryModule } from '../../common/telemetry.controller';
 import { ApprovalsModule } from '../approvals/approvals.controller';
@@ -20,10 +20,7 @@ import type { AlertConfig } from './stock-alert.service';
 // /stock-alert/restocks/:id/confirm  POST 内勤确认→转采购单+提审(老板审)
 // /stock-alert/restocks/:id/dismiss  POST 内勤忽略
 
-/** 系统任务身份(日切 cron 无登录态): id=system, 审计 username=SYSTEM role=SYSTEM */
-export function SYSTEM_USER(tenantId: string): AuthUser {
-  return { id: 'system', tenantId, username: 'system', name: '系统', role: 'OWNER', dataScope: 'ALL', aud: 'staff' };
-}
+export { SYSTEM_USER };
 
 @Injectable()
 export class SystemConfigReader {

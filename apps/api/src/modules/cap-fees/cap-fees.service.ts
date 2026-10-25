@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp, bizMonthRange, bizPrevMonthKey } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -27,7 +28,7 @@ export class CapFeesService {
 
   async listPolicies(user: AuthUser): Promise<unknown> {
     const rows = await this.prisma.capFeePolicy.findMany({
-      where: { closedAt: null },
+      where: { tenantId: user.tenantId, closedAt: null },
       include: { product: { select: { skuCode: true, name: true, category: true, baseUnit: true, minUnit: true, packSize: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -46,9 +47,9 @@ export class CapFeesService {
     if (!(rate > 0 && rate <= 1)) throw new BadRequestException('不回盖兑付比例须在 (0,1] 之间(Q3 可配)');
     const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
     if (!product) throw new NotFoundException('商品不存在');
-    const before = await this.prisma.capFeePolicy.findFirst({ where: { productId: dto.productId, closedAt: null } });
+    const before = await this.prisma.capFeePolicy.findFirst({ where: { tenantId: user.tenantId, productId: dto.productId, closedAt: null } });
     const saved = await this.prisma.capFeePolicy.upsert({
-      where: { productId: dto.productId },
+      where: { tenantId_productId: { tenantId: user.tenantId, productId: dto.productId } },
       update: { perBottleFee: new Prisma.Decimal(dto.perBottleFee), requireCap: dto.requireCap ?? before?.requireCap ?? true, noCapRate: new Prisma.Decimal(rate), closedAt: null, updatedAt: new Date() },
       create: {
         tenantId: user.tenantId, productId: dto.productId,
@@ -63,7 +64,9 @@ export class CapFeesService {
 
   async closePolicy(user: AuthUser, id: string): Promise<unknown> {
     if (user.role !== 'OWNER' && user.role !== 'CLERK') throw new ForbiddenException('仅老板/内勤可维护开瓶费政策');
-    const claimed = await this.prisma.capFeePolicy.updateMany({ where: { id, closedAt: null }, data: { closedAt: new Date() } });
+    const existing = await this.prisma.capFeePolicy.findFirst({ where: { id, tenantId: user.tenantId }, select: { id: true, closedAt: true } });
+    if (!existing) throw new NotFoundException('政策不存在');
+    const claimed = await this.prisma.capFeePolicy.updateMany({ where: { id, tenantId: user.tenantId, closedAt: null }, data: { closedAt: new Date() } });
     if (claimed.count === 0) throw new ConflictException('政策不存在或已关闭');
     await this.audit.log({ user, action: 'CAPFEE_POLICY_CLOSE', entityType: 'CapFeePolicy', entityId: id });
     return { id, closed: true };
@@ -79,7 +82,7 @@ export class CapFeesService {
     const lines: Array<{ productId: string; productName: string; qty: number; perBottleFee: number; amount: number }> = [];
     for (const l of dto.lines) {
       if (!(l.qty > 0)) throw new BadRequestException('回收数量必须大于 0');
-      const policy = await this.prisma.capFeePolicy.findFirst({ where: { productId: l.productId, closedAt: null }, include: { product: true } });
+      const policy = await this.prisma.capFeePolicy.findFirst({ where: { tenantId: user.tenantId, productId: l.productId, closedAt: null }, include: { product: true } });
       if (!policy) throw new BadRequestException('商品未配置开瓶费政策');
       if (!policy.requireCap) throw new BadRequestException(`${policy.product.name} 是不回瓶盖模式, 无需登记回收(系统自动计提)`);
       lines.push({
@@ -88,10 +91,10 @@ export class CapFeesService {
       });
     }
     const total = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2));
-    const day = dayjs().format('YYYYMMDD');
+    const day = bizDayStamp();
     let order: Awaited<ReturnType<typeof this.prisma.capRecycleOrder.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !order; attempt++) {
-      const seq = (await this.prisma.capRecycleOrder.count({ where: { recycleNo: { startsWith: `GAI${day}` } } })) + 1 + attempt;
+      const seq = (await this.prisma.capRecycleOrder.count({ where: { tenantId: user.tenantId, recycleNo: { startsWith: `GAI${day}` } } })) + 1 + attempt;
       try {
         order = await this.prisma.capRecycleOrder.create({
           data: {
@@ -114,11 +117,12 @@ export class CapFeesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = {
+      tenantId: user.tenantId,
       status: q.status as never,
       // 业务员只见自己登记/自己客户
       ...(user.role === 'REP' ? { createdById: user.id } : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.capRecycleOrder.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { customer: { select: { code: true, name: true } } },
@@ -131,7 +135,7 @@ export class CapFeesService {
   /** 出纳确认 → 生成 CAP_FEE 费用单(进 EXPENSE 审批线; 兑付方式可指定, 默认冲抵货款) */
   async confirmRecycle(user: AuthUser, id: string, dto: { payMode?: 'CASH' | 'AR_OFFSET'; note?: string }): Promise<unknown> {
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤出纳/老板可确认回收兑付');
-    const order = await this.prisma.capRecycleOrder.findUnique({ where: { id }, include: { customer: true } });
+    const order = await this.prisma.capRecycleOrder.findUnique({ where: { id, tenantId: user.tenantId }, include: { customer: true } });
     if (!order) throw new NotFoundException('回收单不存在');
     if (order.status !== 'PENDING_CONFIRM') throw new ConflictException(`仅待确认可兑付(当前 ${order.status})`);
     const expense = (await this.expenses.create(user, {
@@ -144,7 +148,7 @@ export class CapFeesService {
       source: `CAP_RECYCLE:${order.recycleNo}`,
     })) as { id: string; expenseNo: string; approvalId: string | null };
     const claimed = await this.prisma.capRecycleOrder.updateMany({
-      where: { id, status: 'PENDING_CONFIRM' },
+      where: { id, tenantId: user.tenantId, status: 'PENDING_CONFIRM' },
       data: { status: 'CONFIRMED', expenseId: expense.id, confirmedById: user.id, confirmedAt: new Date() },
     });
     if (claimed.count === 0) throw new ConflictException('回收单状态已变化, 请刷新后重试');
@@ -154,7 +158,9 @@ export class CapFeesService {
 
   async cancelRecycle(user: AuthUser, id: string, reason: string): Promise<unknown> {
     if (!reason?.trim()) throw new BadRequestException('取消原因必填');
-    const claimed = await this.prisma.capRecycleOrder.updateMany({ where: { id, status: 'PENDING_CONFIRM' }, data: { status: 'CANCELLED', note: reason } });
+    const existing = await this.prisma.capRecycleOrder.findFirst({ where: { id, tenantId: user.tenantId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('回收单不存在');
+    const claimed = await this.prisma.capRecycleOrder.updateMany({ where: { id, tenantId: user.tenantId, status: 'PENDING_CONFIRM' }, data: { status: 'CANCELLED', note: reason } });
     if (claimed.count === 0) throw new ConflictException('仅待确认可取消');
     await this.audit.log({ user, action: 'CAP_RECYCLE_CANCEL', entityType: 'CapRecycleOrder', entityId: id, after: { reason } });
     return { id, status: 'CANCELLED' };
@@ -167,11 +173,10 @@ export class CapFeesService {
    * 幂等: source=CAP_ACCRUAL:<period>:<customerId> 的费用单已存在则跳过该客户。
    */
   async accrue(actor: AuthUser, periodInput?: string): Promise<{ period: string; customers: number; expenses: number; totalAmount: number; skipped: number }> {
-    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : dayjs().subtract(1, 'month').format('YYYY-MM');
-    const start = dayjs(`${period}-01`).startOf('month').toDate();
-    const end = dayjs(`${period}-01`).endOf('month').toDate();
+    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : bizPrevMonthKey();
+    const { start, end } = bizMonthRange(period);
     const policies = await this.prisma.capFeePolicy.findMany({
-      where: { requireCap: false, closedAt: null },
+      where: { tenantId: actor.tenantId, requireCap: false, closedAt: null },
       include: { product: { select: { name: true } } },
     });
     if (policies.length === 0) return { period, customers: 0, expenses: 0, totalAmount: 0, skipped: 0 };

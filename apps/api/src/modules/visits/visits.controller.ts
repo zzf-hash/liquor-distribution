@@ -1,7 +1,7 @@
 import { Body, Controller, ForbiddenException, Get, Injectable, Module, NotFoundException, Post, Query } from '@nestjs/common';
 import { IsObject, IsOptional, IsString } from 'class-validator';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizMonthKey, bizMonthRange, bizNow } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -47,8 +47,8 @@ export class VisitsController {
 
   @Get()
   async list(@CurrentUser() user: AuthUser, @Query('mine') mine?: string, @Query('month') month?: string, @Query('customerId') customerId?: string): Promise<unknown> {
-    const monthStart = month ? dayjs(`${month}-01`).startOf('month').toDate() : dayjs().startOf('month').toDate();
-    const monthEnd = month ? dayjs(`${month}-01`).endOf('month').toDate() : dayjs().endOf('month').toDate();
+    const monthStart = month && /^\d{4}-\d{2}$/.test(month) ? bizMonthRange(month).start : bizNow().startOf('month').toDate();
+    const monthEnd = month && /^\d{4}-\d{2}$/.test(month) ? bizMonthRange(month).end : bizNow().endOf('month').toDate();
     const items = await this.prisma.visit.findMany({
       where: {
         repId: (mine || user.role === 'REP') ? user.id : undefined,
@@ -64,9 +64,8 @@ export class VisitsController {
 
   @Get('stats')
   async stats(@CurrentUser() user: AuthUser, @Query('month') month?: string): Promise<unknown> {
-    const m = month ?? dayjs().format('YYYY-MM');
-    const start = dayjs(`${m}-01`).startOf('month').toDate();
-    const end = dayjs(`${m}-01`).endOf('month').toDate();
+    const m = month && /^\d{4}-\d{2}$/.test(month) ? month : bizMonthKey();
+    const { start, end } = bizMonthRange(m);
     const where = { visitedAt: { gte: start, lte: end } };
     if (user.role === 'REP') Object.assign(where, { repId: user.id });
     const grouped = await this.prisma.visit.groupBy({ by: ['repId'], where, _count: { id: true } });
