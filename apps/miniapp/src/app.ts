@@ -2,7 +2,8 @@ import { PropsWithChildren } from 'react'
 import Taro, { useDidShow, useError, useLaunch } from '@tarojs/taro'
 import { APP_ROLE } from './config/app-role'
 import { tabBarAction, tabsForAppRole } from './config/role-tabs'
-import { ROLE_HOME_PAGE, getRole } from './services/api'
+import { LOGIN_PAGE, ROLE_HOME_PAGE, clearSession, getRole } from './services/api'
+import { STAFF_PACKAGE_CUSTOMER_TOAST, storedCustomerOnStaffPackage } from './services/package-login-gate'
 import { reportError } from './services/telemetry'
 
 import './app.scss'
@@ -35,6 +36,13 @@ function relaunchWhenRouterReady(url: string): void {
 function syncRoleNavigation(): void {
   const route = currentRoute()
   const role = getRole()
+  // 员工包里残留的客户 token 没有底部 tab 可去。清会话，停在员工登录页。
+  if (storedCustomerOnStaffPackage(APP_ROLE, role)) {
+    clearSession()
+    Taro.showToast({ title: STAFF_PACKAGE_CUSTOMER_TOAST, icon: 'none' })
+    relaunchWhenRouterReady(LOGIN_PAGE)
+    return
+  }
   const action = tabBarAction(APP_ROLE, role, route)
   if (action === 'redirect-staff-home') {
     const home = ROLE_HOME_PAGE[role]
