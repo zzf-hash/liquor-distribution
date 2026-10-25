@@ -1,6 +1,6 @@
 // 特单（P1-T02，F8 全员下单+婚宴宴席）：DRAFT→PENDING_PRICE→APPROVED→CONVERTED/REJECTED
 // 红线：未经定价审批不可出货——「转正式订单」仅在 APPROVED 可用，其余状态禁用。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -8,6 +8,8 @@ import {
   Select, Space, Switch, Table, Tag, Typography,
 } from 'antd';
 import { customersApi, productsApi, specialOrdersApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   CustomerDTO,
   ProductDTO,
@@ -32,6 +34,7 @@ export default function SpecialOrdersPage(): JSX.Element {
   const [keyword, setKeyword] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   const reload = (): void => setRefreshKey((k) => k + 1);
 
@@ -63,7 +66,8 @@ export default function SpecialOrdersPage(): JSX.Element {
       cancelText: '再想想',
       onOk: async () => {
         try {
-          const res = await specialOrdersApi.convert(r.id);
+          const res = await specialOrdersApi.convert(r.id, rememberIdemKey(idemRef, { convert: r.id }));
+          idemRef.current = null;
           message.success(`已转正式订单：${res.orderNo ?? res.convertedOrderId ?? '见订单池'}`);
           reload();
         } catch (e) {

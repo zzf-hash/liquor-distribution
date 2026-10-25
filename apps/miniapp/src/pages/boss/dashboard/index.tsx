@@ -3,6 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { LOGIN_PAGE, agingApi, dashboardApi, defaultArBucketLabels, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
 import type { ArBucket, FourQuestionsDTO } from '../../../services/api'
+import RoleTabBar from '../../../components/RoleTabBar'
 import './index.scss'
 
 // 欠款分档（与后端 buckets 键对齐；配色=蓝未到期→橙短逾→红长逾→灰争议）
@@ -66,6 +67,7 @@ export default function BossDashboardPage() {
           <Text className='state__txt'>{error}</Text>
           <Button className='btn-primary' onClick={() => { void load() }}>重新加载</Button>
         </View>
+        <RoleTabBar />
       </View>
     )
   }
@@ -73,6 +75,7 @@ export default function BossDashboardPage() {
     return (
       <View className='page'>
         <Text className='tip'>正在加载看板…</Text>
+        <RoleTabBar />
       </View>
     )
   }
@@ -174,6 +177,7 @@ export default function BossDashboardPage() {
       </View>
 
       <Text className='tip'>数据生成于 {fmtDateTime(data.generatedAt)}，下拉可刷新</Text>
+      <RoleTabBar />
     </View>
   )
 }

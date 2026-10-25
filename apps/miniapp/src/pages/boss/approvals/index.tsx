@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
+import RoleTabBar from '../../../components/RoleTabBar'
 import {
   APPROVAL_LINE_LABELS,
   APPROVAL_STATUS_LABELS,
@@ -211,6 +212,7 @@ export default function BossApprovalsPage() {
         onSubmit={(text) => { void decide(text) }}
         onClose={() => setDeciding(null)}
       />
+      <RoleTabBar />
     </View>
   )
 }

@@ -38,6 +38,7 @@ import {
   labelOf,
 } from '../../constants/labels';
 import { fmtDateTime, fmtMoney, toNum } from '../../utils/format';
+import { ReverseLineModal, canReverseLine, netLineQty } from './reverse-line';
 
 type ReasonAction = 'cancel' | 'reject' | 'approveSpecial';
 
@@ -193,7 +194,7 @@ export default function OrdersPage(): JSX.Element {
           }}
           columns={columns}
           pagination={{ defaultPageSize: 20, showSizeChanger: true }}
-          expandable={{ expandedRowRender: (r) => <OrderDetailCard order={r} /> }}
+          expandable={{ expandedRowRender: (r) => <OrderDetailCard order={r} onChanged={reload} /> }}
         />
       </Card>
 
@@ -213,9 +214,13 @@ export default function OrdersPage(): JSX.Element {
 
 // ───────────────────────── 行展开：明细 + 预检 ─────────────────────────
 
-function OrderDetailCard({ order }: { order: OrderDTO }): JSX.Element {
+function OrderDetailCard({ order, onChanged }: { order: OrderDTO; onChanged: () => void }): JSX.Element {
+  const { message } = AntApp.useApp();
+  const role = getAuth()?.role ?? '';
   const [detail, setDetail] = useState<OrderDTO | null>(null);
   const [error, setError] = useState('');
+  const [reloadTick, setReloadTick] = useState(0);
+  const [reverseTarget, setReverseTarget] = useState<OrderLineDTO | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -226,7 +231,7 @@ function OrderDetailCard({ order }: { order: OrderDTO }): JSX.Element {
       .then((d) => { if (alive) setDetail(d); })
       .catch((e) => { if (alive) setError(e instanceof Error ? e.message : '加载明细失败'); });
     return () => { alive = false; };
-  }, [order.id]);
+  }, [order.id, reloadTick]);
 
   if (error) return <Alert type="error" message={error} />;
   if (!detail) return <Spin />;
@@ -250,6 +255,14 @@ function OrderDetailCard({ order }: { order: OrderDTO }): JSX.Element {
       <span style={{ color: toNum(v) < 0 ? NEG : undefined }}>{fmtMoney(v)}</span>
     ) },
     { title: '价格类型', dataIndex: 'priceType', width: 110, render: (v: string) => labelOf(PRICE_TYPE_LABELS, v) },
+    {
+      title: '操作', width: 80,
+      render: (_: unknown, r: OrderLineDTO) => (
+        detail && canReverseLine(detail.status, role, lines, r)
+          ? <a onClick={() => setReverseTarget(r)}>冲销</a>
+          : null
+      ),
+    },
   ];
 
   return (
@@ -283,6 +296,24 @@ function OrderDetailCard({ order }: { order: OrderDTO }): JSX.Element {
           }]}
         />
       )}
+      <ReverseLineModal
+        open={reverseTarget !== null}
+        productName={reverseTarget?.productName ?? ''}
+        maxQty={reverseTarget && detail ? netLineQty(lines, reverseTarget) : 0}
+        onClose={() => setReverseTarget(null)}
+        onSubmit={async (qty, reason) => {
+          if (!reverseTarget) return;
+          try {
+            await ordersApi.reverseLine(order.id, reverseTarget.id, qty, reason);
+            message.success('已生成红字冲销行');
+            setReverseTarget(null);
+            setReloadTick((n) => n + 1);
+            onChanged();
+          } catch (e) {
+            message.error(e instanceof Error ? e.message : '冲销失败');
+          }
+        }}
+      />
     </Card>
   );
 }

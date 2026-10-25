@@ -2,7 +2,9 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, clearSession, getToken, getUserName } from '../../../services/api'
+import { openAppPage } from '../../../services/navigation'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 宫格磁贴（P1 全员端；订单池复用内勤订单页，只读视角+特批入口在详情页按角色显隐）
 const TILES: Array<{ icon: string; title: string; desc: string; url: string }> = [
@@ -36,13 +38,14 @@ export default function BossHomePage() {
       <Text className='grid-home__sub'>今天生意怎么样，一眼看全</Text>
       <View className='grid-home__grid'>
         {TILES.map((t) => (
-          <Button key={t.title} className='tile' onClick={() => Taro.navigateTo({ url: t.url })}>
+          <Button key={t.title} className='tile' onClick={() => openAppPage(t.url)}>
             <Text className='tile__icon'>{t.icon}</Text>
             <Text className='tile__title'>{t.title}</Text>
             <Text className='tile__desc'>{t.desc}</Text>
           </Button>
         ))}
       </View>
+      <RoleTabBar />
     </View>
   )
 }

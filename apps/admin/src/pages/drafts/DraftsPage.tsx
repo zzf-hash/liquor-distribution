@@ -9,6 +9,8 @@ import {
 } from 'antd';
 import { priceUnitErrorMessage, toPriceUnit } from '@liquor/shared';
 import { aliasesApi, customersApi, draftsApi, productsApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   AliasEntryDTO, AliasKindDTO, CustomerDTO, DraftItemDTO, DraftSourceDTO,
   DraftStatusDTO, OrderDraftDTO, ProductDTO,
@@ -259,6 +261,7 @@ function DraftEditDrawer({
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardReason, setDiscardReason] = useState('');
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (!draft) return;
@@ -348,7 +351,9 @@ function DraftEditDrawer({
       onOk: async () => {
         if (!(await save())) throw new Error('保存失败'); // 弹窗保持打开，可重试
         try {
-          const res = await draftsApi.confirm(d.id, { customerId, lines, learnAliases: true });
+          const input = { customerId, lines, learnAliases: true as const };
+          const res = await draftsApi.confirm(d.id, input, rememberIdemKey(idemRef, { id: d.id, input }));
+          idemRef.current = null;
           message.success(`已转单：${res.orderNo}（已进入订单池待确认，不会直接出库）`);
           onChanged();
           onClose();

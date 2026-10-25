@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
 import { ROLE_HOME_PAGE, authApi, saveSession } from '../../../services/api'
+import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 
 /**
@@ -41,8 +42,8 @@ export default function StaffLoginPage() {
       }
       saveSession(res)
       Taro.showToast({ title: `欢迎，${res.user.name}（${ROLE_NAME[role] ?? role}）`, icon: 'none' })
-      // CUSTOMER 首页是 tabBar 页须 switchTab；员工端首页 reLaunch 清栈
-      if (role === 'CUSTOMER') Taro.switchTab({ url: home })
+      // 客户首页在客户包里是 tab 页；员工首页用 reLaunch 清栈。openAppPage 按编译期 tab 选择。
+      if (role === 'CUSTOMER') openAppPage(home)
       else Taro.reLaunch({ url: home })
     } catch (e) {
       Taro.showToast({ title: e instanceof Error ? e.message : '登录失败', icon: 'none' })

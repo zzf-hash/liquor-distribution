@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { openAppPage } from '../../../services/navigation'
 import { fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
 import type { CustomerOrderDTO } from '../../../services/api'
 import './index.scss'
@@ -70,7 +71,7 @@ export default function CustomerOrdersPage() {
       ) : items.length === 0 ? (
         <View className='state'>
           <Text className='state__txt'>还没有订单，去下一单吧</Text>
-          <Button className='btn-primary' onClick={() => Taro.switchTab({ url: '/pages/customer/products/index' })}>
+          <Button className='btn-primary' onClick={() => openAppPage('/pages/customer/products/index')}>
             去选酒
           </Button>
         </View>

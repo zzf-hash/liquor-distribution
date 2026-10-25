@@ -10,12 +10,21 @@
  *
  * P1 全员端起登录统一到 pages/staff/login，按 user.role 分发到各端首页
  * （路由表见 services/api.ts ROLE_HOME_PAGE），本开关保留给"按端单独出包"的编译形态。
- * 切换方式：编译前改本常量（后续任务可升级为 env 注入 / 多 entry）。
- * 页面注册集中在 src/app.config.ts，新增端先加 pages 再改此开关。
+ * 切换方式：构建时设置 TARO_APP_ROLE（customer/salesman/clerk/warehouse/boss）。
+ * 未设置时默认 customer。一套包内登录后仍按 user.role 隐藏客户 tab。
+ * 页面注册集中在 src/app.config.ts。
  */
 export type AppRole = 'customer' | 'salesman' | 'clerk' | 'warehouse' | 'boss'
 
-export const APP_ROLE: AppRole = 'customer'
+const APP_ROLES: readonly AppRole[] = ['customer', 'salesman', 'clerk', 'warehouse', 'boss']
+
+function readAppRole(): AppRole {
+  const raw = typeof process !== 'undefined' ? String(process.env.TARO_APP_ROLE ?? '').trim() : ''
+  return (APP_ROLES as readonly string[]).includes(raw) ? (raw as AppRole) : 'customer'
+}
+
+/** 编译期端别。未设置 TARO_APP_ROLE 时仍是客户包；员工登录后由运行时角色改导航。 */
+export const APP_ROLE: AppRole = readAppRole()
 
 export const APP_TITLE: Record<AppRole, string> = {
   customer: '酒类分销·客户订货',

@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
+import { openAppPage } from '../../../services/navigation'
 import {
   UNIT_LABELS,
   cartQty,
@@ -22,6 +25,7 @@ import './index.scss'
 export default function CustomerCartPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   useDidShow(() => {
     if (!getToken()) {
@@ -55,9 +59,9 @@ export default function CustomerCartPage() {
         cancelText: '再看看',
       })
       if (!confirm.confirm) return
-      const res = await ordersApi.create(
-        cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty })),
-      )
+      const lines = cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty }))
+      const res = await ordersApi.create(lines, rememberIdemKey(idemRef, lines))
+      idemRef.current = null
       saveCart([])
       setCart([])
       await Taro.showModal({
@@ -66,7 +70,7 @@ export default function CustomerCartPage() {
         showCancel: false,
         confirmText: '查看订单',
       })
-      Taro.switchTab({ url: '/pages/customer/orders/index' })
+      openAppPage('/pages/customer/orders/index')
     } catch (e) {
       // 审单预检拦截（起送量/价格等）直接展示后端 message
       Taro.showModal({
@@ -83,7 +87,7 @@ export default function CustomerCartPage() {
     return (
       <View className='state'>
         <Text className='state__txt'>购物车是空的</Text>
-        <Button className='btn-primary' onClick={() => Taro.switchTab({ url: '/pages/customer/products/index' })}>
+        <Button className='btn-primary' onClick={() => openAppPage('/pages/customer/products/index')}>
           去选酒
         </Button>
       </View>

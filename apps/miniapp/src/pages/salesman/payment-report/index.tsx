@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
@@ -19,6 +21,7 @@ import './index.scss'
  * 下方「我上报的待确认」列表（GET /payments?status=REPORTED，rep 视角全量里自行留档）。
  */
 export default function SalesmanPaymentReportPage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<CustomerRowDTO[]>([])
   const [customerId, setCustomerId] = useState('')
   const [amount, setAmount] = useState('')
@@ -67,12 +70,14 @@ export default function SalesmanPaymentReportPage() {
     }
     setSubmitting(true)
     try {
-      await paymentsApi.report({
+      const payload = {
         customerId,
         amount: Number(amt.toFixed(2)),
         method,
         voucher: voucher.trim() || undefined,
-      })
+      }
+      await paymentsApi.report(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showToast({ title: '已上报，待内勤确认', icon: 'success' })
       setCustomerId('')
       setAmount('')

@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
@@ -13,6 +15,7 @@ import {
 } from '../../../services/api'
 import type { CustomerRowDTO, PaymentRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 /**
  * 收款登记（P1 全员端，内勤）：客户 picker + 金额 + 方式 + 凭证号 → POST /payments
@@ -20,6 +23,7 @@ import './index.scss'
  * 下方待确认列表 = 业务员上报（GET /payments?status=REPORTED），「确认销账」二次确认后逐单核销。
  */
 export default function ClerkPaymentsPage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<CustomerRowDTO[]>([])
   const [customerId, setCustomerId] = useState('')
   const [amount, setAmount] = useState('')
@@ -69,12 +73,14 @@ export default function ClerkPaymentsPage() {
     }
     setSubmitting(true)
     try {
-      await paymentsApi.report({
+      const payload = {
         customerId,
         amount: Number(amt.toFixed(2)),
         method,
         voucher: voucher.trim() || undefined,
-      })
+      }
+      await paymentsApi.report(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showToast({ title: '已登记并按先到期先结销账', icon: 'success' })
       setCustomerId('')
       setAmount('')
@@ -213,6 +219,7 @@ export default function ClerkPaymentsPage() {
       </View>
 
       <Text className='tip'>内勤直录立即按「先到期先结」核销；业务员上报需在此确认</Text>
+      <RoleTabBar />
     </View>
   )
 }

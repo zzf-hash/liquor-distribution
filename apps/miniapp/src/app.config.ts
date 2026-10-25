@@ -1,4 +1,5 @@
-import type { AppRole } from './config/app-role'
+import { APP_ROLE, APP_TITLE, type AppRole } from './config/app-role'
+import { tabsForAppRole } from './config/role-tabs'
 
 // 四端复用：页面按端分组注册，编译时按 APP_ROLE 决定首页与页面集合
 // （task d0974541；P1 全员端起各员工端页面全部挂入，登录统一按 role 分发）
@@ -58,12 +59,14 @@ export const RESERVED_PAGES: Record<Exclude<AppRole, 'customer'>, string[]> = {
   boss: [...BOSS_PAGES],
 }
 
+const roleTabs = tabsForAppRole(APP_ROLE)
+
 const pageConfig = {
   pages: [...CUSTOMER_PAGES, ...SALESMAN_PAGES, ...CLERK_PAGES, ...WAREHOUSE_PAGES, ...BOSS_PAGES],
   window: {
     backgroundTextStyle: 'light',
     navigationBarBackgroundColor: '#8b1e24',
-    navigationBarTitleText: '酒类分销·客户订货',
+    navigationBarTitleText: APP_TITLE[APP_ROLE],
     navigationBarTextStyle: 'white',
   },
   // 微信定位权限声明（P1-T13 拜访打卡；H5 构建忽略）。getLocation 失败可跳过（页面已兜底）。
@@ -73,19 +76,14 @@ const pageConfig = {
     },
   },
   requiredPrivateInfos: ['getLocation' as const],
-  // 底部导航（P0-T50/T51 客户端）：文字 tabBar，色值与 styles/tokens.scss 对齐；
-  // 首页保持三入口硬约束，tabBar 属系统级底部导航，不算首页第二排功能磁贴。
+  // 底部导航按编译期 APP_ROLE 生成。运行时角色不一致时由 app.ts 隐藏原生 tab，
+  // 员工页改用 RoleTabBar，避免仓配/内勤看到客户订货页。
   tabBar: {
     color: '#8a7f7a', // = $color-text-sub
     selectedColor: '#8b1e24', // = $color-primary
     backgroundColor: '#ffffff', // = $color-card
     borderStyle: 'black' as const,
-    list: [
-      { pagePath: 'pages/index/index', text: '首页' },
-      { pagePath: 'pages/customer/products/index', text: '订货' },
-      { pagePath: 'pages/customer/orders/index', text: '我的订单' },
-      { pagePath: 'pages/customer/receivables/index', text: '待结金额' },
-    ],
+    list: roleTabs,
   },
 }
 

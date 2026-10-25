@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Image, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, fmtDateTime, getToken, visitsApi } from '../../../services/api'
 import type { VisitCustomerDTO, VisitDTO, VisitSteps } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 标准八步骤（任务书 P1-T13：陈列检查/库存盘点/收单/收款/宣传物料/客情沟通/竞品信息/设备检查）
 const VISIT_STEPS: Array<{ key: string; label: string }> = [
@@ -38,6 +41,7 @@ function stepDone(v: VisitDTO): number {
  * 下方「我的拜访」时间线 + 月度统计（本月 X 次）。触控元素均 ≥88px 计量红线。
  */
 export default function SalesmanVisitPage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<VisitCustomerDTO[]>([])
   const [customerId, setCustomerId] = useState('')
   const [located, setLocated] = useState('')
@@ -119,13 +123,15 @@ export default function SalesmanVisitPage() {
     }
     setSubmitting(true)
     try {
-      await visitsApi.create({
+      const payload = {
         customerId,
         location: located || undefined,
         photoUrl: photo ? `pending:${photo}` : undefined,
         steps,
         notes: notes.trim() || undefined,
-      })
+      }
+      await visitsApi.create(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showToast({ title: '打卡成功', icon: 'success' })
       setCustomerId('')
       setLocated('')
@@ -265,6 +271,7 @@ export default function SalesmanVisitPage() {
           </View>
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

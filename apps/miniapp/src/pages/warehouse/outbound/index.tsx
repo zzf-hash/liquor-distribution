@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
@@ -15,9 +17,10 @@ import './index.scss'
 /**
  * 出库单复核（P1 全员端，仓配）：无单条详情接口，按 outboundNo 从列表接口（全量）取单；
  * FIFO 建议批次行=品名/数量/批次号；「复核确认出库」POST /orders/outbounds/:no/confirm，
- * Idempotency-Key=crypto.randomUUID()（uuid() 兼容旧内核），写不可变库存流水并推进订单状态。
+ * Idempotency-Key 按出库单号保持稳定，失败重试复用，成功后下一张再换。写不可变库存流水并推进订单状态。
  */
 export default function WarehouseOutboundPage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [no, setNo] = useState('')
   const [ob, setOb] = useState<OutboundRowDTO | null>(null)
   const [loading, setLoading] = useState(true)
@@ -74,7 +77,8 @@ export default function WarehouseOutboundPage() {
     if (!ob) return
     setSubmitting(true)
     try {
-      await outboundsApi.confirm(ob.outboundNo)
+      await outboundsApi.confirm(ob.outboundNo, rememberIdemKey(idemRef, { outboundNo: ob.outboundNo }))
+      idemRef.current = null
       Taro.showToast({ title: '已出库', icon: 'success' })
       setTimeout(() => Taro.navigateBack(), 600)
     } catch (e) {

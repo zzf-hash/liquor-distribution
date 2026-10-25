@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Text, View } from '@tarojs/components'
+import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
 import {
@@ -40,6 +40,9 @@ export default function ClerkOrderDetailPage() {
   const [popup, setPopup] = useState<PopupKind>(null)
   const [submitting, setSubmitting] = useState(false)
   const [role, setRole] = useState('')
+  const [reverseId, setReverseId] = useState('')
+  const [reverseQty, setReverseQty] = useState('')
+  const [reverseReason, setReverseReason] = useState('')
 
   useDidShow(() => {
     if (!getToken()) {
@@ -100,6 +103,38 @@ export default function ClerkOrderDetailPage() {
       void load(order.id)
     } catch (e) {
       Taro.showToast({ title: e instanceof Error ? e.message : '生成拣货单失败', icon: 'none' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  async function submitReverse() {
+    if (!order || submitting || !reverseId) return
+    const line = (order.lines ?? []).find((l) => l.id === reverseId)
+    if (!line) return
+    const qty = Number(reverseQty)
+    const reversed = (order.lines ?? [])
+      .filter((l) => l.reversalOfId === line.id)
+      .reduce((s, l) => s + toNum(l.qty), 0)
+    const net = toNum(line.qty) + reversed
+    if (!(qty > 0) || qty > net) {
+      Taro.showToast({ title: `冲销数量须在 0 到 ${net} 之间`, icon: 'none' })
+      return
+    }
+    if (!reverseReason.trim()) {
+      Taro.showToast({ title: '请填写冲销原因', icon: 'none' })
+      return
+    }
+    setSubmitting(true)
+    try {
+      await ordersApi.reverseLine(order.id, line.id, qty, reverseReason.trim())
+      Taro.showToast({ title: '已冲销', icon: 'success' })
+      setReverseId('')
+      setReverseQty('')
+      setReverseReason('')
+      void load(order.id)
+    } catch (e) {
+      Taro.showToast({ title: e instanceof Error ? e.message : '冲销失败', icon: 'none' })
     } finally {
       setSubmitting(false)
     }
@@ -209,9 +244,43 @@ export default function ClerkOrderDetailPage() {
                 {toNum(l.qty)}{UNIT_LABELS[l.unit] ?? l.unit} × {fmtMoney(l.unitPrice)}
                 {reversed ? ' · 红字冲销' : ''}
               </Text>
+              {canOperate && !reversed && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') && (
+                <Button
+                  className='btn-ghost'
+                  onClick={() => {
+                    setReverseId(l.id)
+                    const already = (order.lines ?? [])
+                      .filter((x) => x.reversalOfId === l.id)
+                      .reduce((s, x) => s + toNum(x.qty), 0)
+                    setReverseQty(String(toNum(l.qty) + already))
+                    setReverseReason('')
+                  }}
+                >
+                  冲销此行
+                </Button>
+              )}
             </View>
           )
         })}
+        {reverseId && (
+          <View className='oline'>
+            <Text className='oline__name'>冲销数量与原因</Text>
+            <Input
+              type='digit'
+              value={reverseQty}
+              placeholder='冲销数量'
+              onInput={(e) => setReverseQty(e.detail.value)}
+            />
+            <Input
+              value={reverseReason}
+              placeholder='冲销原因（必填）'
+              onInput={(e) => setReverseReason(e.detail.value)}
+            />
+            <Button className='btn-primary' loading={submitting} onClick={() => { void submitReverse() }}>
+              确认冲销
+            </Button>
+          </View>
+        )}
       </View>
 
       {/* 审单预检（下单时快照；信用=额度-未结-在途） */}
