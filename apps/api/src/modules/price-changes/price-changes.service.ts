@@ -10,7 +10,7 @@ import type { AuthUser } from '../../common/current-user.decorator';
 import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P1-T05 调价引擎 (F7) ═══════════════
-// D08: 价格只新增版本不覆盖历史(生效=插入新 Price 行 validFrom=生效日), 历史单据不受影响(快照物理脱钩)
+// D08: 不同生效日只新增 Price 行(validFrom=生效日), 不改更早的历史版本。同一生效日再次生效则更新该版本行(唯一键), 避免 500。
 // R7/D15: 存货增贬值只测算登记(stockImpact), 不做自动估值调账
 // 审批: PRICE_CHANGE 线(≤2000 内勤/>2000 老板, 审批中心统一)
 
@@ -75,52 +75,151 @@ export class PriceChangesService {
     return { id, status: 'PENDING', approvalId: approval.id };
   }
 
-  /** 一键生效: 审批通过后插入新价格版本行(D08: 不覆盖历史)。
-   *  C组 M2-7: customerSync=true 时同步平移该商品全部客户专属价(新版本 validFrom=生效日, 价差=新价-旧价, 保持客户与层级价差) */
+  /** 一键生效: 审批通过后写入价格版本(D08: 不同生效日只新增, 不改历史行)。
+   *  同一租户+商品+单位+价级+生效日再次生效时, Price 唯一键不能打成 500:
+   *  事务内按该键 upsert, 更新已有行。客户专属价同一生效日同样 upsert。
+   *  C组 M2-7: customerSync=true 时平移该商品本租户客户专属价(价差=新价-旧价, 分位计算)。 */
   async effectuate(user: AuthUser, id: string): Promise<unknown> {
     const r = await this.prisma.priceChangeRequest.findUnique({ where: { id } });
-    if (!r) throw new NotFoundException('调价单不存在');
+    if (!r || r.tenantId !== user.tenantId) throw new NotFoundException('调价单不存在');
     if (r.status === 'EFFECTIVE') throw new ConflictException('该调价已生效(幂等拒绝)');
     if (r.status !== 'APPROVED') throw new ConflictException('审批通过后才可生效');
     const unit = requirePriceUnit(r.unit);
-    const price = await this.prisma.price.create({
-      data: {
-        tenantId: user.tenantId, productId: r.productId, unit, levelType: r.levelType,
-        price: r.newPrice, validFrom: r.effectiveDate, approvalRef: `PC-${id.slice(0, 8)}`,
-        note: `调价生效: ${r.reason}`, createdBy: user.id,
-      },
-    });
-    // C组: 客户专属价联动(平移价差, 版本化留痕; COST 级不联动)
-    let customerSyncResult: { customers: number; delta: number } | null = null;
-    if (r.customerSync && r.levelType !== 'COST') {
-      const delta = Number(r.newPrice) - Number(r.oldPrice);
-      if (Math.abs(delta) > 0.0001) {
-        const exclusives = await this.prisma.customerPrice.findMany({
-          where: { productId: r.productId, unit, validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
+    const newCents = toCents(r.newPrice);
+    const newPrice = centsToDecimal(newCents);
+    const approvalRef = `PC-${id.slice(0, 8)}`;
+    const priceKey = {
+      tenantId: user.tenantId,
+      productId: r.productId,
+      unit,
+      levelType: r.levelType,
+      validFrom: r.effectiveDate,
+    };
+
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const existing = await tx.price.findUnique({
+        where: { tenantId_productId_unit_levelType_validFrom: priceKey },
+      });
+      const oldCents = existing ? toCents(existing.price) : toCents(r.oldPrice);
+      const price = await tx.price.upsert({
+        where: { tenantId_productId_unit_levelType_validFrom: priceKey },
+        create: {
+          ...priceKey,
+          price: newPrice,
+          approvalRef,
+          note: `调价生效: ${r.reason}`,
+          createdBy: user.id,
+        },
+        update: {
+          price: newPrice,
+          approvalRef,
+          note: `调价生效: ${r.reason}`,
+        },
+      });
+
+      // C组: 客户专属价联动(平移价差, 版本化留痕; COST 级不联动)。
+      // 同一租户+客户+商品+单位+生效日已有行时走唯一键 upsert, 避免第二次生效 500。
+      let customerSyncResult: { customers: number; delta: number } | null = null;
+      const customerChanges: Array<{ customerId: string; oldPrice: string; newPrice: string }> = [];
+      const deltaCents = newCents - toCents(r.oldPrice);
+      if (r.customerSync && r.levelType !== 'COST' && deltaCents !== 0) {
+        const now = new Date();
+        const exclusives = await tx.customerPrice.findMany({
+          where: {
+            tenantId: user.tenantId,
+            productId: r.productId,
+            unit,
+            validFrom: { lte: now },
+            OR: [{ validTo: null }, { validTo: { gte: now } }],
+          },
           orderBy: { validFrom: 'desc' },
         });
         const latestByCustomer = new Map<string, typeof exclusives[number]>();
         for (const cp of exclusives) if (!latestByCustomer.has(cp.customerId)) latestByCustomer.set(cp.customerId, cp);
         let synced = 0;
+        const shiftNote = `调价联动 ${centsToDecimal(toCents(r.oldPrice)).toFixed(2)}→${newPrice.toFixed(2)}`;
         for (const [, cp] of latestByCustomer) {
-          const nextCents = toCents(new Prisma.Decimal(cp.price).add(delta));
+          if (cp.tenantId !== user.tenantId) continue;
+          const nextCents = toCents(cp.price) + deltaCents;
           if (nextCents <= 0) continue; // 价差不至于把专属价打到 0 或负
-          await this.prisma.customerPrice.create({
-            data: {
-              tenantId: user.tenantId, customerId: cp.customerId, productId: r.productId, unit,
-              price: centsToDecimal(nextCents), validFrom: r.effectiveDate,
-              approvalRef: `PC-${id.slice(0, 8)}`, note: `调价联动 ${Number(r.oldPrice)}→${Number(r.newPrice)}`, createdBy: user.id,
+          const nextPrice = centsToDecimal(nextCents);
+          const customerKey = {
+            tenantId: user.tenantId,
+            customerId: cp.customerId,
+            productId: r.productId,
+            unit,
+            validFrom: r.effectiveDate,
+          };
+          const existingCp = await tx.customerPrice.findUnique({
+            where: { tenantId_customerId_productId_unit_validFrom: customerKey },
+          });
+          const previousCents = existingCp ? toCents(existingCp.price) : toCents(cp.price);
+          await tx.customerPrice.upsert({
+            where: { tenantId_customerId_productId_unit_validFrom: customerKey },
+            create: {
+              ...customerKey,
+              price: nextPrice,
+              approvalRef,
+              note: shiftNote,
+              createdBy: user.id,
             },
+            update: {
+              price: nextPrice,
+              approvalRef,
+              note: shiftNote,
+            },
+          });
+          customerChanges.push({
+            customerId: cp.customerId,
+            oldPrice: centsToDecimal(previousCents).toFixed(2),
+            newPrice: nextPrice.toFixed(2),
           });
           synced += 1;
         }
-        customerSyncResult = { customers: synced, delta: Number(delta.toFixed(2)) };
-        await this.audit.log({ user, action: 'PRICE_CUSTOMER_SYNC', entityType: 'PRICE_CHANGE', entityId: id, after: customerSyncResult });
+        customerSyncResult = { customers: synced, delta: centsToDecimal(deltaCents).toNumber() };
       }
+
+      await tx.priceChangeRequest.update({
+        where: { id, tenantId: user.tenantId },
+        data: { status: 'EFFECTIVE', effectuatedAt: new Date(), customerSyncResult: customerSyncResult as never },
+      });
+      return {
+        price,
+        oldPrice: centsToDecimal(oldCents).toFixed(2),
+        newPrice: newPrice.toFixed(2),
+        customerSyncResult,
+        customerChanges,
+      };
+    });
+
+    if (outcome.customerSyncResult) {
+      await this.audit.log({
+        user,
+        action: 'PRICE_CUSTOMER_SYNC',
+        entityType: 'PRICE_CHANGE',
+        entityId: id,
+        before: { prices: outcome.customerChanges.map((c) => ({ customerId: c.customerId, oldPrice: c.oldPrice })) },
+        after: {
+          ...outcome.customerSyncResult,
+          prices: outcome.customerChanges.map((c) => ({ customerId: c.customerId, newPrice: c.newPrice })),
+        },
+      });
     }
-    await this.prisma.priceChangeRequest.update({ where: { id }, data: { status: 'EFFECTIVE', effectuatedAt: new Date(), customerSyncResult: customerSyncResult as never } });
-    await this.audit.log({ user, action: 'PRICE_CHANGE_EFFECT', entityType: 'PRICE_CHANGE', entityId: id, after: { priceRowId: price.id, validFrom: r.effectiveDate, newPrice: Number(r.newPrice), customerSyncResult } });
-    return { id, status: 'EFFECTIVE', priceRowId: price.id, customerSyncResult };
+    await this.audit.log({
+      user,
+      action: 'PRICE_CHANGE_EFFECT',
+      entityType: 'PRICE_CHANGE',
+      entityId: id,
+      before: { oldPrice: outcome.oldPrice },
+      after: {
+        priceRowId: outcome.price.id,
+        validFrom: r.effectiveDate,
+        oldPrice: outcome.oldPrice,
+        newPrice: outcome.newPrice,
+        customerSyncResult: outcome.customerSyncResult,
+      },
+    });
+    return { id, status: 'EFFECTIVE', priceRowId: outcome.price.id, customerSyncResult: outcome.customerSyncResult };
   }
 
   // ─────────────── C组 M2-7 一键批量调价 ───────────────

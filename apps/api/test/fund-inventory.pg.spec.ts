@@ -16,6 +16,8 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
 import { ExpensesService } from '../src/modules/expenses/expenses.service';
+import { PriceChangesService } from '../src/modules/price-changes/price-changes.service';
+import { AuditService } from '../src/audit/audit.service';
 
 /** Null when the suite may migrate and wipe. Otherwise a reason it must not run. */
 export function pgSuiteRefusal(raw: string | undefined): string | null {
@@ -304,6 +306,86 @@ describe('fund/inventory rules on PostgreSQL', () => {
       await prisma.$executeRawUnsafe(CAP_POLICY_TRIGGER_FN);
     }
   });
+
+  pgIt('LQ1-059 updates the same-day price instead of inserting a second row', async () => {
+    const effective = new Date('2026-10-25T00:00:00.000Z');
+    const tenantB = await prisma.tenant.create({ data: { name: '租户B调价', code: `pg-b-px-${Date.now()}` } });
+    const userB = await prisma.user.create({
+      data: { tenantId: tenantB.id, username: 'clerk-b-px', name: '他店', role: 'CLERK', dataScope: 'ALL' },
+    });
+    await prisma.price.create({
+      data: {
+        tenantId: tenantB.id, productId, unit: 'BASE', levelType: 'TERMINAL',
+        price: new Prisma.Decimal('1.00'), validFrom: effective, createdBy: userB.id,
+      },
+    });
+    await prisma.customerPrice.create({
+      data: {
+        tenantId, customerId, productId, unit: 'BASE', price: new Prisma.Decimal('10.01'),
+        validFrom: new Date('2026-01-01T00:00:00.000Z'), createdBy: userId,
+      },
+    });
+    await prisma.customerPrice.create({
+      data: {
+        tenantId: tenantB.id, customerId, productId, unit: 'BASE', price: new Prisma.Decimal('50.00'),
+        validFrom: new Date('2026-06-01T00:00:00.000Z'), createdBy: userB.id,
+      },
+    });
+    const first = await prisma.priceChangeRequest.create({
+      data: {
+        tenantId, productId, unit: 'BASE', levelType: 'TERMINAL',
+        oldPrice: new Prisma.Decimal('10.10'), newPrice: new Prisma.Decimal('11.20'),
+        effectiveDate: effective, reason: '第一次', customerSync: true, status: 'APPROVED', createdById: userId,
+      },
+    });
+    const second = await prisma.priceChangeRequest.create({
+      data: {
+        tenantId, productId, unit: 'BASE', levelType: 'TERMINAL',
+        oldPrice: new Prisma.Decimal('10.10'), newPrice: new Prisma.Decimal('11.25'),
+        effectiveDate: effective, reason: '同一天再生效', customerSync: true, status: 'APPROVED', createdById: userId,
+      },
+    });
+    const auditLog = new AuditService().bindClient(prisma);
+    const svc = new PriceChangesService(prisma as never, auditLog, {} as never);
+    const owner = actor('OWNER');
+    const firstRes = await svc.effectuate(owner, first.id) as { priceRowId: string };
+    const secondRes = await svc.effectuate(owner, second.id) as { priceRowId: string; status: string };
+
+    expect(secondRes.status).toBe('EFFECTIVE');
+    expect(secondRes.priceRowId).toBe(firstRes.priceRowId);
+    const ours = await prisma.price.findMany({
+      where: { tenantId, productId, unit: 'BASE', levelType: 'TERMINAL', validFrom: effective },
+    });
+    expect(ours).toHaveLength(1);
+    expect(ours[0].id).toBe(firstRes.priceRowId);
+    expect(ours[0].price.toFixed(2)).toBe('11.25');
+    const other = await prisma.price.findFirst({
+      where: { tenantId: tenantB.id, productId, unit: 'BASE', levelType: 'TERMINAL', validFrom: effective },
+    });
+    expect(other?.price.toFixed(2)).toBe('1.00');
+    const exclusives = await prisma.customerPrice.findMany({
+      where: { tenantId, customerId, productId, unit: 'BASE', validFrom: effective },
+    });
+    expect(exclusives).toHaveLength(1);
+    // 10.01 + (11.20-10.10) = 11.11, then + (11.25-10.10) = 12.26. One row, not a unique-key 500.
+    expect(exclusives[0].price.toFixed(2)).toBe('12.26');
+    const foreignExclusive = await prisma.customerPrice.findFirst({
+      where: { tenantId: tenantB.id, customerId, productId, unit: 'BASE' },
+    });
+    expect(foreignExclusive?.price.toFixed(2)).toBe('50.00');
+    const effectAudit = await prisma.auditLog.findFirst({
+      where: { tenantId, action: 'PRICE_CHANGE_EFFECT', entityId: second.id },
+    });
+    expect(effectAudit?.before).toEqual({ oldPrice: '11.20' });
+    expect(effectAudit?.after).toEqual(expect.objectContaining({ oldPrice: '11.20', newPrice: '11.25', priceRowId: firstRes.priceRowId }));
+    const syncAudit = await prisma.auditLog.findFirst({
+      where: { tenantId, action: 'PRICE_CUSTOMER_SYNC', entityId: second.id },
+    });
+    expect(syncAudit?.before).toEqual({ prices: [{ customerId, oldPrice: '11.11' }] });
+    expect(syncAudit?.after).toEqual(expect.objectContaining({
+      prices: [{ customerId, newPrice: '12.26' }],
+    }));
+  });
 });
 
 const CAP_POLICY_TRIGGER_FORCE = `
@@ -349,6 +431,9 @@ async function wipe(prisma: PrismaClient): Promise<void> {
   await prisma.salesOrder.deleteMany();
   await prisma.inventoryLedger.deleteMany();
   await prisma.batchStock.deleteMany();
+  await prisma.auditLog.deleteMany();
+  await prisma.priceChangeRequest.deleteMany();
+  await prisma.customerPrice.deleteMany();
   await prisma.price.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.product.deleteMany();
