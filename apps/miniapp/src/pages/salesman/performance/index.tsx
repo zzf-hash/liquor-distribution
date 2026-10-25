@@ -54,9 +54,9 @@ export default function SalesmanPerformancePage() {
       </View>
 
       <Picker mode='date' fields='month' value={month} onChange={(e) => { setMonth(e.detail.value); void load(e.detail.value) }}>
-        <View className='frow'>
+        <View className='search-pill'>
           <Text className='frow__label'>月份</Text>
-          <Text className='frow__value'>{month}</Text>
+          <Text className='num frow__value'>{month}</Text>
           <Text className='frow__arrow'>›</Text>
         </View>
       </Picker>
@@ -107,8 +107,8 @@ export default function SalesmanPerformancePage() {
               [...items]
                 .sort((a, b) => toNum(b.paymentAmount) - toNum(a.paymentAmount))
                 .map((it, i) => (
-                  <View key={it.repId} className={`pf__rank ${it.repId === mine.repId ? 'pf__rank--me' : ''}`}>
-                    <Text className='pf__rank-no'>{i + 1}</Text>
+                  <View key={it.repId} className={`pf__rank ${i === 0 ? 'pf__rank--top' : ''} ${it.repId === mine.repId ? 'pf__rank--me' : ''}`}>
+                    <Text className='num pf__rank-no'>{i + 1}</Text>
                     <Text className='pf__rank-name'>{it.name}{it.repId === mine.repId ? '（我）' : ''}</Text>
                     <Text className='pf__rank-amount'>{fmtMoney(it.paymentAmount)}</Text>
                   </View>

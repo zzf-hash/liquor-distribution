@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import { openAppPage } from '../../../services/navigation'
@@ -58,13 +59,20 @@ export default function CustomerCartPage() {
   )
   const giftText = gifts.length
     ? `预计赠品：${gifts.map((g) => `${g.name} ${g.qty}${labelOf(UNIT_LABELS, g.unit)}`).join('、')}。赠品由服务端写入，这里不另提交。`
-    : giftNote || '当前没有命中的买赠。'
+    : giftNote
+  const pieces = cartQty(cart)
 
   function changeQty(idx: number, delta: number) {
     const next = cart.map((c) => ({ ...c }))
     const q = next[idx].qty + delta
     if (q <= 0) next.splice(idx, 1)
     else next[idx].qty = q
+    setCart(next)
+    saveCart(next)
+  }
+
+  function removeAt(idx: number) {
+    const next = cart.filter((_, i) => i !== idx)
     setCart(next)
     saveCart(next)
   }
@@ -77,7 +85,7 @@ export default function CustomerCartPage() {
     try {
       const confirm = await Taro.showModal({
         title: '确认提交订单',
-        content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。${giftText}提交后商家会尽快确认安排送货。`,
+        content: `共 ${pieces} 件商品，合计约 ${fmtMoney(total)}。${giftText}提交后商家会尽快确认安排送货。`,
         confirmText: '提交订单',
         cancelText: '再看看',
       })
@@ -106,50 +114,82 @@ export default function CustomerCartPage() {
     }
   }
 
-  if (cart.length === 0) {
-    return (
-      <View className='state'>
-        <Text className='state__txt'>购物车是空的</Text>
-        <Button className='btn-primary' onClick={() => openAppPage('/pages/customer/products/index')}>
-          去选酒
-        </Button>
-      </View>
-    )
-  }
-
   return (
-    <View className='cart'>
-      <View className='cart__list'>
-        {cart.map((it, idx) => (
-          <View key={`${it.productId}-${it.unit}`} className='crow'>
-            <View className='crow__info'>
-              <Text className='crow__name'>{it.name}</Text>
-              <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
-              <Text className='crow__line'>{fmtMoney(it.price)} × {it.qty} ＝ {fmtMoney(toNum(it.price) * it.qty)}</Text>
+    <View className='page cart'>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>购物车</Text>
+          <Text className='page-head__sub'>
+            {cart.length > 0 ? `共 ${cart.length} 种 · ${pieces} 件` : '还没有加购'}
+          </Text>
+        </View>
+      </View>
+
+      {cart.length === 0 ? (
+        <View className='card state'>
+          <View className='state__icon'>
+            <Icon name='bottle' color='#B3A9A4' size={72} />
+          </View>
+          <Text className='state__title'>购物车是空的</Text>
+          <Text className='state__txt'>选好酒再来结算</Text>
+          <Button className='btn-ghost' onClick={() => openAppPage('/pages/customer/products/index')}>
+            <Text className='btn-label'>去选酒</Text>
+          </Button>
+        </View>
+      ) : (
+        <>
+          {cart.map((it, idx) => (
+            <View key={`${it.productId}-${it.unit}`} className='card crow'>
+              <View className='crow__pic'>
+                <Icon name='bottle' color='#7A1F2B' size={64} />
+              </View>
+              <View className='crow__main'>
+                <View className='crow__top'>
+                  <View className='crow__info'>
+                    <Text className='crow__name'>{it.name}</Text>
+                    <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
+                  </View>
+                  <Text className='icon-hit' onClick={() => removeAt(idx)}>
+                    <Icon name='trash' color='#6B5F5A' size={40} />
+                  </Text>
+                </View>
+                <View className='crow__bot'>
+                  <Text className='num crow__price'>{fmtMoney(toNum(it.price) * it.qty)}</Text>
+                  <View className='stepper'>
+                    <Button className='stepper__btn' onClick={() => changeQty(idx, -1)}>−</Button>
+                    <Text className='stepper__num'>{it.qty}</Text>
+                    <Button className='stepper__btn' onClick={() => changeQty(idx, 1)}>＋</Button>
+                  </View>
+                </View>
+              </View>
             </View>
-            <View className='stepper'>
-              <Button className='stepper__btn' onClick={() => changeQty(idx, -1)}>−</Button>
-              <Text className='stepper__num'>{it.qty}</Text>
-              <Button className='stepper__btn stepper__btn--plus' onClick={() => changeQty(idx, 1)}>＋</Button>
+          ))}
+          <View className='card'>
+            <View className='kv'>
+              <Text className='kv__k'>商品合计</Text>
+              <Text className='kv__v num'>{fmtMoney(total)}</Text>
+            </View>
+            {giftText ? <Text className='tip'>{giftText}</Text> : null}
+            <View className='info-bar'>
+              <Icon name='info' color='#3A6EA5' size={36} />
+              <Text className='info-bar__txt'>价格以商家确认为准，确认后通知你</Text>
             </View>
           </View>
-        ))}
-        <Text className='cart__tip'>{giftText}</Text>
-        <Text className='cart__tip'>减到 0 即移除该商品；金额为参考，成交价以商家核算为准</Text>
-      </View>
+        </>
+      )}
 
-      <View className='cartbar'>
-        <View className='cartbar__sum'>
-          <Text className='cartbar__label'>合计约</Text>
-          <Text className='cartbar__amount'>{fmtMoney(total)}</Text>
+      <View className='settle'>
+        <View>
+          <Text className='settle__sum'>{cart.length > 0 ? fmtMoney(total) : '¥0.00'}</Text>
+          <Text className='settle__meta'>{cart.length > 0 ? `已选 ${pieces}` : '购物车是空的'}</Text>
         </View>
         <Button
-          className='cartbar__btn'
+          className='btn-primary'
           loading={submitting}
-          disabled={submitting}
+          disabled={submitting || cart.length === 0}
           onClick={() => { void checkout() }}
         >
-          去结算
+          <Text className='btn-label'>去结算</Text>
         </Button>
       </View>
     </View>

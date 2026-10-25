@@ -43,7 +43,6 @@ export default function SalesmanVoiceOrderPage() {
   ))
   const [text, setText] = useState('')
   const [recording, setRecording] = useState(false)
-  const [recordedSec, setRecordedSec] = useState(0)
   const [transcribing, setTranscribing] = useState(false)
   const [result, setResult] = useState<RepDraftDTO | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -79,7 +78,6 @@ export default function SalesmanVoiceOrderPage() {
       const draft = await draftsApi.createVoice(payload, rememberIdemKey(idemRef, payload))
       idemRef.current = null
       setResult(draft)
-      setRecordedSec(Math.round(Number(res.duration) / 1000))
       setText('')
       Taro.showToast({ title: `识别完成, 草稿 ${draft.draftNo}`, icon: 'success' })
     } catch (e) {
@@ -92,7 +90,6 @@ export default function SalesmanVoiceOrderPage() {
       })
     } finally {
       setTranscribing(false)
-      setRecordedSec(0)
     }
   }
 
@@ -109,7 +106,7 @@ export default function SalesmanVoiceOrderPage() {
       return
     }
     const rm = Taro.getRecorderManager()
-    rm.onStart(() => { setRecording(true); setRecordedSec(0) })
+    rm.onStart(() => { setRecording(true) })
     rm.onStop((res) => {
       setRecording(false)
       void submitVoice(res as unknown as { tempFilePath: string; duration: number })
@@ -144,7 +141,6 @@ export default function SalesmanVoiceOrderPage() {
       idemRef.current = null
       setResult(res)
       setText('')
-      setRecordedSec(0)
       Taro.showToast({ title: `草稿已生成 ${res.draftNo}`, icon: 'success' })
     } catch (e) {
       Taro.showToast({ title: e instanceof Error ? e.message : '提交失败', icon: 'none' })
@@ -159,12 +155,12 @@ export default function SalesmanVoiceOrderPage() {
       <View className='vo__card'>
         <Text className='vo__title'>语音报单</Text>
 
-        <View className='vo__modes'>
-          <View className={`vo__mode ${mode === 'voice' ? 'vo__mode--on' : ''}`} onClick={() => switchMode('voice')}>
-            <Text className='vo__mode-txt'>语音</Text>
+        <View className='tabs tabs--segment'>
+          <View className={`tabs__btn ${mode === 'voice' ? 'tabs__btn--on' : ''}`} onClick={() => switchMode('voice')}>
+            <Text>语音</Text>
           </View>
-          <View className={`vo__mode ${mode === 'text' ? 'vo__mode--on' : ''}`} onClick={() => switchMode('text')}>
-            <Text className='vo__mode-txt'>文字</Text>
+          <View className={`tabs__btn ${mode === 'text' ? 'tabs__btn--on' : ''}`} onClick={() => switchMode('text')}>
+            <Text>文字</Text>
           </View>
         </View>
 
@@ -176,13 +172,9 @@ export default function SalesmanVoiceOrderPage() {
               disabled={transcribing}
               onClick={toggleRecord}
             >
-              {transcribing
-                ? '语音识别中…'
-                : recording
-                  ? '■ 停止录音并识别'
-                  : recordedSec
-                    ? `已识别（重录点此）`
-                    : '开始录音（口述报单，≤60秒）'}
+              <Text className='btn-label'>
+                {transcribing ? '识别中' : recording ? '停止' : '录音'}
+              </Text>
             </Button>
             <Text className='vo__hint'>
               停止录音后自动上传识别生成草稿（识别文本可编辑兜底）；识别失败或口语过重时，请改用文字模式
@@ -205,7 +197,7 @@ export default function SalesmanVoiceOrderPage() {
           disabled={submitting}
           onClick={() => { void submit() }}
         >
-          生成草稿
+          <Text className='btn-label'>生成草稿</Text>
         </Button>
       </View>
 

@@ -19,7 +19,7 @@
 .plist__search {
   display: flex;
   align-items: center;
-  gap: $space-xs;
+  gap: $space-sm;
   height: $size-input;
   margin-bottom: $space-md;
   padding: 0 $space-xxs 0 $space-lg;
@@ -27,6 +27,7 @@
   border: $border-width solid $color-neutral-line-strong;
   border-radius: $radius-pill;
   box-sizing: border-box;
+  overflow: hidden;
 
   &--focus {
     border-color: $border-focus;
@@ -55,15 +56,23 @@
   }
 }
 
-.plist__search .plist__go {
+// H5 的 taro-button-core 默认 display:block、line-height:2.55，文字贴在 64 高按钮顶部。
+// ::after 是 200% 描边，会画出搜索胶囊的圆角。按钮收在胶囊内，高 64，右边距由胶囊 padding 8 留出。
+.plist__search .plist__go,
+taro-button-core.plist__go {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  align-self: center;
   width: auto;
   min-width: 112px;
   height: 64px;
   min-height: 64px;
+  max-height: 64px;
   margin: 0;
   padding: 0 $space-md;
-  line-height: 1.2;
+  line-height: 1;
   font-size: $font-sub;
   font-weight: $weight-semibold;
   color: $color-neutral-white;
@@ -71,12 +80,18 @@
   border: none;
   border-radius: $radius-pill;
   box-sizing: border-box;
+  overflow: hidden;
 
   &::after {
+    content: none;
+    display: none;
     border: none;
   }
 
   .btn-label {
+    display: inline;
+    height: auto;
+    line-height: 1;
     color: $color-neutral-white;
     font-size: $font-sub;
     font-weight: $weight-semibold;

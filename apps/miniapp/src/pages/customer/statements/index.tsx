@@ -12,6 +12,7 @@ import {
   statementsApi,
 } from '../../../services/api'
 import type { DisputeType, StatementDTO } from '../../../services/api'
+import TabsScroll from '../../../components/TabsScroll'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import './index.scss'
 
@@ -128,17 +129,17 @@ export default function CustomerStatementsPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateBack()}>返回</Text>
       </View>
 
-      <View className='slist__tabs'>
+      <TabsScroll>
         {TABS.map((t) => (
           <Button
             key={t.key}
-            className={`tabbtn ${tab === t.key ? 'tabbtn--on' : ''}`}
+            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
             onClick={() => switchTab(t.key)}
           >
             {t.label}
           </Button>
         ))}
-      </View>
+      </TabsScroll>
 
       {error ? (
         <View className='state'>
@@ -198,13 +199,13 @@ export default function CustomerStatementsPage() {
               {s.status === 'SENT' && (
                 <View className='scard__ops'>
                   <Button
-                    className='btn-inline btn-inline--ghost'
+                    className='btn-primary btn-sm'
                     disabled={confirming}
                     onClick={() => { void confirmStatement(s) }}
                   >
                     确认无误
                   </Button>
-                  <Button className='btn-inline' onClick={() => setDisputeFor(s)}>
+                  <Button className='btn-ghost btn-sm' onClick={() => setDisputeFor(s)}>
                     提差异
                   </Button>
                 </View>
@@ -304,8 +305,8 @@ function DisputePopup({
           ＋ 再加一条
         </Button>
         <View className='dpop__ops'>
-          <Button className='btn-inline' disabled={submitting} onClick={() => { void submit() }}>提交差异</Button>
-          <Button className='btn-inline btn-inline--plain' disabled={submitting} onClick={onClose}>取消</Button>
+          <Button className='btn-neutral' disabled={submitting} onClick={onClose}>取消</Button>
+          <Button className='btn-primary' disabled={submitting} onClick={() => { void submit() }}>提交差异</Button>
         </View>
       </View>
     </View>

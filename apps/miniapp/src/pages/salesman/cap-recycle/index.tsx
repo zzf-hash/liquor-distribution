@@ -162,18 +162,22 @@ export default function CapRecyclePage() {
             </View>
           </View>
         ))}
-        <Picker
-          mode='selector'
-          range={capPolicies.length ? capPolicies.map((p) => `${p.productName}（${fmtMoney(p.perBottleFee)}/瓶）`) : ['暂无可回收政策的商品']}
-          onChange={(e) => {
-            const p = capPolicies[Number(e.detail.value)]
-            if (p && !lines.some((l) => l.policy.id === p.id)) setLines((prev) => [...prev, { policy: p, qty: '' }])
-          }}
-        >
-          <Button className='btn-inline btn-inline--ghost'>＋ 添加商品</Button>
-        </Picker>
-        {capPolicies.length === 0 && (
-          <Text className='tip'>没有「回瓶盖」模式的政策商品；不回瓶盖的商品由系统按月自动计提，无需登记</Text>
+        {capPolicies.length > 0 ? (
+          <Picker
+            mode='selector'
+            range={capPolicies.map((p) => `${p.productName}（${fmtMoney(p.perBottleFee)}/瓶）`)}
+            onChange={(e) => {
+              const p = capPolicies[Number(e.detail.value)]
+              if (p && !lines.some((l) => l.policy.id === p.id)) setLines((prev) => [...prev, { policy: p, qty: '' }])
+            }}
+          >
+            <Button className='btn-ghost btn-sm'>＋ 添加商品</Button>
+          </Picker>
+        ) : (
+          <View className='state'>
+            <Text className='state__title'>没有可登记的瓶盖政策</Text>
+            <Text className='state__txt'>不回瓶盖的商品由系统按月自动计提，无需在这里登记</Text>
+          </View>
         )}
         <View className='frow'>
           <Text className='frow__label'>备注</Text>

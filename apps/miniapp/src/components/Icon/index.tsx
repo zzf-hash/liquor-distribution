@@ -1,4 +1,5 @@
 import { Image } from '@tarojs/components'
+import Taro from '@tarojs/taro'
 
 /** 线性图标。路径与设计规范组件库一致（24 网格、线宽 1.8）。 */
 export const ICON_PATHS = {
@@ -61,12 +62,16 @@ export default function Icon(props: { name: IconName; color?: string; size?: num
   const { name, color = '#2B2422', size = 44 } = props
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="${ICON_PATHS[name]}"/></svg>`
   const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
+  const px = Taro.pxTransform(size)
+  // H5 的 aspectFit 把内部 img 做成 absolute + top:50% + translateY(-50%)。
+  // 宫格按钮默认 overflow:hidden，下半截被切掉，底栏里同一张图因为不裁切所以是完整的。
+  // 图标是正方形，scaleToFill 按宿主宽高铺满，不再位移。
   return (
     <Image
       className='ld-icon'
       src={src}
-      mode='aspectFit'
-      style={{ width: `${size}px`, height: `${size}px` }}
+      mode='scaleToFill'
+      style={{ width: px, height: px }}
     />
   )
 }

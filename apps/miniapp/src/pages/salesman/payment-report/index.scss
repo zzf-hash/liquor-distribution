@@ -9,6 +9,47 @@
   color: $color-text;
   text-align: right;
   background: transparent;
+
+  &--num {
+    font-size: $font-amount;
+    font-weight: $weight-semibold;
+    @include num;
+  }
+}
+
+.pr__row {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  padding: $space-md 0;
+
+  & + & {
+    border-top: $border-hairline solid $color-neutral-line;
+  }
+}
+
+.pr__row-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr__no {
+  display: block;
+  font-size: $font-sub;
+  color: $color-text;
+}
+
+.pr__meta {
+  display: block;
+  margin-top: 4px;
+  font-size: $font-caption;
+  color: $color-text-sub;
+}
+
+.pr__amt {
+  font-size: $font-amount;
+  font-weight: $weight-bold;
+  color: $color-text;
 }
 
 .pr__note {

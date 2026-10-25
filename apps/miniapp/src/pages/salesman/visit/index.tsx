@@ -3,6 +3,7 @@ import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Image, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
 import { LOGIN_PAGE, fmtDateTime, getToken, visitsApi } from '../../../services/api'
 import { VISIT_PHOTO_UNSAVED, visitCreateBody } from '../../../services/visit-photo'
 import type { VisitCustomerDTO, VisitDTO, VisitSteps } from '../../../services/api'
@@ -228,9 +229,9 @@ export default function SalesmanVisitPage() {
                   className={`chip ${steps[s.key] ? 'chip--on' : ''}`}
                   onClick={() => toggleStep(s.key)}
                 >
-                  <Text className={`chip__box ${steps[s.key] ? 'chip__box--on' : ''}`}>
-                    {steps[s.key] ? '✓' : ''}
-                  </Text>
+                  <View className={`chip__box ${steps[s.key] ? 'chip__box--on' : ''}`}>
+                    {steps[s.key] ? <Icon name='check' color='#FFFFFF' size={28} /> : null}
+                  </View>
                   <Text className='chip__label'>{s.label}</Text>
                 </View>
               ))}
@@ -251,7 +252,7 @@ export default function SalesmanVisitPage() {
               disabled={submitting}
               onClick={() => { void submit() }}
             >
-              提交打卡
+              <Text className='btn-label'>提交打卡</Text>
             </Button>
           </View>
 

@@ -3,7 +3,7 @@
 
 .crline {
   padding: 12px 0;
-  border-bottom: 1px solid rgba(138, 127, 122, 0.15);
+  border-bottom: $border-hairline solid $color-neutral-line;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -52,8 +52,9 @@
   flex: 1;
   font-size: $font-body;
   font-weight: 600;
-  color: $color-primary;
+  color: $color-text;
   text-align: right;
+  @include num;
 }
 
 .crline__del {
@@ -77,7 +78,7 @@
 .crtotal {
   margin-top: 12px;
   padding: $gap-base;
-  background: rgba(139, 30, 36, 0.04);
+  background: $color-neutral-fill;
   border-radius: $radius-base;
   display: flex;
   flex-direction: column;
@@ -90,9 +91,10 @@
 }
 
 .crtotal__amt {
-  font-size: 56px;
-  font-weight: 700;
-  color: $color-primary;
+  font-size: $font-amount-lg;
+  font-weight: $weight-bold;
+  color: $color-text;
+  @include num;
 }
 
 .crtotal__note {
@@ -102,7 +104,7 @@
 
 .crhist {
   padding: 12px 0;
-  border-bottom: 1px solid rgba(138, 127, 122, 0.15);
+  border-bottom: $border-hairline solid $color-neutral-line;
   display: flex;
   flex-direction: column;
   gap: 6px;

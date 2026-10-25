@@ -16,16 +16,16 @@
   padding: 12px 0;
 
   & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
+    border-top: $border-hairline solid $color-neutral-line;
   }
 
-  &--me {
-    .pf__rank-name,
-    .pf__rank-amount,
-    .pf__rank-no {
-      color: $color-primary;
-      font-weight: 700;
-    }
+  &--top .pf__rank-no {
+    color: $color-brand-gold-text;
+    font-weight: $weight-bold;
+  }
+
+  &--me .pf__rank-name {
+    font-weight: $weight-semibold;
   }
 }
 

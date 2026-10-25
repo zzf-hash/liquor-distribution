@@ -72,12 +72,41 @@
   }
 }
 
-// 签收人/签名输入
-.sign__ipt {
+// 签收人行。H5 的 taro-input-core 内部 input 高度是 1.47059em，贴在宿主顶部。
+// 宿主再加 88 的 min-height 时，标签按整行居中，字和输入值就会错开。
+// 两边收成同一行高，由 .frow 一起垂直居中。
+.sign-page .frow {
+  align-items: center;
+}
+
+.sign-page .frow__label {
+  align-self: center;
+  height: auto;
+  margin: 0;
+  padding: 0;
+  line-height: 1.47059;
+}
+
+// H5 输入框里的字比同一行高的标签低约 1px。只挪签收人，类型行两边都是文字。
+/*  #ifdef  h5  */
+.sign-page .frow__label--field {
+  position: relative;
+  top: 1px;
+}
+/*  #endif  */
+
+.sign-page .sign__ipt,
+.sign-page taro-input-core.sign__ipt {
   flex: 1;
-  min-height: $touch-min;
-  padding: 0 8px;
+  align-self: center;
+  display: block;
+  width: auto;
+  height: 1.47059em;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
   font-size: $font-body;
+  line-height: 1.47059;
   color: $color-text;
   text-align: right;
   background: transparent;

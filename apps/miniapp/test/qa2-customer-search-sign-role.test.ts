@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { ROLE_HOME_PAGE } from '../src/config/role-home'
 import { staffHomeOffCustomerPage } from '../src/services/customer-page-guard'
 import { productSearchOnConfirm, productSearchOnInput } from '../src/services/product-search'
-import { bumpReceivedQty, receivedQtyForSubmit } from '../src/services/sign-qty'
+import { bumpReceivedQty, receivedQtyForSubmit, receivedQtyTail } from '../src/services/sign-qty'
 
 describe('product search', () => {
   it('confirms with the event value instead of a stale keyword', () => {
@@ -31,6 +31,13 @@ describe('sign received qty', () => {
     expect(receivedQtyForSubmit('5.1', 5)).toBeNull()
     expect(receivedQtyForSubmit('1.5004', 1.5)).toBeNull()
     expect(receivedQtyForSubmit('abc', 5)).toBeNull()
+  })
+
+  it('does not call an over-net quantity 足额', () => {
+    expect(receivedQtyTail('3', 2)).toBe('')
+    expect(receivedQtyTail('2.1', 2)).toBe('')
+    expect(receivedQtyTail('2', 2)).toBe('足额')
+    expect(receivedQtyTail('1.5', 2)).toBe('拒收 0.5')
   })
 
   it('steps by 1 and clamps to 0..net at three decimals', () => {

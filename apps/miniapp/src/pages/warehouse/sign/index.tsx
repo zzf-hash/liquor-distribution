@@ -6,7 +6,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { readRouteQuery } from '../../../services/route-param'
 import ReasonPopup from '../../../components/reason-popup'
 import { rejectConfirmText } from '../../../services/sign-reject'
-import { bumpReceivedQty, receivedQtyForSubmit } from '../../../services/sign-qty'
+import { bumpReceivedQty, receivedQtyForSubmit, receivedQtyTail } from '../../../services/sign-qty'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -321,7 +321,7 @@ export default function WarehouseSignPage() {
 
   if (error) {
     return (
-      <View className='page'>
+      <View className='page sign-page'>
         <View className='state'>
           <Text className='state__txt'>{error}</Text>
           <Button className='btn-primary' onClick={() => Taro.navigateBack()}>返回</Button>
@@ -331,14 +331,14 @@ export default function WarehouseSignPage() {
   }
   if (loading || !order) {
     return (
-      <View className='page'>
+      <View className='page sign-page'>
         <Text className='tip'>正在加载订单…</Text>
       </View>
     )
   }
 
   return (
-    <View className='page'>
+    <View className='page sign-page'>
       <View className='topbar'>
         <Text className='topbar__title'>签收 {order.orderNo || orderNo}</Text>
       </View>
@@ -347,7 +347,7 @@ export default function WarehouseSignPage() {
       <View className='card'>
         <Text className='card__title'>实收数量（默认=净量，改小即拒收）</Text>
         {signLines.map((s, i) => {
-          const rejected = s.net - Number(s.actual || 0)
+          const tail = receivedQtyTail(s.actual, s.net)
           return (
             <View key={s.line.id} className='sline'>
               <View className='sline__row'>
@@ -367,8 +367,8 @@ export default function WarehouseSignPage() {
                   <Text className='stepper__num'>{s.actual}</Text>
                   <Button className='stepper__btn' disabled={Number(s.actual) >= s.net} onClick={() => bumpActual(i, 1)}>＋</Button>
                 </View>
-                <Text className={`sline__rej ${rejected > 0 ? 'sline__rej--on' : ''}`}>
-                  {rejected > 0 ? `拒收 ${rejected}` : '足额'}
+                <Text className={`sline__rej ${tail.startsWith('拒收') ? 'sline__rej--on' : ''}`}>
+                  {tail}
                 </Text>
               </View>
             </View>
@@ -393,7 +393,7 @@ export default function WarehouseSignPage() {
           </View>
         </Picker>
         <View className='frow'>
-          <Text className='frow__label'>签收人</Text>
+          <Text className='frow__label frow__label--field'>签收人</Text>
           <Input
             className='sign__ipt'
             placeholder='客户签收人姓名'

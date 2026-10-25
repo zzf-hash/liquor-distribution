@@ -10,3 +10,20 @@ page {
 .weui-tabbar__icon {
   display: none;
 }
+
+// 线性图标按 750 稿的 size 绘制。
+// H5 aspectFit：img 是 absolute、top:50%、translateY(-50%)，宿主 overflow:hidden。
+// 外层再是 overflow:hidden 的按钮时，只剩上半个字形。改回静态铺满。
+.ld-icon .taro-img__mode-aspectfit,
+.ld-icon .taro-img__mode-scaletofill {
+  position: static;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+}

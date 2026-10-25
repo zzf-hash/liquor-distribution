@@ -28,11 +28,10 @@
 
 // FIFO 批次行
 .fifo {
-  padding: 12px 0;
-
-  & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
-  }
+  margin-top: $space-xs;
+  padding: $space-sm;
+  background: $color-functional-info-light;
+  border-radius: $radius-sm;
 }
 
 .fifo__row {
@@ -52,7 +51,7 @@
 .fifo__qty {
   font-size: $font-body;
   font-weight: 700;
-  color: $color-primary;
+  color: $color-text;
 }
 
 .fifo__sub {

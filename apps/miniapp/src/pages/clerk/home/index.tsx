@@ -3,27 +3,30 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
-import { LOGIN_PAGE, clearSession, getToken, getUserName } from '../../../services/api'
+import { LOGIN_PAGE, clearSession, getToken, getUserName, ordersApi } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 
-// 宫格磁贴（P1 全员端）
-const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }> = [
-  { icon: 'list', title: '订单池', desc: '确认/取消/特批', url: '/pages/clerk/orders/index' },
-  { icon: 'coin', title: '收款登记', desc: '直录即销账·确认上报', url: '/pages/clerk/payments/index' },
-  { icon: 'wallet', title: '应收台账', desc: '账龄分档·争议单列', url: '/pages/clerk/receivables/index' },
+const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; badge?: boolean }> = [
+  { icon: 'list', title: '订单池', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
+  { icon: 'coin', title: '收款登记', desc: '直录即销账', url: '/pages/clerk/payments/index' },
+  { icon: 'wallet', title: '应收台账', desc: '账龄分档', url: '/pages/clerk/receivables/index' },
 ]
 
-/** 内勤宫格首页：订单/收款/应收 */
+/** 内勤工作台：横向主任务卡。订单池角标只读待确认数量。 */
 export default function ClerkHomePage() {
   const [name, setName] = useState('')
+  const [pending, setPending] = useState<number | null>(null)
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     setName(getUserName())
+    ordersApi.staffList({ status: 'PENDING_CONFIRM', page: 1, pageSize: 1 })
+      .then((res) => setPending(res.total))
+      .catch(() => setPending(null))
   })
 
   function logout() {
@@ -33,20 +36,28 @@ export default function ClerkHomePage() {
 
   return (
     <View className='grid-home'>
-      <View className='grid-home__hd'>
-        <Text className='grid-home__hi'>您好，{name || '内勤'}</Text>
-        <Text className='grid-home__out' onClick={logout}>退出登录</Text>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>您好，{name || '内勤'}</Text>
+          <Text className='page-head__sub'>订单、收款、应收</Text>
+        </View>
+        <Text className='tag tag--brand'>内勤</Text>
       </View>
-      <Text className='grid-home__sub'>订单、收款、应收，一天的事都在这</Text>
-      <View className='grid-home__grid'>
+      <View className='task-list'>
         {TILES.map((t) => (
-          <Button key={t.title} className='tile' onClick={() => openAppPage(t.url)}>
-            <View className='tile__icon'><Icon name={t.icon} /></View>
-            <Text className='tile__title'>{t.title}</Text>
-            <Text className='tile__desc'>{t.desc}</Text>
+          <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
+            <View className='tile__icon'><Icon name={t.icon} color='#7A1F2B' size={44} /></View>
+            <View>
+              <Text className='task-card__title'>
+                {t.title}
+                {t.badge && pending != null && pending > 0 ? <Text className='badge'>{pending}</Text> : null}
+              </Text>
+              <Text className='task-card__desc'>{t.desc}</Text>
+            </View>
           </Button>
         ))}
       </View>
+      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
       <RoleTabBar />
     </View>
   )
