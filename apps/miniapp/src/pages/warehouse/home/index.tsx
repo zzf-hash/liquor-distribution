@@ -3,7 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
-import { LOGIN_PAGE, clearSession, getToken, getUserName, ordersApi, outboundsApi } from '../../../services/api'
+import { LOGIN_PAGE, getToken, getUserName, ordersApi, outboundsApi, signOut } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
@@ -38,8 +38,7 @@ export default function WarehouseHomePage() {
   })
 
   function logout() {
-    clearSession()
-    Taro.reLaunch({ url: LOGIN_PAGE })
+    void signOut()
   }
 
   return (

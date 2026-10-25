@@ -1,9 +1,7 @@
 import { useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
 import Icon from '../../../components/Icon'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import { openAppPage } from '../../../services/navigation'
@@ -13,6 +11,7 @@ import {
   UNIT_LABELS,
   cartQty,
   fmtMoney,
+  LOGIN_PAGE,
   getToken,
   labelOf,
   loadCart,
@@ -38,7 +37,7 @@ export default function CustomerCartPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/cart/index')) return

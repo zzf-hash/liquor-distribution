@@ -15,6 +15,10 @@ pnpm install
 cd apps/api && pnpm exec prisma migrate deploy && pnpm seed && pnpm run dev
 # admin:
 cd apps/admin && pnpm dev   # vite 已配 /api -> localhost:3000 代理
+# 小程序（客户和员工同一个包，不必设角色变量）:
+pnpm --filter @liquor/miniapp build:weapp   # dist/
+pnpm --filter @liquor/miniapp build:h5      # dist-h5/
+pnpm check:bundle
 ```
 
 演示账号（seed）：owner/clerk/rep1/warehouse，密码 `demo1234`。

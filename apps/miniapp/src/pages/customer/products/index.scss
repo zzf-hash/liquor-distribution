@@ -4,15 +4,8 @@
   min-height: 100vh;
   background: $color-bg;
   padding: $space-page;
-  // H5 的 postcss-plugin-constparse 会把标识符 taro-tabbar-height 替换成 50PX。
-  // 写进 var(--taro-tabbar-height) 会把变量名改成 --50PX，回退值变成 0，结算条就被 tabBar 压住。
-  // 小程序 tabBar 在 webview 外，不能再加这段高度。
-  /*  #ifdef  h5  */
-  padding-bottom: calc(taro-tabbar-height + #{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
-  /*  #endif  */
-  /*  #ifndef  h5  */
-  padding-bottom: calc(#{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
-  /*  #endif  */
+  // 统一包用页面内的 RoleTabBar，小程序和 H5 都要留出这层高度。
+  padding-bottom: calc(#{$size-tab-bar} + #{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -174,10 +167,5 @@ taro-button-core.plist__go {
   left: $space-page;
   right: $space-page;
   z-index: 30;
-  /*  #ifdef  h5  */
-  bottom: calc(taro-tabbar-height + env(safe-area-inset-bottom) + #{$space-sm});
-  /*  #endif  */
-  /*  #ifndef  h5  */
-  bottom: calc(env(safe-area-inset-bottom) + #{$space-sm});
-  /*  #endif  */
+  bottom: calc(#{$size-tab-bar} + env(safe-area-inset-bottom) + #{$space-sm});
 }

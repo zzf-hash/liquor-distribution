@@ -57,7 +57,7 @@ export default function Index() {
 
   function goText() {
     if (getToken()) openAppPage('/pages/customer/products/index')
-    else Taro.navigateTo({ url: '/pages/customer/login/index' })
+    else Taro.navigateTo({ url: '/pages/staff/login/index' })
   }
 
   function goVoice() {
@@ -144,7 +144,7 @@ export default function Index() {
         className='home__staff'
         onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}
       >
-        员工登录（业务员／内勤／仓配／老板）
+        登录（客户／业务员／内勤／仓配／老板）
       </Text>
       <RoleTabBar />
     </View>

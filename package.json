@@ -7,7 +7,8 @@
     "dev:admin": "pnpm --filter @liquor/admin dev",
     "build:admin": "pnpm --filter @liquor/admin build",
     "dev:miniapp": "pnpm --filter @liquor/miniapp dev:weapp",
-    "build:miniapp": "pnpm --filter @liquor/miniapp build:weapp && pnpm --filter @liquor/miniapp build:h5"
+    "build:miniapp": "pnpm --filter @liquor/miniapp build:weapp && pnpm --filter @liquor/miniapp build:h5",
+    "check:bundle": "pnpm --filter @liquor/miniapp check:bundle"
   },
   "engines": {
     "node": ">=20"

@@ -1,10 +1,8 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
-import { ROLE_HOME_PAGE, authApi, clearSession, saveSession } from '../../../services/api'
-import { openAppPage } from '../../../services/navigation'
-import { loginBlock } from '../../../services/package-login-gate'
+import { authApi, clearSession, saveSession } from '../../../services/api'
+import { homeForRole } from '../../../services/route-guard'
 import './index.scss'
 
 /**
@@ -40,25 +38,18 @@ export default function StaffLoginPage() {
     setSubmitting(true)
     try {
       const res = await authApi.login(username.trim(), password, tenantCode)
-      const role = res.user?.role ?? ''
-      // 员工包没有客户原生 tab。客户账号停在本页，不写会话；和客户登录页拒绝员工账号同一套门闩。
-      const block = loginBlock(APP_ROLE, role, 'staff')
-      if (block) {
-        if (block.clearSession) clearSession()
-        setError(block.toast)
-        Taro.showToast({ title: block.toast, icon: 'none' })
-        return
-      }
-      const home = ROLE_HOME_PAGE[role]
+      const role = (res.user?.role ?? '').trim()
+      const home = homeForRole(role)
       if (!home) {
-        Taro.showToast({ title: `未知角色 ${role}，请联系管理员`, icon: 'none' })
+        clearSession()
+        Taro.showToast({ title: `未知角色 ${role || '空'}，请联系管理员`, icon: 'none' })
         return
       }
+      // 换账号时丢掉上一个 token 和角色，再写入这次登录响应里的角色。
+      clearSession()
       saveSession(res)
       Taro.showToast({ title: `欢迎，${res.user.name}（${ROLE_NAME[role] ?? role}）`, icon: 'none' })
-      // 客户首页在客户包里是 tab 页；员工首页用 reLaunch 清栈。openAppPage 按编译期 tab 选择。
-      if (role === 'CUSTOMER') openAppPage(home)
-      else Taro.reLaunch({ url: home })
+      Taro.reLaunch({ url: home })
     } catch (e) {
       const message = e instanceof Error ? e.message : '登录失败'
       setError(message)

@@ -1,11 +1,10 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
+import RoleTabBar from '../../../components/RoleTabBar'
 import TabsScroll from '../../../components/TabsScroll'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import { openAppPage } from '../../../services/navigation'
-import { ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
+import { LOGIN_PAGE, ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerOrderDTO } from '../../../services/api'
 import './index.scss'
@@ -43,7 +42,7 @@ export default function CustomerOrdersPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/orders/index')) return
@@ -131,6 +130,7 @@ export default function CustomerOrdersPage() {
           <Text className='tip'>订单进度由商家更新，有疑问请联系您的业务员</Text>
         </View>
       )}
+      <RoleTabBar />
     </View>
   )
 }

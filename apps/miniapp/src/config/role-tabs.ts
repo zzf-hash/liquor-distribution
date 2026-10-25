@@ -1,4 +1,4 @@
-import type { AppRole } from './app-role'
+export type AppRole = 'customer' | 'staff' | 'salesman' | 'clerk' | 'warehouse' | 'boss'
 
 /** 底部导航一项。pagePath 不带前导斜杠，与 app.config tabBar.list 一致。 */
 export interface RoleTab {
@@ -55,10 +55,14 @@ export function tabsForAppRole(role: AppRole): RoleTab[] {
   return BY_APP_ROLE[role] ?? CUSTOMER_TABS
 }
 
-/** 能写进 app.json / H5 壳的原生 tab。员工包返回 null，调用方不要输出 tabBar 字段。 */
-export function nativeTabBarFor(role: AppRole): RoleTab[] | null {
-  const tabs = tabsForAppRole(role)
-  return tabs.length >= 2 ? tabs : null
+/**
+ * 统一包不写原生 tabBar。
+ * 微信 tabBar.list 只能登记 2–5 个页面，客户和员工不是同一组，放不进一套原生 tab。
+ * custom-tab-bar 也只能在这份 list 里 switchTab。底部导航改由 RoleTabBar 按登录角色渲染。
+ */
+export function nativeTabBarFor(role?: AppRole): null {
+  void role
+  return null
 }
 
 /** 登录后的后端角色（OWNER/CLERK/REP/WAREHOUSE/CUSTOMER）。未登录返回 null。 */
@@ -80,7 +84,10 @@ export function tabsForRuntimeRole(role: string | null | undefined): RoleTab[] |
 }
 
 export function normalizeRoute(route: string): string {
-  return route.replace(/^\//, '').split('?')[0]
+  let path = route.trim()
+  const hash = path.indexOf('#')
+  if (hash >= 0) path = path.slice(hash + 1)
+  return path.replace(/^\//, '').split('?')[0]
 }
 
 /** 客户订货页（不含客户登录页，避免把登录流程踢走）。 */

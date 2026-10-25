@@ -2,15 +2,16 @@
 // 信封约定与 admin 一致（{code:0,data}）；token 存 Taro storage 'ld_token'；
 // BASE 从环境变量读（构建时 TARO_APP_API_BASE 注入），默认本机开发后端。
 import Taro from '@tarojs/taro'
+import { SESSION_KEYS, sessionFromLogin, type MemorySession } from './session-cache'
 import { reportError, trackEvent } from './telemetry'
 
 const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api'
 export { BASE }
 
-const TOKEN_KEY = 'ld_token'
-const USER_KEY = 'ld_user'
-const ROLE_KEY = 'ld_role'
-const UID_KEY = 'ld_uid'
+const TOKEN_KEY = SESSION_KEYS.token
+const USER_KEY = SESSION_KEYS.name
+const ROLE_KEY = SESSION_KEYS.role
+const UID_KEY = SESSION_KEYS.id
 const CART_KEY = 'ld_cart'
 
 // P1 全员端：登录入口统一到员工登录页（五角色共用，按 role 分发首页）
@@ -100,11 +101,24 @@ export function getUserId(): string {
   return String(Taro.getStorageSync(UID_KEY) ?? '')
 }
 
+export function readSession(): MemorySession {
+  return {
+    token: getToken(),
+    role: getRole(),
+    name: getUserName(),
+    id: getUserId(),
+  }
+}
+
+export function writeSession(session: MemorySession): void {
+  Taro.setStorageSync(TOKEN_KEY, session.token)
+  Taro.setStorageSync(USER_KEY, session.name)
+  Taro.setStorageSync(ROLE_KEY, session.role)
+  Taro.setStorageSync(UID_KEY, session.id)
+}
+
 export function saveSession(login: LoginResult): void {
-  Taro.setStorageSync(TOKEN_KEY, login.token)
-  Taro.setStorageSync(USER_KEY, login.user?.name ?? '')
-  Taro.setStorageSync(ROLE_KEY, login.user?.role ?? '')
-  Taro.setStorageSync(UID_KEY, login.user?.id ?? '')
+  writeSession(sessionFromLogin(login))
 }
 
 export function clearSession(): void {
@@ -182,12 +196,37 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
 // ───────────────────────── 登录（P0 账密演示，正式微信登录后续版本） ─────────────────────────
 
+/** GET /auth/me 的现有字段。角色以这次响应为准。 */
+export interface ServerIdentity {
+  id: string
+  username: string
+  name: string
+  role: string
+  dataScope: string
+}
+
 export const authApi = {
   login: (username: string, password: string, tenantCode?: string) =>
     request<LoginResult>('/auth/login', {
       method: 'POST',
       body: { username, password, ...(tenantCode?.trim() ? { tenantCode: tenantCode.trim() } : {}) },
     }),
+  /** 启动时校验缓存 token。AuthGuard 回库看账号状态和 token_version，失效是 401。 */
+  me: () => request<ServerIdentity>('/auth/me'),
+  logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+}
+
+/** 退出或切换前清掉本地 token 和角色。能连上后端时同时吊销令牌。 */
+export async function signOut(): Promise<void> {
+  if (getToken()) {
+    try {
+      await authApi.logout()
+    } catch {
+      // 网络失败或 401 都继续清本地。401 时 request 已经清过并回到登录页。
+    }
+  }
+  clearSession()
+  Taro.reLaunch({ url: LOGIN_PAGE })
 }
 
 // ───────────────────────── 商品（GET /shop/products，专属价已解析） ─────────────────────────

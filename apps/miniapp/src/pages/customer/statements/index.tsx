@@ -8,13 +8,12 @@ import {
   STATEMENT_STATUS_LABELS,
   fmtDate,
   fmtMoney,
+  LOGIN_PAGE,
   getToken,
   statementsApi,
 } from '../../../services/api'
 import type { DisputeType, StatementDTO } from '../../../services/api'
-import { APP_ROLE } from '../../../config/app-role'
 import TabsScroll from '../../../components/TabsScroll'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import './index.scss'
 
@@ -56,7 +55,7 @@ export default function CustomerStatementsPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/statements/index')) return

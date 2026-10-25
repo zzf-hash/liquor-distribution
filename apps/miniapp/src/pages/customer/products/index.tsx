@@ -1,15 +1,15 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
 import Icon from '../../../components/Icon'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
+import RoleTabBar from '../../../components/RoleTabBar'
 import TabsScroll from '../../../components/TabsScroll'
 import {
   UNIT_LABELS,
   cartKeyOf,
   cartQty,
   fmtMoney,
+  LOGIN_PAGE,
   getToken,
   labelOf,
   loadCart,
@@ -37,7 +37,7 @@ export default function CustomerProductsPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
@@ -204,6 +204,7 @@ export default function CustomerProductsPage() {
           <Text className='btn-label'>去结算</Text>
         </Button>
       </View>
+      <RoleTabBar />
     </View>
   )
 }

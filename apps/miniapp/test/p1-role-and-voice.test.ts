@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { APP_ROLE, readAppRole } from '../src/config/app-role'
 import { homeEntriesForRole } from '../src/config/home-entries'
 import { markAsrUnavailable, readAsrUnavailable, shouldFallbackVoiceToText } from '../src/config/asr-fallback'
 import {
@@ -7,35 +6,30 @@ import {
   WAREHOUSE_TABS,
   nativeTabBarFor,
   tabBarAction,
-  tabsForAppRole,
   tabsForRuntimeRole,
 } from '../src/config/role-tabs'
 
 describe('tabBar by role', () => {
-  it('defaults the compiled package to the customer tabs', () => {
-    expect(APP_ROLE).toBe('customer')
-    expect(readAppRole(undefined)).toBe('customer')
-    expect(readAppRole('')).toBe('customer')
-    expect(readAppRole('nope')).toBe('customer')
-    expect(readAppRole('staff')).toBe('staff')
-    expect(tabsForAppRole('customer').map((tab) => tab.text)).toEqual(['首页', '订货', '我的订单', '待结金额'])
-    expect(nativeTabBarFor('customer')).toEqual(CUSTOMER_TABS)
-    expect(tabsForAppRole('warehouse')).toEqual(WAREHOUSE_TABS)
-  })
-
-  it('omits the native tab bar from the staff package', () => {
-    expect(tabsForAppRole('staff')).toEqual([])
+  it('keeps one runtime tab list per role and does not emit a native tab bar', () => {
+    expect(nativeTabBarFor('customer')).toBeNull()
     expect(nativeTabBarFor('staff')).toBeNull()
-    expect(tabBarAction('staff', 'REP', 'pages/salesman/home/index')).toBe('hide-native')
-    expect(tabBarAction('staff', 'WAREHOUSE', 'pages/warehouse/outbounds/index')).toBe('hide-native')
-    expect(tabBarAction('staff', 'CLERK', 'pages/clerk/orders/index')).toBe('hide-native')
-    expect(tabBarAction('staff', 'OWNER', 'pages/boss/dashboard/index')).toBe('hide-native')
-    expect(nativeTabBarFor('customer')?.map((tab) => tab.pagePath)).toEqual([
+    expect(nativeTabBarFor('warehouse')).toBeNull()
+    expect(tabsForRuntimeRole('CUSTOMER')).toEqual(CUSTOMER_TABS)
+    expect(tabsForRuntimeRole('WAREHOUSE')).toEqual(WAREHOUSE_TABS)
+    expect(tabsForRuntimeRole('CUSTOMER')?.map((tab) => tab.text)).toEqual(['首页', '订货', '我的订单', '待结金额'])
+    expect(tabsForRuntimeRole('CUSTOMER')?.map((tab) => tab.pagePath)).toEqual([
       'pages/index/index',
       'pages/customer/products/index',
       'pages/customer/orders/index',
       'pages/customer/receivables/index',
     ])
+  })
+
+  it('still hides the customer tab set when the signed-in role is staff', () => {
+    expect(tabBarAction('customer', 'REP', 'pages/salesman/home/index')).toBe('hide-native')
+    expect(tabBarAction('staff', 'WAREHOUSE', 'pages/warehouse/outbounds/index')).toBe('hide-native')
+    expect(tabBarAction('staff', 'CLERK', 'pages/clerk/orders/index')).toBe('hide-native')
+    expect(tabBarAction('staff', 'OWNER', 'pages/boss/dashboard/index')).toBe('hide-native')
   })
 
   it('sends warehouse staff off customer pages and hides the customer tab bar', () => {

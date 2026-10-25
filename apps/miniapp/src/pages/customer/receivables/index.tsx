@@ -1,9 +1,8 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
-import { fmtDate, fmtMoney, getToken, receivablesApi } from '../../../services/api'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
+import RoleTabBar from '../../../components/RoleTabBar'
+import { LOGIN_PAGE, fmtDate, fmtMoney, getToken, receivablesApi } from '../../../services/api'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
@@ -42,7 +41,7 @@ export default function CustomerReceivablesPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/receivables/index')) return
@@ -150,6 +149,7 @@ export default function CustomerReceivablesPage() {
           <Text className='rlist__tip'>已结单据可查最近 6 个月，更早的请联系商家查询</Text>
         </View>
       )}
+      <RoleTabBar />
     </View>
   )
 }

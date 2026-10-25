@@ -40,8 +40,8 @@
 
 ## 4. 四端复用开关
 
-- 角色常量：`src/config/app-role.ts`（customer/salesman/warehouse/boss）。
-- 页面注册：`src/app.config.ts` 按端分组；新端先加 pages 再改开关。
+- 登录后的角色来自后端 `user.role`，底部导航在 `src/components/RoleTabBar`。
+- 页面注册：`src/app.config.ts` 客户和员工页面都注册在同一个包里。
 - 编译目标：weapp（微信小程序）+ h5 双通道 `pnpm build:weapp / build:h5`。
 
 ## 5. 模拟器/真机验收路径（当前环境缺口）
