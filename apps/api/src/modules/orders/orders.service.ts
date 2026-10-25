@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, HttpExcepti
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
@@ -659,7 +660,7 @@ export class OrdersService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.outbound.findMany({
         where,
         orderBy: { createdAt: 'desc' },

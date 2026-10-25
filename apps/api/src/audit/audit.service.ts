@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { rawClient } from '../prisma/prisma.service';
+import { NotifyService } from '../common/notify.service';
 import type { AuthUser } from '../common/current-user.decorator';
 
 /**
@@ -21,7 +23,9 @@ export function stableStringify(v: unknown): string {
 // B2: 审计流水 DB 层 append-only + 每租户哈希链
 //   - 应用层: 本服务只 INSERT; PrismaService 禁 update/delete; DB 层 REVOKE(见 migration)
 //   - 哈希链: rowHash = sha256(prevRowHash ‖ tenantId ‖ action ‖ entityType ‖ entityId ‖ before ‖ after ‖ ts)
-//     prevRowHash 取链尾(FOR UPDATE 防并发分叉); 改任一历史行都会使后续校验失败 → 内部人改库可检测
+//     prevRowHash 取链尾。并发用 pg_advisory_xact_lock(按租户), 不锁行:
+//     AuditLog 对业务账号 REVOKE 了 UPDATE, FOR UPDATE 会 42501。
+//     改任一历史行都会使后续校验失败 → 内部人改库可检测
 // 红线动作(P0-T03 枚举, 安全评审§3.1 清单): 全部走这里留痕
 export const AuditAction = {
   LOGIN: 'LOGIN',
@@ -70,19 +74,47 @@ export interface AuditEntry {
 @Injectable()
 export class AuditService {
   private readonly logger = new Logger('Audit');
+  private db: PrismaClient = rawClient;
 
-  /** 记审计(不阻断业务: 审计自身失败仅告警——写入失败时业务已提交, 由对账 job 兜底) */
+  constructor(@Optional() private readonly notify?: NotifyService) {}
+
+  /** 测试注入业务角色连接。生产用 rawClient(应用 DATABASE_URL)。 */
+  bindClient(client: PrismaClient): this {
+    this.db = client;
+    return this;
+  }
+
+  /**
+   * 记审计。失败不让业务请求失败: 多数调用点在单据事务提交之后, 再抛错会让客户端重试并产生重复单据;
+   * 登录此时也已经签发令牌。失败必须留下 error 日志, 并走飞书告警(未配置时 NotifyService 返回 false, 日志仍在)。
+   * 缺口由 verifyChain / 对账发现。
+   */
   async log(entry: AuditEntry): Promise<void> {
     try {
       await this.append(entry);
     } catch (e) {
-      this.logger.error(`audit append failed: ${String(e).slice(0, 200)}`);
+      const message = e instanceof Error ? e.message : String(e);
+      this.logger.error(
+        `audit append failed: action=${entry.action} tenant=${entry.user.tenantId} entity=${entry.entityType}:${entry.entityId ?? ''} ${message.slice(0, 400)}`,
+      );
+      if (!this.notify) return;
+      try {
+        await this.notify.send('审计写入失败', [
+          `action=${entry.action}`,
+          `tenant=${entry.user.tenantId}`,
+          `user=${entry.user.username}`,
+          `entity=${entry.entityType}:${entry.entityId ?? ''}`,
+          message.slice(0, 300),
+        ]);
+      } catch (alertErr) {
+        this.logger.error(`audit alert failed: ${String(alertErr).slice(0, 200)}`);
+      }
     }
   }
 
   /** 哈希链校验: 重放全链验证 rowHash 连续性(每日对账 job / 人工核查用) */
   async verifyChain(tenantId: string): Promise<{ ok: boolean; brokenAt?: string }> {
-    const rows = await rawClient.$transaction(async (tx) => {
+    const rows = await this.db.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
       return tx.auditLog.findMany({
         where: { tenantId },
@@ -99,56 +131,55 @@ export class AuditService {
   }
 
   private async append(entry: AuditEntry): Promise<void> {
-    const { Prisma } = await import('@prisma/client');
-    await rawClient.$transaction(
-      async (tx) => {
-        // rawClient 不走扩展层, 这里自行把租户放进本事务, 否则 FORCE RLS 下非超级用户插不进 AuditLog。
-        await tx.$queryRaw`SELECT set_config('app.tenant_id', ${entry.user.tenantId}, true)`;
-        // 链尾加锁, 防并发分叉 (FOR UPDATE)
-        // 列名必须与 schema 一致: 本仓 Prisma 用 camelCase 映射且不设 @map,
-        // PG 物理列是 "rowHash"/"tenantId"/"createdAt"(与 0_init 迁移一致)。
-        // 0929 实锤: 此前写 snake_case 导致 42703 column "row_hash" does not exist,
-        // 每次 audit 追加失败被 log() 吞掉 → 审计链从不落库(B2 失效)。
-        const tail: Array<{ rowHash: string }> = await tx.$queryRaw(
-          Prisma.sql`SELECT "rowHash" FROM "AuditLog"
-                     WHERE "tenantId" = ${entry.user.tenantId}
-                     ORDER BY "createdAt" DESC, id DESC LIMIT 1 FOR UPDATE`,
-        );
-        const prev = tail[0]?.rowHash ?? 'GENESIS';
-        const now = new Date();
-        const payload = {
-          tenantId: entry.user.tenantId,
+    const tenantId = entry.user.tenantId;
+    // 空串会撞 AuditLog_userId_fkey(登录失败当时还不知道用户)。没有用户就写 null。
+    const userId = entry.user.id ? entry.user.id : null;
+    await this.db.$transaction(async (tx) => {
+      // rawClient 不走扩展层, 这里自行把租户放进本事务, 否则 FORCE RLS 下非超级用户插不进 AuditLog。
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      // 按租户串行化链尾。pg_advisory_xact_lock 返回 void, $queryRaw 会报不支持 void;
+      // $executeRaw 只执行。锁在事务结束时释放, 不需要 AuditLog 的 UPDATE 权限。
+      // 列名必须与 schema 一致: 本仓 Prisma 用 camelCase 映射且不设 @map,
+      // PG 物理列是 "rowHash"/"tenantId"/"createdAt"(与 0_init 迁移一致)。
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}), 0)`;
+      const tail = await tx.$queryRaw<Array<{ rowHash: string }>>(
+        Prisma.sql`SELECT "rowHash" FROM "AuditLog"
+                   WHERE "tenantId" = ${tenantId}
+                   ORDER BY "createdAt" DESC, id DESC LIMIT 1`,
+      );
+      const prev = tail[0]?.rowHash ?? 'GENESIS';
+      const now = new Date();
+      const payload = {
+        tenantId,
+        action: entry.action,
+        entityType: entry.entityType,
+        entityId: entry.entityId ?? '',
+        before: entry.before ?? null,
+        after: entry.after ?? null,
+        ts: now.toISOString(),
+      };
+      const rowHash = createHash('sha256')
+        .update(prev + '␟' + stableStringify(payload))
+        .digest('hex');
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          userId,
+          username: entry.user.username,
+          role: String(entry.user.role),
           action: entry.action,
           entityType: entry.entityType,
-          entityId: entry.entityId ?? '',
-          before: entry.before ?? null,
-          after: entry.after ?? null,
-          ts: now.toISOString(),
-        };
-        const rowHash = createHash('sha256')
-          .update(prev + '␟' + stableStringify(payload))
-          .digest('hex');
-        await tx.auditLog.create({
-          data: {
-            tenantId: entry.user.tenantId,
-            userId: entry.user.id,
-            username: entry.user.username,
-            role: String(entry.user.role),
-            action: entry.action,
-            entityType: entry.entityType,
-            entityId: entry.entityId,
-            before: (entry.before ?? undefined) as never,
-            after: (entry.after ?? undefined) as never,
-            ip: entry.ip,
-            channel: entry.channel ?? 'web',
-            prevRowHash: prev,
-            rowHash,
-            createdAt: now,
-          },
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-    );
+          entityId: entry.entityId,
+          before: (entry.before ?? undefined) as never,
+          after: (entry.after ?? undefined) as never,
+          ip: entry.ip,
+          channel: entry.channel ?? 'web',
+          prevRowHash: prev,
+          rowHash,
+          createdAt: now,
+        },
+      });
+    });
   }
 
   private hash(prev: string, r: { tenantId: string; action: string; entityType: string; entityId: string | null; before: unknown; after: unknown; createdAt: Date }): string {

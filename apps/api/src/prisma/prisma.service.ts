@@ -1,8 +1,9 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, OnModuleDestroy, OnModuleInit, ForbiddenException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { tenantContext, rlsBypassContext } from './tenant-context';
+import { tenantContext, rlsBypassContext, currentRlsRole } from './tenant-context';
 import { TENANT_MODELS } from './tenant-models';
+import { readWithHiddenRelationFallback } from './relation-read';
 
 export { TENANT_MODELS } from './tenant-models';
 
@@ -20,6 +21,7 @@ export { TENANT_MODELS } from './tenant-models';
 //   用户名探测和 seed。DailyTasksTimer / 库存日切先读无策略的 Tenant, 再
 //   tenantContext.run 逐租户执行, 走 app.tenant_id, 不开 bypass。
 //   单条查询包进交互事务; 已有的 $transaction(回调或批量)在入口处设置, 避免拆掉原子性。
+// 必填 include 被 RLS 滤成 null 时, 列表跳过该行并 warn, 详情按不存在返回, 避免整页 500。
 
 const APPEND_ONLY_MODELS = new Set<string>([
   'AuditLog', // B2
@@ -82,6 +84,8 @@ function applyGuards(params: Record<string, unknown>, ctx: Ctx): Record<string, 
 
 // 已经处在「我们包过的」RLS 事务里, 内层查询不要再套一层(否则批量事务被拆开)。
 const inRlsTx = new AsyncLocalStorage<true>();
+// 关联回退正在逐行重查。内层扩展只执行语句, 不再包一层回退(否则递归)。
+const inRelationFallback = new AsyncLocalStorage<true>();
 
 type RlsQueryParams = {
   model?: string;
@@ -98,10 +102,18 @@ function needsRlsGuc(): boolean {
 }
 
 async function applyRlsGuc(tx: TxClient): Promise<void> {
+  const role = currentRlsRole();
+  // 先降权再设 GUC, 与「连接本身就是业务账号」的生产路径一致。SET LOCAL 随事务结束还原。
+  if (role) await tx.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`);
   const tenantId = tenantContext.getStore()?.tenantId;
   // is_local=true: 只活在当前事务, 连接归还池子后不会把租户带给下一个请求。
   if (tenantId) await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
   if (rlsBypassContext.getStore()) await tx.$queryRaw`SELECT set_config('app.rls_bypass', 'on', true)`;
+}
+
+function runRead(model: string | undefined, operation: string, args: Record<string, unknown>, exec: (args: Record<string, unknown>) => Promise<unknown>): Promise<unknown> {
+  // 回调必须 async: Prisma 查询惰性, 同步返回后 ALS 退出, 内层看不到 inRelationFallback。
+  return readWithHiddenRelationFallback(model, operation, args, (next) => inRelationFallback.run(true, async () => exec(next)));
 }
 
 function delegateKey(model: string): string {
@@ -129,12 +141,14 @@ const extendedClient = baseClient.$extends({
         // 不能把 {model,action,args} 整个回传——model/action 会被当作未知参数报
         // PrismaClientValidationError (Unknown argument `model`)
         applyGuards({ model, action: operation, args }, tenantContext.getStore());
+        if (inRelationFallback.getStore()) return query(args);
         const txKind = params.__internalParams?.transaction?.kind;
         const insidePrismaTx = txKind === 'batch' || txKind === 'itx';
         if (!model || !needsRlsGuc() || inRlsTx.getStore() || insidePrismaTx) {
-          return query(args);
+          return runRead(model, operation, args, query);
         }
         // 单条查询: 包进交互事务, 先设 GUC 再在同一连接上执行。
+        // 回退放在这一层: 内层 delegate 每次只跑一条 query(), 坏行可以逐条重查。
         return inRlsTx.run(true, () => originalTransaction(async (tx) => {
           await applyRlsGuc(tx);
           const key = delegateKey(model);
@@ -142,7 +156,7 @@ const extendedClient = baseClient.$extends({
           if (!delegate || typeof delegate[operation] !== 'function') {
             throw new Error(`RLS 事务包装找不到 ${model}.${operation}`);
           }
-          return delegate[operation](args);
+          return runRead(model, operation, args, (next) => delegate[operation](next));
         }));
       },
     },
@@ -167,7 +181,9 @@ function installRlsTransaction(client: ExtendedClient): void {
     }
     if (Array.isArray(arg)) {
       const tenantId = tenantContext.getStore()?.tenantId;
+      const role = currentRlsRole();
       const prefix: Prisma.PrismaPromise<unknown>[] = [];
+      if (role) prefix.push(client.$executeRawUnsafe(`SET LOCAL ROLE "${role}"`));
       if (tenantId) prefix.push(client.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
       if (rlsBypassContext.getStore()) prefix.push(client.$queryRaw`SELECT set_config('app.rls_bypass', 'on', true)`);
       return inRlsTx.run(true, async () => {
@@ -209,7 +225,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-// 审计专用原始访问(哈希链 FOR UPDATE 查询, 不经扩展层; 调用方在事务内自行 set_config)
+// 审计专用原始访问(哈希链不经扩展层; 调用方在事务内自行 set_config, 用 advisory lock 而不是 FOR UPDATE)
 export const rawClient = new PrismaClient();
 
 export type { Prisma };

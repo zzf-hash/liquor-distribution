@@ -36,6 +36,7 @@ describe('租户隔离 / RLS / 登录', () => {
   let tenantB: { id: string; code: string };
   let userA: { id: string };
   let userB: { id: string };
+  let userDisabled: { id: string };
   let expenseA: { id: string };
   let expenseB: { id: string };
   let promoA: { id: string };
@@ -69,6 +70,7 @@ describe('租户隔离 / RLS / 登录', () => {
     const hashA = bcrypt.hashSync('password-a', 4);
     const hashB = bcrypt.hashSync('password-b', 4);
     const hashU = bcrypt.hashSync('password-u', 4);
+    const hashD = bcrypt.hashSync('password-d', 4);
     tenantA = await rawClient.tenant.create({ data: { code: `${nonce}-A`, name: '租户A' } });
     tenantB = await rawClient.tenant.create({ data: { code: `${nonce}-B`, name: '租户B' } });
     userA = await rawClient.user.create({
@@ -79,6 +81,9 @@ describe('租户隔离 / RLS / 登录', () => {
     });
     await rawClient.user.create({
       data: { tenantId: tenantA.id, username: `only-${nonce}`, name: '唯一', role: 'CLERK', dataScope: 'ALL', passwordHash: hashU, status: 'ACTIVE' },
+    });
+    userDisabled = await rawClient.user.create({
+      data: { tenantId: tenantA.id, username: `disabled-${nonce}`, name: '停用', role: 'CLERK', dataScope: 'ALL', passwordHash: hashD, status: 'DISABLED' },
     });
     const productA = await rawClient.product.create({
       data: { tenantId: tenantA.id, skuCode: `S-${nonce}-A`, name: '酒A', category: 'BAIJIU', baseUnit: '箱', packSize: 6 },
@@ -312,5 +317,30 @@ describe('租户隔离 / RLS / 登录', () => {
 
     const audits = await rawClient.auditLog.findMany({ where: { tenantId: tenantA.id, action: 'LOGIN', username: 'shared' } });
     expect(audits.length).toBeGreaterThan(0);
+  });
+
+  it('口令错误不暴露禁用; 口令正确才回账号已禁用, 失败审计不写空 userId', async () => {
+    await expect(auth.login(`disabled-${nonce}`, 'password-wrong', '10.2.0.1', tenantA.code)).rejects.toThrow('用户名或密码错误');
+    await expect(auth.login(`disabled-${nonce}`, 'password-d', '10.2.0.2', tenantA.code)).rejects.toThrow('账号已禁用');
+    await expect(auth.login(`missing-${nonce}`, 'password-a', '10.2.0.3', tenantA.code)).rejects.toThrow('用户名或密码错误');
+    await expect(auth.login('shared', 'password-wrong', '10.2.0.4', tenantA.code)).rejects.toThrow('用户名或密码错误');
+
+    const disabledRows = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: `disabled-${nonce}` },
+    });
+    expect(disabledRows.length).toBeGreaterThanOrEqual(2);
+    expect(disabledRows.every((row) => row.userId === userDisabled.id)).toBe(true);
+
+    const missingRows = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: `missing-${nonce}` },
+    });
+    expect(missingRows).toHaveLength(1);
+    expect(missingRows[0].userId).toBeNull();
+
+    const sharedFails = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: 'shared' },
+    });
+    expect(sharedFails.length).toBeGreaterThan(0);
+    expect(sharedFails.every((row) => row.userId === userA.id)).toBe(true);
   });
 });

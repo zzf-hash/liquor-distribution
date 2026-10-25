@@ -47,20 +47,27 @@ export class AuthService {
     // 唯一约束是 (tenantId, username), 不能用不带排序的 findFirst: 同名账号会互相遮挡。
     // 带租户编码 → tenantId_username。不带编码时仅当用户名全局唯一才放行(旧客户端兼容);
     // 多个租户撞名则要求补编码, 不猜其中一个。
-    const user = await this.findLoginUser(username, code);
-    const fail = async (): Promise<never> => {
+    const located = await this.findLoginUser(username, code);
+    const user = located.user;
+    // 先对口令。禁用账号配错口令也回「用户名或密码错误」, 避免用文案确认账号存在。
+    // 口令正确但已禁用才回「账号已禁用」: 调用方已经证明知道口令, 需要知道为什么进不去,
+    // 这次不计入口令失败次数(不是猜口令)。
+    const passwordOk = Boolean(user?.passwordHash) && await bcrypt.compare(password, user!.passwordHash!);
+    if (!user || !passwordOk) {
       const cur = loginFails.get(limitKey);
       if (!cur || Date.now() - cur.firstAt >= LOGIN_WINDOW_MS) loginFails.set(limitKey, { count: 1, firstAt: Date.now() });
       else cur.count += 1;
-      await this.audit.log({
-        user: { id: '', tenantId: user?.tenantId ?? 'UNKNOWN', username, role: '-' },
-        action: AuditAction.LOGIN_FAIL, entityType: 'User', ip,
-      });
+      await this.auditLoginFail(username, ip, user, located.tenantId);
       throw new UnauthorizedException('用户名或密码错误');
-    };
-    if (!user || !user.passwordHash) return fail();
-    if (user.status === 'DISABLED') throw new UnauthorizedException('账号已禁用');
-    if (!(await bcrypt.compare(password, user.passwordHash))) return fail();
+    }
+    if (user.status === 'DISABLED') {
+      await this.audit.log({
+        user: { id: user.id, tenantId: user.tenantId, username: user.username, role: user.role },
+        action: AuditAction.LOGIN_FAIL, entityType: 'User', entityId: user.id, ip,
+        after: { reason: 'DISABLED' },
+      });
+      throw new UnauthorizedException('账号已禁用');
+    }
     loginFails.delete(limitKey); // 成功登录清零失败计数
 
     const token = await this.jwt.signAsync({
@@ -80,19 +87,38 @@ export class AuthService {
     };
   }
 
-  private async findLoginUser(username: string, tenantCode?: string) {
+  private async auditLoginFail(
+    username: string,
+    ip: string | undefined,
+    user: { id: string; tenantId: string; username: string; role: string } | null,
+    tenantId: string | null,
+  ): Promise<void> {
+    // 没有租户就没有可挂的 AuditLog(tenantId 外键)。有用户必须写真实 id, 空串会撞 userId 外键。
+    const tid = user?.tenantId ?? tenantId;
+    if (!tid) return;
+    await this.audit.log({
+      user: { id: user?.id ?? '', tenantId: tid, username: user?.username ?? username, role: user?.role ?? '-' },
+      action: AuditAction.LOGIN_FAIL, entityType: 'User', entityId: user?.id, ip,
+    });
+  }
+
+  private async findLoginUser(username: string, tenantCode?: string): Promise<{
+    user: Awaited<ReturnType<PrismaService['user']['findUnique']>>;
+    tenantId: string | null;
+  }> {
     if (tenantCode) {
       const tenant = await this.prisma.tenant.findUnique({ where: { code: tenantCode } });
-      if (!tenant) return null;
+      if (!tenant) return { user: null, tenantId: null };
       // 回调必须是 async: Prisma 查询是惰性的, 同步 return 出去后 ALS 已退出, 扩展层读不到租户。
-      return tenantContext.run({ tenantId: tenant.id }, async () => this.prisma.user.findUnique({
+      const user = await tenantContext.run({ tenantId: tenant.id }, async () => this.prisma.user.findUnique({
         where: { tenantId_username: { tenantId: tenant.id, username } },
       }));
+      return { user, tenantId: tenant.id };
     }
     // 跨租户数用户名: 此时还没有租户, 必须显式 bypass, 否则 FORCE RLS 下非超级用户读不到 User。
     const matches = await rlsBypassContext.run(true, async () => this.prisma.user.findMany({ where: { username } }));
-    if (matches.length === 1) return matches[0];
-    if (matches.length === 0) return null;
+    if (matches.length === 1) return { user: matches[0], tenantId: matches[0].tenantId };
+    if (matches.length === 0) return { user: null, tenantId: null };
     throw new BadRequestException('该用户名存在于多个租户, 请填写租户编码');
   }
 

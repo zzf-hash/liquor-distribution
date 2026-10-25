@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { NotifyService } from '../../common/notify.service';
 import { ApprovalsService } from '../approvals/approvals.service';
@@ -306,7 +307,7 @@ export class StockAlertService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 50));
     const where: Prisma.DailyStockReportWhereInput = { tenantId: user.tenantId, reportDate, level: q.level as never };
-    const [items, total, agg] = await this.prisma.$transaction([
+    const [items, total, agg] = await sequential([
       this.prisma.dailyStockReport.findMany({
         where, orderBy: [{ level: 'desc' }, { productId: 'asc' }], skip: (page - 1) * pageSize, take: pageSize,
         include: { product: { select: { skuCode: true, name: true, category: true, baseUnit: true, minUnit: true, packSize: true } }, restock: { select: { id: true, requestId: true, status: true } } },
@@ -339,7 +340,7 @@ export class StockAlertService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where: Prisma.RestockRequestWhereInput = { tenantId: user.tenantId, status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.restockRequest.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { product: { select: { skuCode: true, name: true, baseUnit: true, minUnit: true, packSize: true, supplier: true } } },

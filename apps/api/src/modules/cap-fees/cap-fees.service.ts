@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -121,7 +122,7 @@ export class CapFeesService {
       // 业务员只见自己登记/自己客户
       ...(user.role === 'REP' ? { createdById: user.id } : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.capRecycleOrder.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { customer: { select: { code: true, name: true } } },
