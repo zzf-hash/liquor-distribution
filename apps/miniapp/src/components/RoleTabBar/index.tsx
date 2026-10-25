@@ -4,6 +4,7 @@ import { APP_ROLE } from '../../config/app-role'
 import { normalizeRoute, sameTabSet, tabsForAppRole, tabsForRuntimeRole } from '../../config/role-tabs'
 import { getRole } from '../../services/api'
 import { openAppPage } from '../../services/navigation'
+import Icon, { iconForTab } from '../Icon'
 import './index.scss'
 
 /**
@@ -28,6 +29,7 @@ export default function RoleTabBar() {
                 if (!on) openAppPage(`/${tab.pagePath}`, 'tab')
               }}
             >
+              <Icon name={iconForTab(tab.pagePath)} color={on ? '#7A1F2B' : '#6B5F5A'} size={44} />
               <Text className='role-tab__text'>{tab.text}</Text>
             </View>
           )

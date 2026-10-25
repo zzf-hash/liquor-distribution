@@ -12,6 +12,7 @@ import {
   statementsApi,
 } from '../../../services/api'
 import type { DisputeType, StatementDTO } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import './index.scss'
 
 type TabKey = 'SENT' | 'CONFIRMED' | 'DISPUTED' | 'ALL'
@@ -55,6 +56,7 @@ export default function CustomerStatementsPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/statements/index')) return
     void load(tab)
   })
 
@@ -101,7 +103,7 @@ export default function CustomerStatementsPage() {
         title: `确认 ${s.period} 对账单`,
         content: `当期应付 ¥${fmtMoney(s.totalCharged).slice(1)}，已结 ¥${fmtMoney(s.totalSettled).slice(1)}，期末待结 ¥${fmtMoney(s.openBalance).slice(1)}。确认数字无误吗？`,
         confirmText: '确认无误',
-        confirmColor: '#8b1e24',
+        confirmColor: '#7A1F2B',
         success: (r) => resolve(Boolean(r.confirm)),
         fail: () => resolve(false),
       })

@@ -65,9 +65,9 @@ const pageConfig = {
   pages: [...CUSTOMER_PAGES, ...SALESMAN_PAGES, ...CLERK_PAGES, ...WAREHOUSE_PAGES, ...BOSS_PAGES],
   window: {
     backgroundTextStyle: 'light',
-    navigationBarBackgroundColor: '#8b1e24',
+    navigationBarBackgroundColor: '#FFFFFF',
     navigationBarTitleText: APP_TITLE[APP_ROLE],
-    navigationBarTextStyle: 'white',
+    navigationBarTextStyle: 'black',
   },
   // 微信定位权限声明（P1-T13 拜访打卡；H5 构建忽略）。getLocation 失败可跳过（页面已兜底）。
   permission: {
@@ -79,10 +79,10 @@ const pageConfig = {
   // 底部导航按编译期 APP_ROLE 生成。运行时角色不一致时由 app.ts 隐藏原生 tab，
   // 员工页改用 RoleTabBar，避免仓配/内勤看到客户订货页。
   tabBar: {
-    color: '#8a7f7a', // = $color-text-sub
-    selectedColor: '#8b1e24', // = $color-primary
-    backgroundColor: '#ffffff', // = $color-card
-    borderStyle: 'black' as const,
+    color: '#6B5F5A',
+    selectedColor: '#7A1F2B',
+    backgroundColor: '#FFFFFF',
+    borderStyle: 'white' as const,
     list: roleTabs,
   },
 }

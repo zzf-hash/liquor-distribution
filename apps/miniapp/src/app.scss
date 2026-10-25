@@ -1,0 +1,12 @@
+@use './styles/tokens' as *;
+
+page {
+  background: $color-neutral-bg;
+  color: $color-neutral-text;
+  font-family: $font-family;
+}
+
+// 这批没有 tab 图标文件。H5 仍会渲染空 src 的 img，留下破图方框。
+.weui-tabbar__icon {
+  display: none;
+}

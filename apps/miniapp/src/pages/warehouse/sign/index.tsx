@@ -3,8 +3,10 @@ import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Canvas, Image, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { readRouteQuery } from '../../../services/route-param'
 import ReasonPopup from '../../../components/reason-popup'
 import { rejectConfirmText } from '../../../services/sign-reject'
+import { bumpReceivedQty, receivedQtyForSubmit } from '../../../services/sign-qty'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -195,11 +197,9 @@ export default function WarehouseSignPage() {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
-    const pages = Taro.getCurrentPages()
-    const cur = pages[pages.length - 1]
-    const q = (cur as { options?: Record<string, string> })?.options ?? {}
+    const q = readRouteQuery()
     const paramId = q.id ?? ''
-    const paramNo = decodeURIComponent(q.no ?? '')
+    const paramNo = q.no ?? ''
     setOrderNo(paramNo)
     setSignerName((prev) => prev || getUserName())
     if (paramId && paramId !== id) {
@@ -226,6 +226,12 @@ export default function WarehouseSignPage() {
     setSignLines((prev) => prev.map((s, idx) => (idx === i ? { ...s, actual: v } : s)))
   }
 
+  function bumpActual(i: number, delta: number) {
+    setSignLines((prev) => prev.map((s, idx) => (
+      idx === i ? { ...s, actual: bumpReceivedQty(s.actual, s.net, delta) } : s
+    )))
+  }
+
   function setPackage(idx: number, patch: Partial<{ category: string; qty: string }>) {
     setPackages((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
   }
@@ -235,12 +241,12 @@ export default function WarehouseSignPage() {
     const lines: Array<{ orderLineId: string; actualQty: number }> = []
     for (let i = 0; i < signLines.length; i++) {
       const s = signLines[i]
-      const actual = Number(s.actual)
-      if (!Number.isFinite(actual) || actual < 0 || actual > s.net) {
+      const actualQty = receivedQtyForSubmit(s.actual, s.net)
+      if (actualQty === null) {
         Taro.showToast({ title: `${s.line.productName} 实收须在 0~${s.net} 之间`, icon: 'none' })
         return
       }
-      lines.push({ orderLineId: s.line.id, actualQty: Number(actual.toFixed(3)) })
+      lines.push({ orderLineId: s.line.id, actualQty })
     }
     const returnPackages = packages
       .map((p) => ({ category: p.category, qty: Math.trunc(Number(p.qty)) }))
@@ -265,7 +271,7 @@ export default function WarehouseSignPage() {
           title: '存在拒收数量',
           content: rejectText,
           confirmText: '确认提交',
-          confirmColor: '#8b1e24',
+          confirmColor: '#7A1F2B',
           success: (r) => resolve(Boolean(r.confirm)),
           fail: () => resolve(false),
         })
@@ -352,10 +358,15 @@ export default function WarehouseSignPage() {
                 <Text className='sline__label'>实收</Text>
                 <Input
                   className='sline__ipt'
-                  type='number'
+                  type='digit'
                   value={s.actual}
                   onInput={(e) => setActual(i, e.detail.value)}
                 />
+                <View className='stepper'>
+                  <Button className='stepper__btn' disabled={Number(s.actual) <= 0} onClick={() => bumpActual(i, -1)}>−</Button>
+                  <Text className='stepper__num'>{s.actual}</Text>
+                  <Button className='stepper__btn' disabled={Number(s.actual) >= s.net} onClick={() => bumpActual(i, 1)}>＋</Button>
+                </View>
                 <Text className={`sline__rej ${rejected > 0 ? 'sline__rej--on' : ''}`}>
                   {rejected > 0 ? `拒收 ${rejected}` : '足额'}
                 </Text>
@@ -396,7 +407,7 @@ export default function WarehouseSignPage() {
           <View className='signpad'>
             <View className='signpad__head'>
               <Text className='signpad__label'>请让客户手写签名</Text>
-              <Text className='signpad__clear' onClick={clearSignature}>清除重写</Text>
+              <Button className='btn-neutral btn-sm signpad__clear' onClick={clearSignature}>清除重写</Button>
             </View>
             <Canvas
               type='2d'
@@ -468,7 +479,7 @@ export default function WarehouseSignPage() {
         disabled={submitting || signLines.length === 0}
         onClick={() => { void submit() }}
       >
-        提交签收
+        确认签收
       </Button>
       <Button className='btn-danger sign__reject' disabled={submitting} onClick={() => setShowReject(true)}>
         整单拒收

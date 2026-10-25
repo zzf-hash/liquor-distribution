@@ -161,10 +161,10 @@ export default function SalesmanVoiceOrderPage() {
 
         <View className='vo__modes'>
           <View className={`vo__mode ${mode === 'voice' ? 'vo__mode--on' : ''}`} onClick={() => switchMode('voice')}>
-            <Text className='vo__mode-txt'>语音🎙️</Text>
+            <Text className='vo__mode-txt'>语音</Text>
           </View>
           <View className={`vo__mode ${mode === 'text' ? 'vo__mode--on' : ''}`} onClick={() => switchMode('text')}>
-            <Text className='vo__mode-txt'>文字📝</Text>
+            <Text className='vo__mode-txt'>文字</Text>
           </View>
         </View>
 
@@ -182,7 +182,7 @@ export default function SalesmanVoiceOrderPage() {
                   ? '■ 停止录音并识别'
                   : recordedSec
                     ? `已识别（重录点此）`
-                    : '🎙️ 开始录音（口述报单，≤60秒）'}
+                    : '开始录音（口述报单，≤60秒）'}
             </Button>
             <Text className='vo__hint'>
               停止录音后自动上传识别生成草稿（识别文本可编辑兜底）；识别失败或口语过重时，请改用文字模式
@@ -246,7 +246,7 @@ export default function SalesmanVoiceOrderPage() {
           {result.ambiguities?.length ? (
             <View className='vo__amb'>
               {result.ambiguities.map((a, i) => (
-                <Text key={i} className='vo__amb-txt'>⚠ {a}</Text>
+                <Text key={i} className='vo__amb-txt'>{a}</Text>
               ))}
             </View>
           ) : null}

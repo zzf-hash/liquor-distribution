@@ -1,0 +1,101 @@
+@use './tokens' as *;
+
+.login {
+  min-height: 100vh;
+  background: $color-bg;
+  padding: $space-xxl $space-page;
+  box-sizing: border-box;
+  font-family: $font-family;
+}
+
+.login__hd {
+  padding: 48px 0 40px;
+}
+
+.login__title {
+  display: block;
+  font-size: $font-h1;
+  font-weight: $weight-bold;
+  color: $color-text;
+  line-height: $line-height-tight;
+}
+
+.login__sub {
+  display: block;
+  margin-top: $space-sm;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  line-height: $line-height-loose;
+}
+
+.login__form {
+  display: flex;
+  flex-direction: column;
+}
+
+.ipt {
+  min-height: $size-input;
+  padding: 0 $space-lg;
+  margin-bottom: $space-md;
+  font-size: $font-body;
+  color: $color-text;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-sm;
+  box-sizing: border-box;
+}
+
+.ipt--focus {
+  border-color: $border-focus;
+  box-shadow: 0 0 0 6px $color-brand-primary-light;
+}
+
+.ipt--error {
+  border-color: $color-danger;
+}
+
+.ipt-error {
+  display: block;
+  margin: -8px 0 $space-md;
+  font-size: 26px;
+  line-height: $line-height-base;
+  color: $color-functional-danger-text;
+}
+
+.btn-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: $size-btn-lg;
+  margin-top: $space-sm;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-pill;
+
+  &::after {
+    border: none;
+  }
+
+  &:active {
+    background: $color-primary-pressed;
+  }
+
+  &[disabled] {
+    opacity: 0.8;
+  }
+}
+
+.login__demo {
+  margin-top: $space-xl;
+}
+
+.login__demo-tip,
+.login__tip {
+  display: block;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  line-height: $line-height-loose;
+}

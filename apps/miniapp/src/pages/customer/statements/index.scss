@@ -33,7 +33,7 @@
 
   &--on {
     font-weight: 600;
-    color: #fff;
+    color: $color-neutral-white;
     background: $color-primary;
   }
 }
@@ -159,7 +159,7 @@
 .dpop__mask {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: $color-neutral-mask;
 }
 
 .dpop__panel {
@@ -229,7 +229,7 @@
 .btn-inline--plain {
   color: $color-text-sub;
   background: transparent;
-  border: 1px solid rgba(138, 127, 122, 0.4);
+  border: $border-width solid $color-neutral-line-strong;
 }
 
 // 空态/错误态
@@ -254,7 +254,7 @@
   width: 100%;
   font-size: $font-body;
   font-weight: 600;
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
   border-radius: $radius-base;

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
 import {
-  PRICE_TYPE_LABELS,
   UNIT_LABELS,
   cartKeyOf,
   cartQty,
@@ -12,33 +12,38 @@ import {
   loadCart,
   saveCart,
   shopApi,
+  toNum,
 } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
+import { productSearchOnConfirm, productSearchOnInput } from '../../../services/product-search'
 import type { CartItem, ShopProductDTO } from '../../../services/api'
 import './index.scss'
 
 /**
- * 客户商品浏览（P0-T50）：GET /shop/products（CUSTOMER token，专属价已由后端解析）。
- * 步进器直写本地购物车（storage 持久化，key=productId+unit）；
- * 列表价为展示快照，成交价以下单时服务端核算为准。
+ * 客户商品浏览：GET /shop/products。步进器直写本地购物车。
+ * 接口没有分类字段，横滑只保留「全部」，避免编造筛选结果。
  */
 export default function CustomerProductsPage() {
   const [items, setItems] = useState<ShopProductDTO[]>([])
   const [keyword, setKeyword] = useState('')
+  const [focus, setFocus] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [capped, setCapped] = useState(false)
 
   useDidShow(() => {
-    // 登录守卫；从购物车/订单页返回时同步购物车数量
     if (!getToken()) {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
     setCart(loadCart())
   })
 
   useEffect(() => {
+    if (!getToken()) return
+    if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
     void load('')
   }, [])
 
@@ -61,7 +66,6 @@ export default function CustomerProductsPage() {
     return cart.find((c) => cartKeyOf(c.productId, c.unit) === cartKeyOf(p.productId, p.unit))?.qty ?? 0
   }
 
-  /** 步进 ±N 直写购物车；减到 0 即移除该行 */
   function changeQty(p: ShopProductDTO, delta: number) {
     const key = cartKeyOf(p.productId, p.unit)
     const next = cart.map((c) => ({ ...c }))
@@ -90,61 +94,115 @@ export default function CustomerProductsPage() {
     return p.baseUnit || labelOf(UNIT_LABELS, p.unit)
   }
 
+  const total = cart.reduce((sum, row) => sum + toNum(row.price) * row.qty, 0)
+  const count = cartQty(cart)
+
   return (
     <View className='plist'>
-      <View className='plist__bar'>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>选酒下单</Text>
+          <Text className='page-head__sub'>价格为参考价，以商家确认为准</Text>
+        </View>
+      </View>
+
+      <View className={`plist__search ${focus ? 'plist__search--focus' : ''}`}>
+        <Icon name='search' color='#6B5F5A' size={44} />
         <Input
-          className='plist__search'
-          placeholder='搜品名，如：白酒'
+          className='plist__input'
+          placeholder='搜索品名、规格'
           confirmType='search'
           value={keyword}
-          onInput={(e) => setKeyword(e.detail.value)}
-          onConfirm={() => { void load(keyword) }}
+          onFocus={() => setFocus(true)}
+          onBlur={() => setFocus(false)}
+          onInput={(e) => {
+            const next = productSearchOnInput(e.detail.value)
+            setKeyword(next.keyword)
+            if (next.loadNow !== null) void load(next.loadNow)
+          }}
+          onConfirm={(e) => { void load(productSearchOnConfirm(e.detail.value)) }}
         />
-        <Button className='bar-btn' onClick={() => { void load(keyword) }}>搜索</Button>
-        <Button className='bar-btn' onClick={() => Taro.navigateTo({ url: '/pages/customer/cart/index' })}>
-          购物车{cart.length > 0 ? `(${cartQty(cart)})` : ''}
+        <Button className='plist__go' onClick={() => { void load(keyword) }}>
+          <Text className='btn-label'>搜索</Text>
         </Button>
+      </View>
+
+      <View className='tabs-scroll'>
+        <View className='tabs'>
+          <Button className='tabs__btn tabs__btn--on'>全部</Button>
+        </View>
       </View>
 
       {error ? (
         <View className='state'>
+          <Text className='state__title'>没加载出来</Text>
           <Text className='state__txt'>{error}</Text>
-          <Button className='btn-primary' onClick={() => { void load(keyword) }}>重新加载</Button>
+          <Button className='btn-ghost' onClick={() => { void load(keyword) }}>重新加载</Button>
         </View>
       ) : loading ? (
-        <Text className='plist__tip'>正在加载商品…</Text>
+        <View className='state'>
+          <Text className='state__txt'>正在加载商品…</Text>
+        </View>
       ) : items.length === 0 ? (
-        <Text className='plist__tip'>{keyword.trim() ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
+        <View className='card state'>
+          <View className='state__icon'>
+            <Icon name='bottle' color='#B3A9A4' size={72} />
+          </View>
+          <Text className='state__title'>{keyword.trim() ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
+          <Text className='state__txt'>
+            {keyword.trim() ? '换个品名再搜一次' : '可以稍后再来看看'}
+          </Text>
+          <Text className='state__txt'>找不到想要的酒？请联系您的专属业务员</Text>
+        </View>
       ) : (
         <View className='plist__body'>
-          {capped ? <Text className='plist__tip'>只返回前 100 条，请用品名继续搜索。搜索只匹配品名。</Text> : null}
-          {items.map((p) => (
-            <View key={cartKeyOf(p.productId, p.unit)} className='pcard'>
-              <View className='pcard__info'>
-                <Text className='pcard__name'>{p.name}</Text>
-                <Text className='pcard__spec'>{p.specText || '—'} · 按{unitName(p)}订</Text>
-                <Text className='pcard__price'>
-                  {fmtMoney(p.price)}
-                  <Text className='pcard__ptype'>／{unitName(p)} · {labelOf(PRICE_TYPE_LABELS, p.priceType)}</Text>
-                </Text>
+          {capped ? <Text className='tip'>只返回前 100 条，请用品名继续搜索。搜索只匹配品名。</Text> : null}
+          {items.map((p) => {
+            const qty = qtyOf(p)
+            return (
+              <View key={cartKeyOf(p.productId, p.unit)} className='pcard'>
+                <View className='pcard__pic'>
+                  <Icon name='bottle' color='#7A1F2B' size={64} />
+                </View>
+                <View className='pcard__info'>
+                  <Text className='pcard__name'>{p.name}</Text>
+                  <Text className='pcard__spec'>{p.specText || '—'} · 按{unitName(p)}订</Text>
+                  <View className='pcard__row'>
+                    <Text className='pcard__price'>
+                      {fmtMoney(p.price)}
+                      <Text className='pcard__unit'> /{unitName(p)}</Text>
+                    </Text>
+                    {qty <= 0 ? (
+                      <Button className='btn-primary btn-sm pcard__add' onClick={() => changeQty(p, 1)}>加入</Button>
+                    ) : (
+                      <View className='stepper'>
+                        <Button className='stepper__btn' disabled={qty <= 0} onClick={() => changeQty(p, -1)}>−</Button>
+                        <Text className='stepper__num'>{qty}</Text>
+                        <Button className='stepper__btn' onClick={() => changeQty(p, 1)}>＋</Button>
+                      </View>
+                    )}
+                  </View>
+                </View>
               </View>
-              <View className='stepper'>
-                <Button
-                  className='stepper__btn'
-                  disabled={qtyOf(p) <= 0}
-                  onClick={() => changeQty(p, -1)}
-                >
-                  −
-                </Button>
-                <Text className='stepper__num'>{qtyOf(p)}</Text>
-                <Button className='stepper__btn stepper__btn--plus' onClick={() => changeQty(p, 1)}>＋</Button>
-              </View>
-            </View>
-          ))}
-          <Text className='plist__tip'>按接口返回的单位下单。没有瓶价的商品只能按箱。成交价以商家核算为准。</Text>
+            )
+          })}
+          <Text className='tip'>成交价以商家核算为准。</Text>
         </View>
       )}
+
+      <View className='settle'>
+        <View>
+          <Text className='settle__sum'>{count > 0 ? fmtMoney(total) : '¥0.00'}</Text>
+          <Text className='settle__meta'>{count > 0 ? `已选 ${count}` : '还没有加购'}</Text>
+        </View>
+        <Button
+          className='btn-primary'
+          disabled={count <= 0}
+          onClick={() => Taro.navigateTo({ url: '/pages/customer/cart/index' })}
+        >
+          <Text className='btn-label'>去结算</Text>
+        </Button>
+      </View>
     </View>
   )
 }

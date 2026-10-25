@@ -84,7 +84,7 @@
 }
 
 .stepper__btn--plus {
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
 
   &:active {
@@ -140,7 +140,7 @@
   min-height: $touch-min;
   font-size: $font-body;
   font-weight: 600;
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
   border-radius: $radius-base;
@@ -180,7 +180,7 @@
   width: 100%;
   font-size: $font-body;
   font-weight: 600;
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
   border-radius: $radius-base;

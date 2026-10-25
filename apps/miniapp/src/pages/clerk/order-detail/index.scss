@@ -29,9 +29,11 @@
 }
 
 .od__total {
-  font-size: $font-title;
+  font-size: $font-amount-lg;
   font-weight: 700;
-  color: $color-primary;
+  color: $color-text;
+  font-family: $font-family-num;
+  font-variant-numeric: tabular-nums;
 }
 
 .od__cancel-reason {
@@ -43,6 +45,10 @@
 
 // 预检结论行（✓ 绿 / ✗ 红）
 .od__check {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   font-size: $font-sub;
   font-weight: 600;
 
@@ -60,7 +66,7 @@
   padding: 12px 0;
 
   & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
+    border-top: $border-width solid $color-neutral-line;
   }
 
   &--reversal {
@@ -72,14 +78,31 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $gap-base;
+  gap: $space-sm;
+}
+
+.oline__main {
+  flex: 1;
+  min-width: 0;
 }
 
 .oline__name {
   font-size: $font-body;
   color: $color-text;
   font-weight: 600;
-  flex: 1;
+}
+
+.oline__reverse {
+  flex-shrink: 0;
+  height: $size-btn-sm;
+  margin: -14px 0;
+  padding: 14px $space-sm;
+  box-sizing: content-box;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-primary;
+  line-height: 1;
 }
 
 .oline__amount {

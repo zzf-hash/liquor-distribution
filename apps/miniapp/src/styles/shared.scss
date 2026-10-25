@@ -1,106 +1,158 @@
 /**
- * 员工端共享组件样式（P1 全员端 L3）：按钮/状态角标/tab/表单行/卡片等，
- * 供 boss/clerk/warehouse/salesman 各页 `@use '../styles/shared' as *` 复用，
- * 页面私有样式仍写在各自 index.scss。颜色/字号一律引用 tokens（唯一定义点）。
- * 触控红线：所有可点类（btn/tab/frow/stepper 等）≥ $touch-min。
+ * 员工端共享组件样式（方向 B 精炼酒红）。
+ * 页面 `@use '../styles/shared' as *` 同时拿到令牌与公共类。
+ * 触控红线：可点类 ≥ $touch-min。颜色只引用 tokens。
  */
-// 转发 tokens（变量+自身 CSS 类一并暴露），页面只 @use 本文件即可同时拿到令牌与公共类
 @forward './tokens';
 @use './tokens' as *;
-
-// ───────────────────────── 页面容器 ─────────────────────────
 
 .page {
   min-height: 100vh;
   background: $color-bg;
-  padding: $gap-base;
+  padding: $space-page;
   box-sizing: border-box;
+  font-family: $font-family;
+  color: $color-text;
 }
 
 .tip {
   display: block;
-  padding: 16px 8px;
+  padding: $space-sm $space-xxs;
   font-size: $font-sub;
   color: $color-text-sub;
   text-align: center;
+  line-height: $line-height-base;
 }
 
-// 顶部工作台跳转行（左标题 + 右宫格入口）
+.page-head,
 .topbar {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: $gap-base;
+  gap: $space-sm;
+  margin-bottom: $space-lg;
 }
 
-.topbar__title {
-  font-size: $font-title;
-  font-weight: 700;
+.page-head__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-head__title,
+.topbar__title,
+.grid-home__hi {
+  display: block;
+  font-size: $font-h1;
+  font-weight: $weight-bold;
   color: $color-text;
+  line-height: $line-height-tight;
 }
 
-.topbar__link {
+.page-head__sub,
+.grid-home__sub {
+  display: block;
+  margin-top: $space-xxs;
+  font-size: $font-sub;
+  color: $color-text-sub;
+  line-height: $line-height-base;
+}
+
+.topbar__link,
+.grid-home__out {
   min-height: $touch-min;
   display: flex;
   align-items: center;
   font-size: $font-sub;
-  color: $color-info;
+  color: $color-text-sub;
+  text-decoration: none;
 }
 
-// ───────────────────────── 卡片与键值行 ─────────────────────────
-
 .card {
-  padding: $gap-base;
-  margin-bottom: $gap-base;
-  background: $color-card;
-  border-radius: $radius-base;
+  @include card;
+  margin-bottom: $space-lg;
+
+  &--flat {
+    box-shadow: $shadow-none;
+  }
+
+  &--warn {
+    background: $color-functional-warning-light;
+    box-shadow: $shadow-none;
+  }
+
+  &--info {
+    background: $color-functional-info-light;
+    box-shadow: $shadow-none;
+  }
 }
 
 .card__title {
   display: block;
-  font-size: $font-body;
-  font-weight: 600;
+  font-size: $font-h2;
+  font-weight: $weight-semibold;
   color: $color-text;
-  margin-bottom: $gap-base;
+  margin-bottom: $space-md;
+  line-height: $line-height-tight;
 }
 
 .card__more {
   font-size: $font-sub;
   color: $color-text-sub;
-  font-weight: 400;
+  font-weight: $weight-regular;
 }
 
 .kv {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: $gap-base;
-  padding: 10px 0;
+  gap: $space-md;
+  padding: $space-xs 0;
+  font-size: $font-body;
+  line-height: $line-height-base;
 
   & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
+    border-top: $border-width solid $color-neutral-line;
   }
 }
 
 .kv__k {
   flex-shrink: 0;
-  font-size: $font-sub;
+  font-size: $font-body;
   color: $color-text-sub;
 }
 
 .kv__v {
-  font-size: $font-sub;
+  font-size: $font-body;
   color: $color-text;
   text-align: right;
   word-break: break-all;
 }
 
-// 大数字指标（看板两大数等）
+.num {
+  @include num;
+  font-weight: $weight-bold;
+  color: $color-text;
+
+  &--lg {
+    font-size: $font-amount-lg;
+    line-height: $line-height-tight;
+  }
+
+  &--md {
+    font-size: $font-amount;
+  }
+
+  &--danger {
+    color: $color-functional-danger-text;
+  }
+}
+
 .metric {
   flex: 1;
-  padding: $gap-base;
+  padding: $space-lg;
   background: $color-card;
-  border-radius: $radius-base;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
 }
 
 .metric__label {
@@ -111,104 +163,149 @@
 
 .metric__num {
   display: block;
-  margin-top: 8px;
-  font-size: 52px;
-  font-weight: 700;
-  color: $color-primary;
-  line-height: 1.2;
+  margin-top: $space-xxs;
+  font-size: $font-amount-lg;
+  font-weight: $weight-bold;
+  color: $color-text;
+  line-height: $line-height-tight;
+  @include num;
 }
 
 .metric__sub {
   display: block;
-  margin-top: 8px;
+  margin-top: $space-xxs;
   font-size: $font-sub;
   color: $color-text-sub;
 }
 
-// ───────────────────────── 按钮 ─────────────────────────
-
-.btn-primary {
+@mixin btn-base {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: $touch-min;
+  min-height: $size-btn-lg;
   width: 100%;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
-  background: $color-primary;
-  border: none;
-  border-radius: $radius-base;
+  padding: 0 $space-lg;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
+  line-height: 1.2;
 
   &::after {
     border: none;
   }
+}
+
+.btn-primary {
+  @include btn-base;
+  color: $color-neutral-white;
+  background: $color-primary;
+  border: none;
 
   &:active {
     background: $color-primary-pressed;
   }
+
+  &[disabled] {
+    background: $color-neutral-fill;
+    color: $color-neutral-text-disabled;
+  }
+
+  // H5 自定义元素会把 disabled={false} 写成属性 disabled="false"。
+  // [disabled] 仍会命中，上面的禁用色和组件样式 taro-button-core[disabled]{color:rgba(255,255,255,.6)}
+  // 会把描边按钮的字画成白色，看起来只剩空框。
+  &[disabled='false'] {
+    color: $color-neutral-white;
+    background: $color-primary;
+    border: none;
+  }
 }
 
-// 次操作：白底描边
+.btn-secondary {
+  @include btn-base;
+  color: $color-primary;
+  background: $color-brand-primary-light;
+  border: none;
+
+  &[disabled='false'] {
+    color: $color-primary;
+    background: $color-brand-primary-light;
+    border: none;
+  }
+}
+
 .btn-ghost {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  font-size: $font-body;
-  font-weight: 600;
+  @include btn-base;
   color: $color-primary;
   background: $color-card;
-  border: 2px solid $color-primary;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
+  border: $border-width solid $color-primary;
 
   &:active {
-    background: rgba(139, 30, 36, 0.06);
+    background: $color-brand-primary-light;
+  }
+
+  &[disabled='false'] {
+    color: $color-primary;
+    background: $color-card;
+    border: $border-width solid $color-primary;
   }
 }
 
-// 风险操作：红描边
+.btn-neutral {
+  @include btn-base;
+  color: $color-text;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+
+  &:active {
+    background: $color-neutral-fill;
+  }
+
+  &[disabled='false'] {
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
+  }
+}
+
 .btn-danger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  font-size: $font-body;
-  font-weight: 600;
+  @include btn-base;
   color: $color-danger;
   background: $color-card;
-  border: 2px solid $color-danger;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
+  border: $border-width solid $color-danger;
 
   &:active {
-    background: rgba(160, 34, 40, 0.06);
+    background: $color-functional-danger-light;
+  }
+
+  &[disabled='false'] {
+    color: $color-danger;
+    background: $color-card;
+    border: $border-width solid $color-danger;
   }
 }
 
-// 行内小操作（列表行里的 确认/发运/签收 等）：高度仍 ≥$touch-min
+.btn-sm {
+  min-height: $size-btn-sm;
+  width: auto;
+  padding: 0 $space-md;
+  font-size: $font-sub;
+  font-weight: $weight-medium;
+}
+
 .btn-inline {
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: $touch-min;
   min-width: 176px;
-  padding: 0 $gap-base;
+  padding: 0 $space-md;
   font-size: $font-sub;
-  font-weight: 600;
-  color: #fff;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
-  border-radius: $radius-base;
+  border-radius: $radius-pill;
   box-sizing: border-box;
 
   &::after {
@@ -221,234 +318,421 @@
 
   &--ghost {
     color: $color-primary;
-    background: rgba(139, 30, 36, 0.06);
+    background: $color-brand-primary-light;
   }
 
   &--danger {
-    background: $color-danger;
+    color: $color-danger;
+    background: $color-card;
+    border: $border-width solid $color-danger;
+  }
+
+  &--neutral {
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
   }
 }
 
-// ───────────────────────── 状态角标（admin 语义：蓝进行/绿成功/橙警示/红风险/灰终态） ─────────────────────────
+// H5 按钮是 .taro-button-core.taro-btn-default（特异性高于单个类），
+// 默认 overflow:hidden + 行高会把较窄描边按钮里的文字裁成空白框。
+.taro-button-core {
+  &.btn-primary,
+  &.btn-secondary,
+  &.btn-ghost,
+  &.btn-neutral,
+  &.btn-danger,
+  &.btn-inline {
+    overflow: visible;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  &.taro-btn-default.btn-primary {
+    color: $color-neutral-white;
+    background: $color-primary;
+    border: none;
+  }
+
+  &.taro-btn-default.btn-secondary,
+  &.taro-btn-default.btn-inline--ghost {
+    color: $color-primary;
+    background: $color-brand-primary-light;
+    border: none;
+  }
+
+  &.taro-btn-default.btn-ghost {
+    color: $color-primary;
+    background: $color-card;
+    border: $border-width solid $color-primary;
+  }
+
+  &.taro-btn-default.btn-neutral,
+  &.taro-btn-default.btn-inline--neutral {
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
+  }
+
+  &.taro-btn-default.btn-danger,
+  &.taro-btn-default.btn-inline--danger {
+    color: $color-danger;
+    background: $color-card;
+    border: $border-width solid $color-danger;
+  }
+
+  &.btn-primary.taro-btn-disabled,
+  &.btn-primary[disabled] {
+    color: $color-neutral-text-disabled;
+    background: $color-neutral-fill;
+    border: none;
+  }
+}
+
+.btn-label {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1.2;
+}
+
+// 标签节点单独设色，避免继承到 taro-button-core[disabled] 的白色。
+.btn-neutral .btn-label { color: $color-text; }
+.btn-danger .btn-label,
+.btn-inline--danger .btn-label { color: $color-danger; }
+.btn-ghost .btn-label,
+.btn-secondary .btn-label,
+.btn-inline--ghost .btn-label { color: $color-primary; }
+.btn-primary .btn-label { color: $color-neutral-white; }
+.btn-primary[disabled='true'] .btn-label,
+.btn-primary[disabled=''] .btn-label { color: $color-neutral-text-disabled; }
 
 .tag {
-  display: inline-block;
-  padding: 4px 16px;
-  border-radius: 999px;
-  font-size: $font-sub;
-  line-height: 1.4;
-  white-space: nowrap;
+  @include tag($color-text-sub, $color-neutral-fill);
+  line-height: 1;
 }
 
 .tag--info {
-  color: $color-info;
-  background: rgba(47, 109, 181, 0.1);
+  color: $color-functional-info-text;
+  background: $color-functional-info-light;
 }
 
 .tag--ok {
-  color: $color-ok;
-  background: rgba(46, 107, 52, 0.1);
+  color: $color-functional-success-text;
+  background: $color-functional-success-light;
 }
 
 .tag--warn {
-  color: $color-warn;
-  background: rgba(138, 90, 0, 0.1);
+  color: $color-functional-warning-text;
+  background: $color-functional-warning-light;
 }
 
 .tag--danger {
-  color: $color-danger;
-  background: rgba(160, 34, 40, 0.1);
+  color: $color-functional-danger-text;
+  background: $color-functional-danger-light;
 }
 
 .tag--muted {
   color: $color-text-sub;
-  background: rgba(138, 127, 122, 0.12);
+  background: $color-neutral-fill;
 }
 
-// ───────────────────────── tab 条（横向可滚动） ─────────────────────────
+.tag--brand {
+  color: $color-brand-primary;
+  background: $color-brand-primary-light;
+}
+
+.tag--gold {
+  color: $color-brand-gold-text;
+  background: $color-brand-gold-light;
+}
+
+.tabs-scroll {
+  position: relative;
+  margin-bottom: $space-lg;
+  white-space: nowrap;
+
+  &::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    width: 96px;
+    pointer-events: none;
+    background: linear-gradient(90deg, rgba(247, 244, 241, 0), $color-neutral-bg);
+  }
+}
 
 .tabs {
   display: flex;
-  gap: 8px;
-  margin-bottom: $gap-base;
+  gap: $space-sm;
+  margin-bottom: $space-lg;
   overflow-x: auto;
+  position: relative;
+
+  &::after {
+    content: '';
+    position: sticky;
+    right: 0;
+    top: 0;
+    flex: 0 0 8px;
+    width: 8px;
+    margin-left: -8px;
+    pointer-events: none;
+  }
+}
+
+.tabs-scroll .tabs {
+  display: inline-flex;
+  margin-bottom: 0;
+  overflow: visible;
+  padding-right: 48px;
 }
 
 .tabs__btn {
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  min-height: $touch-min;
-  padding: 8px 28px;
+  min-height: $size-chip;
+  padding: 0 $space-md;
   font-size: $font-sub;
   color: $color-text-sub;
   background: $color-card;
-  border: 2px solid transparent;
-  border-radius: 999px;
+  border: none;
+  border-radius: $radius-pill;
   box-sizing: border-box;
-  line-height: 1.3;
+  line-height: 1.2;
+
+  &::after {
+    border: none;
+  }
 
   &--on {
-    color: $color-primary;
-    border-color: $color-primary;
-    font-weight: 600;
+    color: $color-neutral-white;
+    background: $color-primary;
+    font-weight: $weight-semibold;
   }
 }
 
-// ───────────────────────── 表单行（选择器触发行 / 输入 / 文本域） ─────────────────────────
+.tabs--segment {
+  display: flex;
+  gap: 0;
+  padding: 6px;
+  background: $color-neutral-fill;
+  border-radius: $radius-pill;
+  overflow: hidden;
+
+  &::after {
+    display: none;
+  }
+
+  .tabs__btn {
+    flex: 1;
+    justify-content: center;
+    min-height: 72px;
+    background: transparent;
+    color: $color-text-sub;
+
+    &--on {
+      background: $color-card;
+      color: $color-primary;
+      box-shadow: $shadow-card;
+    }
+  }
+}
 
 .frow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $gap-base;
-  min-height: $touch-min;
-  padding: 0 $gap-base;
-  margin-bottom: $gap-base;
-  background: $color-bg;
-  border-radius: $radius-base;
+  gap: $space-md;
+  min-height: 112px;
+  padding: 0 $space-lg;
+  margin-bottom: $space-sm;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-sm;
+  box-sizing: border-box;
 }
 
 .frow__label {
   flex-shrink: 0;
-  font-size: $font-sub;
-  color: $color-text-sub;
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.frow__req {
+  color: $color-functional-danger-text;
+  margin-left: 4px;
 }
 
 .frow__value {
+  flex: 1;
   font-size: $font-body;
   color: $color-text;
   text-align: right;
 }
 
 .frow__placeholder {
+  flex: 1;
   font-size: $font-body;
   color: $color-text-sub;
   text-align: right;
 }
 
 .frow__arrow {
-  font-size: 40px;
-  color: $color-text-sub;
+  font-size: $size-icon-sm;
+  color: $color-neutral-text-disabled;
   line-height: 1;
 }
 
 .ipt {
-  min-height: $touch-min;
+  min-height: $size-input;
   width: 100%;
-  padding: 0 $gap-base;
-  margin-bottom: $gap-base;
+  padding: 0 $space-lg;
+  margin-bottom: $space-md;
   font-size: $font-body;
   color: $color-text;
-  background: $color-bg;
-  border-radius: $radius-base;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-sm;
   box-sizing: border-box;
+
+  &--focus {
+    border-color: $border-focus;
+    box-shadow: 0 0 0 6px $color-brand-primary-light;
+  }
+
+  &--error {
+    border-color: $color-danger;
+  }
+}
+
+.ipt-error {
+  display: block;
+  margin: -16px 0 $space-md;
+  font-size: 26px;
+  color: $color-functional-danger-text;
 }
 
 .tarea {
   width: 100%;
-  min-height: 140px;
-  padding: $gap-base;
-  margin-bottom: $gap-base;
+  min-height: 192px;
+  padding: $space-md;
+  margin-bottom: $space-md;
   font-size: $font-body;
-  background: $color-bg;
-  border-radius: $radius-base;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-sm;
   box-sizing: border-box;
 }
 
-// 数量步进器（加购/实收数量）
 .stepper {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 16px;
+  height: $size-stepper;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-pill;
+  background: $color-card;
+  overflow: visible;
 }
 
 .stepper__btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: $touch-min;
-  height: $touch-min;
-  font-size: 44px;
+  width: $size-stepper;
+  height: $size-stepper;
+  margin: -8px 0;
+  font-size: $font-body-lg;
   line-height: 1;
   color: $color-primary;
-  background: rgba(139, 30, 36, 0.06);
+  background: transparent;
   border: none;
-  border-radius: $radius-base;
+  padding: 0;
 
   &::after {
     border: none;
   }
 
-  &:active {
-    background: rgba(139, 30, 36, 0.14);
+  &[disabled] {
+    color: $color-neutral-text-disabled;
   }
 }
 
-.stepper__val {
-  min-width: 96px;
+.stepper__val,
+.stepper__num {
+  min-width: 64px;
+  padding: 0 $space-xxs;
   text-align: center;
   font-size: $font-body;
-  font-weight: 600;
+  font-weight: $weight-semibold;
   color: $color-text;
+  border-left: $border-width solid $color-neutral-line;
+  border-right: $border-width solid $color-neutral-line;
+  @include num;
 }
-
-// ───────────────────────── 空态/错误态 / 宫格首页 ─────────────────────────
 
 .state {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: $gap-base;
-  padding: 120px $gap-base;
+  gap: $space-sm;
+  padding: $space-xxl $space-lg;
+  text-align: center;
+}
+
+.state__icon {
+  width: 144px;
+  height: 144px;
+  border-radius: $radius-pill;
+  background: $color-neutral-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: $space-xs;
+}
+
+.state__title {
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
+  color: $color-text;
 }
 
 .state__txt {
-  font-size: $font-body;
+  font-size: $font-sub;
   color: $color-text-sub;
+  line-height: $line-height-loose;
 }
 
-// 宫格首页：端工作台（2 列磁贴，整块可点 ≥88px 计量红线）
+.state .btn-primary,
+.state .btn-ghost,
+.state .btn-neutral {
+  width: auto;
+  min-width: 240px;
+  margin-top: $space-sm;
+}
+
 .grid-home {
   min-height: 100vh;
   background: $color-bg;
-  padding: $gap-base;
+  padding: $space-page;
   box-sizing: border-box;
+  font-family: $font-family;
 }
 
 .grid-home__hd {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 32px 8px $gap-base;
-}
-
-.grid-home__hi {
-  font-size: $font-title;
-  font-weight: 700;
-  color: $color-text;
-}
-
-.grid-home__out {
-  min-height: $touch-min;
-  display: flex;
-  align-items: center;
-  font-size: $font-sub;
-  color: $color-text-sub;
-  text-decoration: underline;
-}
-
-.grid-home__sub {
-  display: block;
-  padding: 0 8px $gap-base;
-  font-size: $font-sub;
-  color: $color-text-sub;
+  padding: $space-sm 0 $space-md;
 }
 
 .grid-home__grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: $gap-base;
+  gap: $space-lg;
 }
 
 .tile {
@@ -456,12 +740,13 @@
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 8px;
+  gap: $space-xxs;
   min-height: 176px;
-  padding: $gap-base;
+  padding: $space-lg;
   background: $color-card;
   border: none;
-  border-radius: $radius-base;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
   line-height: 1.3;
 
   &::after {
@@ -469,22 +754,200 @@
   }
 
   &:active {
-    background: rgba(139, 30, 36, 0.06);
+    background: $color-brand-primary-light;
   }
 }
 
 .tile__icon {
-  font-size: 64px;
-  line-height: 1.2;
+  width: $size-icon-box;
+  height: 88px;
+  border-radius: 24px;
+  background: $color-neutral-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: $space-xs;
 }
 
 .tile__title {
-  font-size: $font-body;
-  font-weight: 600;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
   color: $color-text;
 }
 
 .tile__desc {
-  font-size: $font-sub;
+  font-size: 26px;
   color: $color-text-sub;
+}
+
+.action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  gap: $space-sm;
+  margin: $space-md (-$space-page) 0;
+  padding: $space-sm $space-page calc($space-sm + env(safe-area-inset-bottom));
+  background: $color-card;
+  border-top: $border-width solid $color-neutral-line;
+  box-shadow: $shadow-float;
+
+  .btn-primary,
+  .btn-neutral,
+  .btn-danger,
+  .btn-ghost,
+  .btn-secondary {
+    width: auto;
+    flex: 1;
+    margin: 0;
+    padding: 0 $space-sm;
+    font-size: $font-sub;
+  }
+
+  .btn-primary {
+    flex: 1.3;
+  }
+}
+
+.steps {
+  display: flex;
+  gap: $space-xxs;
+  margin-top: $space-md;
+}
+
+.steps__item {
+  flex: 1;
+  text-align: center;
+}
+
+.steps__bar {
+  height: 8px;
+  border-radius: $radius-xs;
+  background: $color-neutral-line;
+}
+
+.steps__item--on .steps__bar {
+  background: $color-primary;
+}
+
+.steps__label {
+  display: block;
+  margin-top: $space-xs;
+  font-size: $font-caption;
+  color: $color-text-sub;
+  font-weight: $weight-medium;
+}
+
+.steps__item--on .steps__label {
+  color: $color-primary;
+  font-weight: $weight-semibold;
+}
+
+.hero {
+  background: linear-gradient(135deg, $color-brand-primary, $color-brand-primary-hero-end);
+  border-radius: $radius-md;
+  padding: $space-xl;
+  margin-bottom: $space-lg;
+  box-shadow: none;
+  color: $color-neutral-white;
+}
+
+.hero__kicker,
+.hero__sub {
+  display: block;
+  font-size: 26px;
+  color: $color-on-brand;
+  line-height: $line-height-base;
+}
+
+.hero__title {
+  display: block;
+  margin: $space-xs 0 $space-xxs;
+  font-size: $font-display;
+  font-weight: $weight-bold;
+  color: $color-neutral-white;
+  line-height: $line-height-tight;
+}
+
+.hero__stats {
+  display: flex;
+  gap: $space-sm;
+  margin-top: $space-lg;
+}
+
+.hero__stat {
+  flex: 1;
+  padding: $space-sm;
+  border-radius: $radius-sm;
+  background: $color-on-brand-fill;
+}
+
+.hero__stat-k {
+  display: block;
+  font-size: $font-caption;
+  color: $color-on-brand;
+}
+
+.hero__stat-v {
+  display: block;
+  margin-top: 4px;
+  font-size: 40px;
+  font-weight: $weight-bold;
+  color: $color-neutral-white;
+  @include num;
+}
+
+.settle {
+  position: sticky;
+  bottom: $space-sm;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-md;
+  margin-top: $space-lg;
+  padding: $space-sm $space-sm $space-sm $space-lg;
+  background: $color-card;
+  border-radius: $radius-pill;
+  box-shadow: $shadow-float;
+
+  .btn-primary {
+    width: auto;
+    min-width: 220px;
+    margin: 0;
+  }
+}
+
+.settle__sum {
+  @include num;
+  font-size: 40px;
+  font-weight: $weight-bold;
+  color: $color-text;
+}
+
+.settle__meta {
+  display: block;
+  font-size: $font-caption;
+  color: $color-text-sub;
+  font-weight: $weight-regular;
+}
+
+.callout {
+  display: flex;
+  gap: $space-sm;
+  align-items: flex-start;
+  padding: $space-md;
+  border-radius: $radius-sm;
+  background: $color-functional-warning-light;
+  color: $color-text;
+  font-size: $font-sub;
+  line-height: $line-height-loose;
+
+  &--title {
+    display: block;
+    margin-bottom: $space-xxs;
+    font-size: $font-body;
+    font-weight: $weight-semibold;
+    color: $color-functional-warning-text;
+  }
 }

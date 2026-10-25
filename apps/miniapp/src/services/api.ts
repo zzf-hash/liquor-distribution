@@ -114,14 +114,8 @@ export function clearSession(): void {
   Taro.removeStorageSync(UID_KEY)
 }
 
-/** 角色首页路由表（统一登录后按 role 自动跳转） */
-export const ROLE_HOME_PAGE: Record<string, string> = {
-  CUSTOMER: '/pages/customer/products/index',
-  REP: '/pages/salesman/home/index',
-  WAREHOUSE: '/pages/warehouse/outbounds/index',
-  CLERK: '/pages/clerk/orders/index',
-  OWNER: '/pages/boss/dashboard/index',
-}
+/** 角色首页路由表（统一登录后按 role 自动跳转）。定义在 config/role-home.ts。 */
+export { ROLE_HOME_PAGE } from '../config/role-home'
 
 // ───────────────────────── 请求通道 ─────────────────────────
 

@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
+import type { IconName } from '../../../components/Icon'
 import { LOGIN_PAGE, clearSession, getToken, getUserName } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 
 // 宫格磁贴（P1 全员端）：签收磁带进「发运签收」页的配送中 tab，再选单签收
-const TILES: Array<{ icon: string; title: string; desc: string; url: string }> = [
-  { icon: '🧺', title: '拣货复核', desc: 'FIFO 批次建议·确认出库', url: '/pages/warehouse/outbounds/index' },
-  { icon: '🚚', title: '发运签收', desc: '待发运/配送中管理', url: '/pages/warehouse/delivering/index' },
-  { icon: '✍️', title: '去签收', desc: '实收/拒收·回包装', url: '/pages/warehouse/delivering/index?tab=delivering' },
+const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }> = [
+  { icon: 'box', title: '拣货复核', desc: 'FIFO 批次建议·确认出库', url: '/pages/warehouse/outbounds/index' },
+  { icon: 'bag', title: '发运签收', desc: '待发运/配送中管理', url: '/pages/warehouse/delivering/index' },
+  { icon: 'check', title: '去签收', desc: '实收/拒收·回包装', url: '/pages/warehouse/delivering/index?tab=delivering' },
 ]
 
 /** 仓配宫格首页：拣货/发运/签收 */
@@ -39,7 +41,7 @@ export default function WarehouseHomePage() {
       <View className='grid-home__grid'>
         {TILES.map((t) => (
           <Button key={t.title} className='tile' onClick={() => openAppPage(t.url)}>
-            <Text className='tile__icon'>{t.icon}</Text>
+            <View className='tile__icon'><Icon name={t.icon} /></View>
             <Text className='tile__title'>{t.title}</Text>
             <Text className='tile__desc'>{t.desc}</Text>
           </Button>

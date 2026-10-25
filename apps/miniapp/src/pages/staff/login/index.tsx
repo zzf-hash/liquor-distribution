@@ -24,13 +24,17 @@ export default function StaffLoginPage() {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [focus, setFocus] = useState('')
 
   async function submit() {
     if (submitting) return
     if (!username.trim() || !password) {
+      setError('请输入账号和密码')
       Taro.showToast({ title: '请输入账号和密码', icon: 'none' })
       return
     }
+    setError('')
     setSubmitting(true)
     try {
       const res = await authApi.login(username.trim(), password, tenantCode)
@@ -46,7 +50,9 @@ export default function StaffLoginPage() {
       if (role === 'CUSTOMER') openAppPage(home)
       else Taro.reLaunch({ url: home })
     } catch (e) {
-      Taro.showToast({ title: e instanceof Error ? e.message : '登录失败', icon: 'none' })
+      const message = e instanceof Error ? e.message : '登录失败'
+      setError(message)
+      Taro.showToast({ title: message, icon: 'none' })
     } finally {
       setSubmitting(false)
     }
@@ -61,24 +67,31 @@ export default function StaffLoginPage() {
 
       <View className='login__form'>
         <Input
-          className='ipt'
+          className={`ipt ${focus === 'tenant' ? 'ipt--focus' : ''} ${error ? 'ipt--error' : ''}`}
           placeholder='租户编码（同名账号时必填）'
           value={tenantCode}
+          onFocus={() => setFocus('tenant')}
+          onBlur={() => setFocus('')}
           onInput={(e) => setTenantCode(e.detail.value)}
         />
         <Input
-          className='ipt'
+          className={`ipt ${focus === 'user' ? 'ipt--focus' : ''} ${error ? 'ipt--error' : ''}`}
           placeholder='账号'
           value={username}
+          onFocus={() => setFocus('user')}
+          onBlur={() => setFocus('')}
           onInput={(e) => setUsername(e.detail.value)}
         />
         <Input
-          className='ipt'
+          className={`ipt ${focus === 'pass' ? 'ipt--focus' : ''} ${error ? 'ipt--error' : ''}`}
           password
           placeholder='密码'
           value={password}
+          onFocus={() => setFocus('pass')}
+          onBlur={() => setFocus('')}
           onInput={(e) => setPassword(e.detail.value)}
         />
+        {error ? <Text className='ipt-error'>{error}</Text> : null}
         <Button
           className='btn-primary'
           loading={submitting}

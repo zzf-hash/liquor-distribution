@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
+import Icon from '../../../components/Icon'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
+import { readRouteQuery } from '../../../services/route-param'
 import {
   ApiError,
   LOGIN_PAGE,
@@ -23,8 +25,31 @@ import './index.scss'
 
 type PopupKind = 'cancel' | 'special' | null
 
-function okTag(ok?: boolean): string {
-  return ok ? '✓' : '✗'
+function okIcon(ok?: boolean) {
+  return <Icon name={ok ? 'check' : 'x'} color={ok ? '#276A2B' : '#B3261E'} size={32} />
+}
+
+const PROGRESS = ['待确认', '已确认', '拣货中', '配送中', '已签收']
+
+function progressIndex(status: string): number {
+  if (status === 'SIGNED' || status === 'SETTLED') return 4
+  if (status === 'DELIVERING') return 3
+  if (status === 'OUTBOUND') return 2
+  if (status === 'CONFIRMED') return 1
+  if (status === 'PENDING_CONFIRM') return 0
+  return -1
+}
+
+function precheckIssueCount(precheck: PrecheckView | null): number {
+  if (!precheck) return 0
+  let count = 0
+  if (precheck.customer && precheck.customer.ok === false) count += 1
+  if (precheck.credit && precheck.credit.ok === false) count += 1
+  for (const row of precheck.inventory ?? []) {
+    if (row.ok === false) count += 1
+  }
+  if (precheck.minOrder && precheck.minOrder.ok === false) count += 1
+  return count
 }
 
 /**
@@ -50,9 +75,7 @@ export default function ClerkOrderDetailPage() {
       return
     }
     setRole(getRole())
-    const pages = Taro.getCurrentPages()
-    const cur = pages[pages.length - 1]
-    const q = (cur as { options?: Record<string, string> })?.options ?? {}
+    const q = readRouteQuery()
     const paramId = q.id ?? ''
     if (paramId && paramId !== id) {
       setId(paramId)
@@ -185,6 +208,12 @@ export default function ClerkOrderDetailPage() {
 
   return (
     <View className='page'>
+      <View className='page-head'>
+        <View className='page-head__main'>
+          <Text className='page-head__title'>订单详情</Text>
+          <Text className='page-head__sub'>{order.orderNo}</Text>
+        </View>
+      </View>
       {/* 单头 */}
       <View className='card'>
         <View className='ocard__row'>
@@ -200,13 +229,23 @@ export default function ClerkOrderDetailPage() {
           {order.specialApproved ? <Text className='tag tag--warn'>已特批</Text> : null}
         </View>
         <View className='ocard__row'>
-          <Text className='od__total-label'>订单金额</Text>
-          <Text className='od__total'>{fmtMoney(order.totalAmount)}</Text>
+          <Text className='od__total-label'>合计</Text>
+          <Text className='num num--lg'>{fmtMoney(order.totalAmount)}</Text>
         </View>
         {order.cancelReason ? (
           <View className='ocard__row'>
             <Text className='od__meta'>取消原因</Text>
             <Text className='od__cancel-reason'>{order.cancelReason}</Text>
+          </View>
+        ) : null}
+        {progressIndex(st) >= 0 ? (
+          <View className='steps'>
+            {PROGRESS.map((label, index) => (
+              <View key={label} className={`steps__item ${index <= progressIndex(st) ? 'steps__item--on' : ''}`}>
+                <View className='steps__bar' />
+                <Text className='steps__label'>{label}</Text>
+              </View>
+            ))}
           </View>
         ) : null}
       </View>
@@ -236,29 +275,31 @@ export default function ClerkOrderDetailPage() {
           return (
             <View key={l.id} className={`oline ${reversed ? 'oline--reversal' : ''}`}>
               <View className='oline__row'>
-                <Text className='oline__name'>{l.productName}{l.isGift ? '（赠）' : ''}</Text>
+                <View className='oline__main'>
+                  <Text className='oline__name'>{l.productName}{l.isGift ? '（赠）' : ''}</Text>
+                  <Text className='oline__sub'>
+                    {l.specText ? `${l.specText} · ` : ''}
+                    {toNum(l.qty)}{UNIT_LABELS[l.unit] ?? l.unit} × {fmtMoney(l.unitPrice)}
+                    {reversed ? ' · 红字冲销' : ''}
+                  </Text>
+                </View>
                 <Text className='oline__amount'>{fmtMoney(l.amount)}</Text>
+                {canOperate && !reversed && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') && (
+                  <Text
+                    className='oline__reverse'
+                    onClick={() => {
+                      setReverseId(l.id)
+                      const already = (order.lines ?? [])
+                        .filter((x) => x.reversalOfId === l.id)
+                        .reduce((s, x) => s + toNum(x.qty), 0)
+                      setReverseQty(String(toNum(l.qty) + already))
+                      setReverseReason('')
+                    }}
+                  >
+                    冲销此行
+                  </Text>
+                )}
               </View>
-              <Text className='oline__sub'>
-                {l.specText ? `${l.specText} · ` : ''}
-                {toNum(l.qty)}{UNIT_LABELS[l.unit] ?? l.unit} × {fmtMoney(l.unitPrice)}
-                {reversed ? ' · 红字冲销' : ''}
-              </Text>
-              {canOperate && !reversed && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') && (
-                <Button
-                  className='btn-ghost'
-                  onClick={() => {
-                    setReverseId(l.id)
-                    const already = (order.lines ?? [])
-                      .filter((x) => x.reversalOfId === l.id)
-                      .reduce((s, x) => s + toNum(x.qty), 0)
-                    setReverseQty(String(toNum(l.qty) + already))
-                    setReverseReason('')
-                  }}
-                >
-                  冲销此行
-                </Button>
-              )}
             </View>
           )
         })}
@@ -276,8 +317,8 @@ export default function ClerkOrderDetailPage() {
               placeholder='冲销原因（必填）'
               onInput={(e) => setReverseReason(e.detail.value)}
             />
-            <Button className='btn-primary' loading={submitting} onClick={() => { void submitReverse() }}>
-              确认冲销
+            <Button className='btn-danger btn-sm' loading={submitting} onClick={() => { void submitReverse() }}>
+              <Text className='btn-label'>确认冲销</Text>
             </Button>
           </View>
         )}
@@ -285,23 +326,27 @@ export default function ClerkOrderDetailPage() {
 
       {/* 审单预检（下单时快照；信用=额度-未结-在途） */}
       {precheck && (
-        <View className='card'>
-          <Text className='card__title'>审单预检快照</Text>
+        <View className={`card ${precheckIssueCount(precheck) > 0 ? 'card--warn' : ''}`}>
+          <Text className='card__title'>
+            {precheckIssueCount(precheck) > 0 ? `审单预检：${precheckIssueCount(precheck)} 项需注意` : '审单预检'}
+          </Text>
           {precheck.customer && (
             <View className='kv'>
               <Text className='kv__k'>客户状态</Text>
-              <Text className={`od__check ${precheck.customer.ok ? 'od__check--ok' : 'od__check--bad'}`}>
-                {okTag(precheck.customer.ok)} {precheck.customer.ok ? '可交易' : '不可交易'}
-              </Text>
+              <View className={`od__check ${precheck.customer.ok ? 'od__check--ok' : 'od__check--bad'}`}>
+                {okIcon(precheck.customer.ok)}
+                <Text>{precheck.customer.ok ? '可交易' : '不可交易'}</Text>
+              </View>
             </View>
           )}
           {precheck.credit && (
             <>
               <View className='kv'>
                 <Text className='kv__k'>信用额度</Text>
-                <Text className={`od__check ${precheck.credit.ok ? 'od__check--ok' : 'od__check--bad'}`}>
-                  {okTag(precheck.credit.ok)} 需 {fmtMoney(precheck.credit.need)} / 可用 {fmtMoney(precheck.credit.available)}
-                </Text>
+                <View className={`od__check ${precheck.credit.ok ? 'od__check--ok' : 'od__check--bad'}`}>
+                  {okIcon(precheck.credit.ok)}
+                  <Text>需 {fmtMoney(precheck.credit.need)} / 可用 {fmtMoney(precheck.credit.available)}</Text>
+                </View>
               </View>
               <View className='kv'>
                 <Text className='kv__k'>占用明细</Text>
@@ -314,17 +359,19 @@ export default function ClerkOrderDetailPage() {
           {(precheck.inventory ?? []).map((inv, i) => (
             <View key={i} className='kv'>
               <Text className='kv__k'>库存 · {inv.productName ?? ''}</Text>
-              <Text className={`od__check ${inv.ok ? 'od__check--ok' : 'od__check--bad'}`}>
-                {okTag(inv.ok)} 需 {toNum(inv.need)} / 可用 {toNum(inv.onHand) - toNum(inv.occupied)}
-              </Text>
+              <View className={`od__check ${inv.ok ? 'od__check--ok' : 'od__check--bad'}`}>
+                {okIcon(inv.ok)}
+                <Text>需 {toNum(inv.need)} / 可用 {toNum(inv.onHand) - toNum(inv.occupied)}</Text>
+              </View>
             </View>
           ))}
           {precheck.minOrder && (
             <View className='kv'>
               <Text className='kv__k'>起送金额</Text>
-              <Text className={`od__check ${precheck.minOrder.ok ? 'od__check--ok' : 'od__check--bad'}`}>
-                {okTag(precheck.minOrder.ok)} {fmtMoney(precheck.minOrder.amount)} / 最低 {fmtMoney(precheck.minOrder.min)}
-              </Text>
+              <View className={`od__check ${precheck.minOrder.ok ? 'od__check--ok' : 'od__check--bad'}`}>
+                {okIcon(precheck.minOrder.ok)}
+                <Text>{fmtMoney(precheck.minOrder.amount)} / 最低 {fmtMoney(precheck.minOrder.min)}</Text>
+              </View>
             </View>
           )}
         </View>
@@ -347,8 +394,23 @@ export default function ClerkOrderDetailPage() {
 
       {/* 操作区：内勤/老板；特批仅老板（D01: 信用放行须老板本人） */}
       {canOperate && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') && (
-        <View className='card'>
-          <Text className='card__title'>操作</Text>
+        <View className='action-bar'>
+          <Button
+            className='btn-neutral'
+            disabled={submitting}
+            onClick={() => setPopup('cancel')}
+          >
+            <Text className='btn-label'>取消订单</Text>
+          </Button>
+          {isOwner && (
+            <Button
+              className='btn-danger'
+              disabled={submitting}
+              onClick={() => setPopup('special')}
+            >
+              <Text className='btn-label'>特批放行</Text>
+            </Button>
+          )}
           {st === 'PENDING_CONFIRM' && (
             <Button
               className='btn-primary'
@@ -356,7 +418,7 @@ export default function ClerkOrderDetailPage() {
               disabled={submitting}
               onClick={() => { void confirm() }}
             >
-              确认订单
+              <Text className='btn-label'>确认订单</Text>
             </Button>
           )}
           {st === 'CONFIRMED' && !(order.outbounds ?? []).length && (
@@ -366,23 +428,7 @@ export default function ClerkOrderDetailPage() {
               disabled={submitting}
               onClick={() => { void makeOutbound() }}
             >
-              生成拣货单（出库）
-            </Button>
-          )}
-          <Button
-            className='btn-ghost od__op'
-            disabled={submitting}
-            onClick={() => setPopup('cancel')}
-          >
-            取消订单
-          </Button>
-          {isOwner && (
-            <Button
-              className='btn-danger od__op'
-              disabled={submitting}
-              onClick={() => setPopup('special')}
-            >
-              特批放行
+              <Text className='btn-label'>生成拣货单</Text>
             </Button>
           )}
         </View>
@@ -391,8 +437,9 @@ export default function ClerkOrderDetailPage() {
       <ReasonPopup
         visible={popup !== null}
         title={popup === 'cancel' ? `取消订单 ${order.orderNo}` : `特批放行 ${order.orderNo}`}
-        confirmText={popup === 'cancel' ? '确认取消' : '确认特批'}
-        danger={popup === 'cancel'}
+        confirmText={popup === 'cancel' ? '确认取消' : '确认放行'}
+        danger={popup === 'special'}
+        presets={popup === 'special' ? ['老客户信用良好', '已承诺本周回款', '其他'] : ['客户改单', '重复下单', '其他']}
         placeholder={popup === 'cancel' ? '取消原因（必填）' : '特批理由（必填，留痕审批记录）'}
         onSubmit={(text) => { if (popup) void submitPopupText(popup, text) }}
         onClose={() => setPopup(null)}
