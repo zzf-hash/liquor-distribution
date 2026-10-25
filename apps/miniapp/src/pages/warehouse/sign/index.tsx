@@ -6,7 +6,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { readRouteQuery } from '../../../services/route-param'
 import ReasonPopup from '../../../components/reason-popup'
 import { rejectConfirmText } from '../../../services/sign-reject'
-import { bumpReceivedQty, receivedQtyForSubmit } from '../../../services/sign-qty'
+import { bumpReceivedQty, receivedQtyForSubmit, receivedQtyTail } from '../../../services/sign-qty'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -347,7 +347,7 @@ export default function WarehouseSignPage() {
       <View className='card'>
         <Text className='card__title'>实收数量（默认=净量，改小即拒收）</Text>
         {signLines.map((s, i) => {
-          const rejected = s.net - Number(s.actual || 0)
+          const tail = receivedQtyTail(s.actual, s.net)
           return (
             <View key={s.line.id} className='sline'>
               <View className='sline__row'>
@@ -367,8 +367,8 @@ export default function WarehouseSignPage() {
                   <Text className='stepper__num'>{s.actual}</Text>
                   <Button className='stepper__btn' disabled={Number(s.actual) >= s.net} onClick={() => bumpActual(i, 1)}>＋</Button>
                 </View>
-                <Text className={`sline__rej ${rejected > 0 ? 'sline__rej--on' : ''}`}>
-                  {rejected > 0 ? `拒收 ${rejected}` : '足额'}
+                <Text className={`sline__rej ${tail.startsWith('拒收') ? 'sline__rej--on' : ''}`}>
+                  {tail}
                 </Text>
               </View>
             </View>
