@@ -7,7 +7,7 @@
     "start": "node dist/main.js",
     "dev": "tsc -p tsconfig.json --watch",
     "prisma:generate": "prisma generate",
-    "test": "pnpm -C ../../packages/shared run build && node ./scripts/run-jest.cjs",
+    "test": "pnpm -C ../../packages/shared run build && pnpm exec prisma generate && node ./scripts/run-jest.cjs",
     "seed": "tsc -p tsconfig.seed.json && node dist-seed/seed.js && node prisma/seed-p1.js && node prisma/seed-demo.js"
   },
   "dependencies": {
