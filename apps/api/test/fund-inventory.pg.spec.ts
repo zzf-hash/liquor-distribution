@@ -1,43 +1,68 @@
 /**
- * LQ1-050 / LQ1-003 / LQ1-008 / LQ1-020 against a real PostgreSQL.
+ * LQ1-050 / LQ1-003 / LQ1-008 / LQ1-020 / S1 against a real PostgreSQL.
  *
- * Stubs cannot deserialize `pg_advisory_xact_lock`'s void result, so accrual
- * must run on Postgres. Point FUND_PG_URL at an empty database (default:
- * postgresql://liquor:liquor@127.0.0.1:5432/liquor_fund_test). The suite
- * applies migrations, including Expense_cap_source_uidx, then wipes that
- * database. It refuses any URL whose database name is not liquor_fund_test.
+ * Set FUND_PG_URL to a Postgres URL whose database name ends with `_test`.
+ * The user and password come only from that variable. Example:
+ *   postgresql://USER:PASSWORD@127.0.0.1:5432/liquor_fund_test
+ * The suite applies migrations (including Expense_cap_source_uidx) and then
+ * wipes that database. It does not run when FUND_PG_URL is unset or the
+ * database name does not end with `_test`.
  */
 import { execSync } from 'node:child_process';
 import path from 'node:path';
-import { HttpException } from '@nestjs/common';
+import { HttpException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
 import { ExpensesService } from '../src/modules/expenses/expenses.service';
 
-const url = process.env.FUND_PG_URL ?? 'postgresql://liquor:liquor@127.0.0.1:5432/liquor_fund_test';
-const dbName = new URL(url).pathname.replace(/^\//, '');
+/** Null when the suite may migrate and wipe. Otherwise a reason it must not run. */
+export function pgSuiteRefusal(raw: string | undefined): string | null {
+  if (!raw) return 'FUND_PG_URL is not set';
+  let name = '';
+  try {
+    name = decodeURIComponent(new URL(raw).pathname.replace(/^\//, ''));
+  } catch {
+    return 'FUND_PG_URL is not a valid URL';
+  }
+  if (!name.endsWith('_test')) return `database "${name}" does not end with _test`;
+  return null;
+}
+
+const pgUrl = process.env.FUND_PG_URL;
+const refusal = pgSuiteRefusal(pgUrl);
+
+describe('FUND_PG_URL gate', () => {
+  it('refuses to run unless the database name ends with _test', () => {
+    expect(pgSuiteRefusal(undefined)).toMatch(/not set/);
+    expect(pgSuiteRefusal('postgresql://127.0.0.1:5432/liquor')).toMatch(/_test/);
+    expect(pgSuiteRefusal('postgresql://127.0.0.1:5432/liquor_fund_test')).toBeNull();
+    expect(pgSuiteRefusal('not a url')).toMatch(/not a valid URL/);
+  });
+});
 
 const audit = { log: async () => ({}) };
 const approvals = { announcePending: async () => undefined };
 const idem = { check: async () => null, complete: async () => undefined };
 
+const pgIt = refusal ? it.skip : it;
+
 describe('fund/inventory rules on PostgreSQL', () => {
-  const prisma = new PrismaClient({ datasources: { db: { url } } });
+  let prisma: PrismaClient;
   let tenantId = '';
   let userId = '';
   let customerId = '';
   let productId = '';
 
   beforeAll(async () => {
-    if (dbName !== 'liquor_fund_test') {
-      throw new Error(`refusing to migrate or wipe database "${dbName}"`);
-    }
+    if (refusal || !pgUrl) return;
+    if (pgSuiteRefusal(pgUrl)) throw new Error(pgSuiteRefusal(pgUrl) ?? 'refused');
     execSync('pnpm exec prisma migrate deploy', {
       cwd: path.resolve(__dirname, '..'),
-      env: { ...process.env, DATABASE_URL: url },
+      env: { ...process.env, DATABASE_URL: pgUrl },
       stdio: 'pipe',
     });
+    prisma = new PrismaClient({ datasources: { db: { url: pgUrl } } });
     await prisma.$connect();
     await wipe(prisma);
     const tenant = await prisma.tenant.create({ data: { name: 'PG测试', code: `pg-${Date.now()}` } });
@@ -60,7 +85,8 @@ describe('fund/inventory rules on PostgreSQL', () => {
   }, 120000);
 
   afterAll(async () => {
-    if (dbName === 'liquor_fund_test') await wipe(prisma);
+    if (!prisma || pgSuiteRefusal(pgUrl)) return;
+    await wipe(prisma);
     await prisma.$disconnect();
   });
 
@@ -68,7 +94,7 @@ describe('fund/inventory rules on PostgreSQL', () => {
     return { id: userId, tenantId, role, username: 'clerk', name: '内勤', aud: 'staff' } as never;
   }
 
-  it('has the partial unique index and can take pg_advisory_xact_lock without deserializing void', async () => {
+  pgIt('has the partial unique index and can take pg_advisory_xact_lock without deserializing void', async () => {
     const indexes = await prisma.$queryRaw<Array<{ indexdef: string }>>`
       SELECT indexdef FROM pg_indexes WHERE indexname = 'Expense_cap_source_uidx'`;
     expect(indexes).toHaveLength(1);
@@ -79,7 +105,7 @@ describe('fund/inventory rules on PostgreSQL', () => {
     })).resolves.toBeUndefined();
   });
 
-  it('LQ1-003 lets only one of two parallel confirms through the credit limit', async () => {
+  pgIt('LQ1-003 lets only one of two parallel confirms through the credit limit', async () => {
     await prisma.receivable.create({
       data: {
         tenantId, customerId, sourceType: 'INITIAL', sourceDocNo: 'PG-AR-1',
@@ -108,7 +134,7 @@ describe('fund/inventory rules on PostgreSQL', () => {
     expect(confirmed).toBe(1);
   });
 
-  it('LQ1-008 confirms one recycle document when two cashiers race', async () => {
+  pgIt('LQ1-008 confirms one recycle document when two cashiers race', async () => {
     const recycle = await prisma.capRecycleOrder.create({
       data: {
         tenantId, recycleNo: 'PG-GAI-1', customerId, status: 'PENDING_CONFIRM',
@@ -130,7 +156,7 @@ describe('fund/inventory rules on PostgreSQL', () => {
     expect(fees).toHaveLength(1);
   });
 
-  it('LQ1-020 / LQ1-050 accrues one corkage fee when many calls race, and a repeat is a skip', async () => {
+  pgIt('LQ1-020 / LQ1-050 accrues one corkage fee when many calls race, and a repeat is a skip', async () => {
     await prisma.capFeePolicy.create({
       data: {
         tenantId, productId, perBottleFee: new Prisma.Decimal('1'), requireCap: false,
@@ -171,6 +197,58 @@ describe('fund/inventory rules on PostgreSQL', () => {
         customerId, payMode: 'AR_OFFSET', status: 'APPROVED', source: `CAP_ACCRUAL:2026-09:${customerId}`, createdById: userId,
       },
     })).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  pgIt('S1 tenant B cannot confirm, cancel, or accrue from tenant A', async () => {
+    const tenantB = await prisma.tenant.create({ data: { name: '租户B', code: `pg-b-${Date.now()}` } });
+    const userB = await prisma.user.create({
+      data: { tenantId: tenantB.id, username: 'clerk-b', name: '他店内勤', role: 'CLERK', dataScope: 'ALL' },
+    });
+    const product = await prisma.product.create({
+      data: { tenantId, skuCode: 'PG-BEER-X', name: '啤酒乙', category: 'PIJIU', baseUnit: '箱', packSize: 12 },
+    });
+    await prisma.capFeePolicy.create({
+      data: {
+        tenantId, productId: product.id, perBottleFee: new Prisma.Decimal('2'), requireCap: false,
+        noCapRate: new Prisma.Decimal('1'), createdById: userId,
+      },
+    });
+    await prisma.salesOrder.create({
+      data: {
+        tenantId, orderNo: 'PG-SO-A-SEP', customerId, customerName: '测试店', source: 'CLERK', signMode: 'PAPER',
+        status: 'SIGNED', totalAmount: new Prisma.Decimal('20.00'), addressSnapshot: '测试路',
+        createdById: userId, signedAt: new Date('2026-09-10T12:00:00Z'),
+        lines: {
+          create: [{
+            tenantId, productId: product.id, productName: '啤酒乙', unit: 'MIN', conversionRate: 12,
+            qty: new Prisma.Decimal(4), unitPrice: new Prisma.Decimal('5.00'), amount: new Prisma.Decimal('20.00'),
+            priceType: 'TERMINAL', priceVersion: 'pg', createdById: userId,
+          }],
+        },
+      },
+    });
+    const recycle = await prisma.capRecycleOrder.create({
+      data: {
+        tenantId, recycleNo: 'PG-GAI-A', customerId, status: 'PENDING_CONFIRM',
+        lines: [{ productId: product.id, productName: '啤酒乙', qty: 2, perBottleFee: 2, amount: 4 }],
+        totalAmount: new Prisma.Decimal('4.00'), createdById: userId,
+      },
+    });
+    const expenses = new ExpensesService(prisma as never, audit as never, approvals as never);
+    const svc = new CapFeesService(prisma as never, audit as never, expenses);
+    const intruder = { id: userB.id, tenantId: tenantB.id, role: 'CLERK', username: 'clerk-b', name: '他店内勤', aud: 'staff' } as never;
+    await expect(svc.confirmRecycle(intruder, recycle.id, { payMode: 'AR_OFFSET' })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(svc.cancelRecycle(intruder, recycle.id, '跨租户')).rejects.toBeInstanceOf(NotFoundException);
+    const still = await prisma.capRecycleOrder.findUnique({ where: { id: recycle.id } });
+    expect(still?.status).toBe('PENDING_CONFIRM');
+    expect(await prisma.expense.count({ where: { source: 'CAP_RECYCLE:PG-GAI-A' } })).toBe(0);
+    const accrued = await svc.accrue(intruder, '2026-09');
+    expect(accrued.expenses).toBe(0);
+    expect(accrued.customers).toBe(0);
+    expect(await prisma.expense.count({ where: { tenantId: tenantB.id, category: 'CAP_FEE' } })).toBe(0);
+    const policies = await svc.listPolicies(intruder) as unknown[];
+    expect(policies).toHaveLength(0);
+    expect(await prisma.capFeePolicy.count({ where: { tenantId, productId: product.id } })).toBe(1);
   });
 });
 

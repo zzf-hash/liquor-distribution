@@ -30,7 +30,7 @@ const WRITE_ONCE_MODELS = new Set<string>([
 // 2026-10 安全审查: 清单曾漏一半模型, 导致 statements/rebates/visits/special-orders/
 // purchases/stocktakes/drafts 等查询跨租户泄漏——清单必须与 schema 全量对齐。
 // 生成方式: 取 prisma/schema.prisma 中所有带 tenantId 字段的模型(Tenant 自身除外)。
-const TENANT_MODELS = new Set<string>([
+export const TENANT_MODELS = new Set<string>([
   'User', 'Product', 'Price', 'CustomerPrice', 'Customer', 'BatchStock',
   'InventoryLedger', 'SalesOrder', 'OrderLine', 'ApprovalRecord', 'Outbound',
   'OutboundLine', 'SignatureRecord', 'Receivable', 'Payment', 'ReceivableLedger',
@@ -40,6 +40,8 @@ const TENANT_MODELS = new Set<string>([
   'Statement', 'DisputeItem', 'Visit', 'OrderDraft', 'AliasEntry',
   'AuditLog', 'ImportBatch', 'ImportRowError', 'IdempotencyRecord', 'SystemConfig',
   'DailyStockReport', 'RestockRequest',
+  // S1: these have tenantId but were missing, so id updates/reads were not scoped.
+  'Expense', 'CapRecycleOrder', 'CapFeePolicy', 'Promotion',
 ]);
 
 // 接受 where 的动作统一注入(含 findUnique 系——此前豁免是跨租户 IDOR 根源:

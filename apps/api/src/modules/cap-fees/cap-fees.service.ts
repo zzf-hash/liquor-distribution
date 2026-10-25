@@ -4,7 +4,7 @@ import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
-import { centsToNumber, toCents } from '../../common/money';
+import { centsToNumber, mulQtyFeeRateToCents, toCents } from '../../common/money';
 import { isUniqueViolation } from '../../common/prisma-error';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -29,7 +29,7 @@ export class CapFeesService {
 
   async listPolicies(user: AuthUser): Promise<unknown> {
     const rows = await this.prisma.capFeePolicy.findMany({
-      where: { closedAt: null },
+      where: { tenantId: user.tenantId, closedAt: null },
       include: { product: { select: { skuCode: true, name: true, category: true, baseUnit: true, minUnit: true, packSize: true } } },
       orderBy: { createdAt: 'desc' },
     });
@@ -65,7 +65,7 @@ export class CapFeesService {
 
   async closePolicy(user: AuthUser, id: string): Promise<unknown> {
     if (user.role !== 'OWNER' && user.role !== 'CLERK') throw new ForbiddenException('仅老板/内勤可维护开瓶费政策');
-    const claimed = await this.prisma.capFeePolicy.updateMany({ where: { id, closedAt: null }, data: { closedAt: new Date() } });
+    const claimed = await this.prisma.capFeePolicy.updateMany({ where: { id, tenantId: user.tenantId, closedAt: null }, data: { closedAt: new Date() } });
     if (claimed.count === 0) throw new ConflictException('政策不存在或已关闭');
     await this.audit.log({ user, action: 'CAPFEE_POLICY_CLOSE', entityType: 'CapFeePolicy', entityId: id });
     return { id, closed: true };
@@ -136,15 +136,15 @@ export class CapFeesService {
     const payMode = dto.payMode ?? 'AR_OFFSET';
     const confirmed = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.capRecycleOrder.updateMany({
-        where: { id, status: 'PENDING_CONFIRM' },
+        where: { id, tenantId: user.tenantId, status: 'PENDING_CONFIRM' },
         data: { status: 'CONFIRMED', confirmedById: user.id, confirmedAt: new Date() },
       });
       if (claimed.count === 0) {
-        const exists = await tx.capRecycleOrder.findUnique({ where: { id }, select: { status: true } });
+        const exists = await tx.capRecycleOrder.findFirst({ where: { id, tenantId: user.tenantId }, select: { status: true } });
         if (!exists) throw new NotFoundException('回收单不存在');
         throw new ConflictException(`仅待确认可兑付(当前 ${exists.status})`);
       }
-      const order = await tx.capRecycleOrder.findUnique({ where: { id }, include: { customer: true } });
+      const order = await tx.capRecycleOrder.findFirst({ where: { id, tenantId: user.tenantId }, include: { customer: true } });
       if (!order) throw new NotFoundException('回收单不存在');
       const note = `${order.note ? `${order.note} | ` : ''}${dto.note ? `${dto.note} | ` : ''}瓶盖回收兑付, 明细: ${(order.lines as Array<{ productName: string; qty: number }>).map((l) => `${l.productName}×${l.qty}`).join('; ')}`;
       const expense = await this.expenses.createLinkedInTx(tx, user, {
@@ -157,7 +157,7 @@ export class CapFeesService {
         source: `CAP_RECYCLE:${order.recycleNo}`,
         customerName: order.customer.name,
       });
-      await tx.capRecycleOrder.update({ where: { id }, data: { expenseId: expense.id } });
+      await tx.capRecycleOrder.update({ where: { id, tenantId: user.tenantId }, data: { expenseId: expense.id } });
       return { recycleNo: order.recycleNo, customerId: order.customerId, expense, amount: centsToNumber(toCents(order.totalAmount)), title: `开瓶费兑付 ${order.recycleNo}(${order.customer.name})` };
     });
     await this.expenses.announceLinked(user, {
@@ -176,8 +176,15 @@ export class CapFeesService {
 
   async cancelRecycle(user: AuthUser, id: string, reason: string): Promise<unknown> {
     if (!reason?.trim()) throw new BadRequestException('取消原因必填');
-    const claimed = await this.prisma.capRecycleOrder.updateMany({ where: { id, status: 'PENDING_CONFIRM' }, data: { status: 'CANCELLED', note: reason } });
-    if (claimed.count === 0) throw new ConflictException('仅待确认可取消');
+    const claimed = await this.prisma.capRecycleOrder.updateMany({
+      where: { id, tenantId: user.tenantId, status: 'PENDING_CONFIRM' },
+      data: { status: 'CANCELLED', note: reason },
+    });
+    if (claimed.count === 0) {
+      const exists = await this.prisma.capRecycleOrder.findFirst({ where: { id, tenantId: user.tenantId }, select: { id: true } });
+      if (!exists) throw new NotFoundException('回收单不存在');
+      throw new ConflictException('仅待确认可取消');
+    }
     await this.audit.log({ user, action: 'CAP_RECYCLE_CANCEL', entityType: 'CapRecycleOrder', entityId: id, after: { reason } });
     return { id, status: 'CANCELLED' };
   }
@@ -193,14 +200,14 @@ export class CapFeesService {
     const start = dayjs(`${period}-01`).startOf('month').toDate();
     const end = dayjs(`${period}-01`).endOf('month').toDate();
     const policies = await this.prisma.capFeePolicy.findMany({
-      where: { requireCap: false, closedAt: null },
+      where: { tenantId: actor.tenantId, requireCap: false, closedAt: null },
       include: { product: { select: { name: true } } },
     });
     if (policies.length === 0) return { period, customers: 0, expenses: 0, totalAmount: 0, skipped: 0 };
     const policyByProduct = new Map(policies.map((p) => [p.productId, p]));
     // 当期签收订单行(瓶数 = BASE行×换算率 / MIN行原值), 按客户×商品聚合
     const orders = await this.prisma.salesOrder.findMany({
-      where: { status: { in: ['SIGNED', 'SETTLED'] }, signedAt: { gte: start, lte: end } },
+      where: { tenantId: actor.tenantId, status: { in: ['SIGNED', 'SETTLED'] }, signedAt: { gte: start, lte: end } },
       select: { customerId: true, lines: { select: { productId: true, unit: true, qty: true, conversionRate: true } } },
     });
     const bottles = new Map<string, number>(); // customerId|productId → 瓶
@@ -213,14 +220,19 @@ export class CapFeesService {
       }
     }
     // 按客户聚合 → 一客户一费用单
-    const byCustomer = new Map<string, Array<{ productName: string; bottles: number; perBottleFee: number; rate: number; amount: number }>>();
+    const byCustomer = new Map<string, Array<{ productName: string; bottles: number; perBottleFee: number; rate: number; amount: number; amountCents: number }>>();
     for (const [key, qty] of bottles) {
       const [customerId, productId] = key.split('|');
       const p = policyByProduct.get(productId)!;
-      const amount = Number((qty * Number(p.perBottleFee) * Number(p.noCapRate)).toFixed(2));
-      if (amount <= 0.0001) continue;
+      // S5: 先乘到分再四舍五入。先 toFixed(2) 再转分会在 x.xx5 上少 1 分。
+      const amountCents = mulQtyFeeRateToCents(qty, p.perBottleFee, p.noCapRate);
+      if (amountCents <= 0) continue;
       const list = byCustomer.get(customerId) ?? [];
-      list.push({ productName: p.product.name, bottles: Math.trunc(qty), perBottleFee: Number(p.perBottleFee), rate: Number(p.noCapRate), amount });
+      list.push({
+        productName: p.product.name, bottles: Math.trunc(qty),
+        perBottleFee: Number(p.perBottleFee), rate: Number(p.noCapRate),
+        amount: centsToNumber(amountCents), amountCents,
+      });
       byCustomer.set(customerId, list);
     }
     let expenses = 0; let totalCents = 0; let skipped = 0;
@@ -237,7 +249,7 @@ export class CapFeesService {
           const source = `CAP_ACCRUAL:${period}:${customerId}`;
           const dup = await tx.expense.findFirst({ where: { tenantId: actor.tenantId, source } });
           if (dup) { skipped += 1; continue; }
-          const amountCents = lines.reduce((s, l) => s + toCents(l.amount), 0);
+          const amountCents = lines.reduce((s, l) => s + l.amountCents, 0);
           const amount = centsToNumber(amountCents);
           try {
             await this.expenses.createSystemApproved(actor, {

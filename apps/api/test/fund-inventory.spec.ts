@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, HttpException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { arOpenCents } from '../src/modules/receivables/aging';
 import { RebatesService } from '../src/modules/rebates/rebates.service';
@@ -12,7 +12,9 @@ import { OrdersController } from '../src/modules/orders/orders.controller';
 import { fallbackCostCents, assembleGrossProfit, cashRebateBusinessMonth, GROSS_PROFIT_CALIBER, marginPercent, offsetBusinessMonth } from '../src/modules/reports/gross-profit';
 import { giftStackConflict, GIFT_STACK_CONFLICT } from '../src/modules/orders/gift-policy';
 import { returnLinesCents } from '../src/modules/returns/return-amount';
-import { centsToDecimal, toCents } from '../src/common/money';
+import { centsToDecimal, mulQtyFeeRateToCents, toCents } from '../src/common/money';
+import { TENANT_MODELS } from '../src/prisma/prisma.service';
+import { AuditAction } from '../src/audit/audit.service';
 
 const audit = { log: jest.fn() };
 const idem = { check: jest.fn().mockResolvedValue(null), complete: jest.fn() };
@@ -153,7 +155,7 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
     expect(giftStackConflict(['other'], [{ productId: 'p1', giftProductId: 'p1' }])).toBeNull();
   });
 
-  function orderPrisma(promo: boolean) {
+  function orderPrisma(promo: boolean, giftThreshold?: number) {
     const created: Array<Record<string, unknown>> = [];
     const prisma = {
       customer: { findUnique: jest.fn().mockResolvedValue({ id: 'c1', name: '店', status: 'ACTIVE', onboarding: 'ACTIVE', salespersonId: null, settlement: 'MONTHLY', creditLimit: new Prisma.Decimal(10000), minOrderAmount: new Prisma.Decimal(0), signMode: 'PHOTO', address: 'addr', salesperson: null }) },
@@ -166,6 +168,7 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
       inventoryLedger: { groupBy: jest.fn().mockResolvedValue([{ productId: 'p1', direction: 'IN', _sum: { qty: new Prisma.Decimal(1000) } }]) },
       orderLine: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { created.push(...data); return { count: data.length }; }) },
       idempotencyRecord: { create: jest.fn(async () => ({ id: 'idem1' })) },
+      systemConfig: { findFirst: jest.fn().mockResolvedValue(giftThreshold === undefined ? null : { value: giftThreshold }) },
       $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
     };
     return { prisma, created };
@@ -187,6 +190,7 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
   });
 
   it('bills a manual gift at zero, deducts inventory, and does not occupy credit', async () => {
+    (audit.log as jest.Mock).mockClear();
     const manual = orderPrisma(false);
     const svc = new OrdersService(manual.prisma as never, audit as never, idem as never);
     const created = await svc.create({ customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] }, clerk, 'idem-lq1-004-manual');
@@ -199,6 +203,7 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
     expect(manual.prisma.idempotencyRecord.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ key: 'idem-lq1-004-manual', endpoint: 'orders.create' }),
     }));
+    expect((audit.log as jest.Mock).mock.calls.some((c) => c[0]?.action === AuditAction.ORDER_GIFT_MANUAL)).toBe(false);
 
     const promo = orderPrisma(true);
     const promoSvc = new OrdersService(promo.prisma as never, audit as never, idem as never);
@@ -208,6 +213,26 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
     const gift = promo.created.find((l) => l.isGift);
     expect(gift).toMatchObject({ priceVersion: 'gift', promoNote: '买2送1' });
     expect(promoOrder.precheck.inventory[0].need).toBe(18);
+  });
+
+  it('audits a manual gift whose reference price exceeds the threshold without blocking the order', async () => {
+    (audit.log as jest.Mock).mockClear();
+    const manual = orderPrisma(false, 100);
+    const svc = new OrdersService(manual.prisma as never, audit as never, idem as never);
+    const created = await svc.create(
+      { customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] },
+      clerk,
+      'idem-lq1-004-gift-audit',
+    );
+    expect(created.totalAmount).toBe(0);
+    expect(created.precheck.credit.need).toBe(0);
+    expect(manual.prisma.salesOrder.create).toHaveBeenCalled();
+    const logged = (audit.log as jest.Mock).mock.calls.map((c) => c[0]).find((e) => e?.action === AuditAction.ORDER_GIFT_MANUAL);
+    expect(logged).toMatchObject({
+      action: AuditAction.ORDER_GIFT_MANUAL,
+      entityId: 'o1',
+      after: { referenceYuan: 175, thresholdYuan: 100 },
+    });
   });
 
   it('sends Idempotency-Key from the header into order create', async () => {
@@ -454,9 +479,10 @@ describe('LQ1-008 bottle-cap confirmation claims status before the fee document'
     const events: string[] = [];
     const tx = {
       capRecycleOrder: {
-        updateMany: async ({ where }: { where: { status?: string }; data?: { expenseId?: string } }) => {
+        updateMany: async ({ where }: { where: { status?: string; tenantId?: string }; data?: { expenseId?: string } }) => {
           if (where.status) {
             events.push('claim');
+            expect(where.tenantId).toBe('t1');
             if (status !== 'PENDING_CONFIRM') return { count: 0 };
             status = 'CONFIRMED';
             return { count: 1 };
@@ -464,10 +490,13 @@ describe('LQ1-008 bottle-cap confirmation claims status before the fee document'
           events.push('link');
           return { count: 1 };
         },
-        findUnique: async () => ({
-          id: 'r1', status, recycleNo: 'GAI1', customerId: 'c1', totalAmount: new Prisma.Decimal('100.00'),
-          note: null, lines: [{ productName: '啤酒', qty: 10 }], customer: { name: '店' },
-        }),
+        findFirst: async ({ where }: { where: { tenantId?: string } }) => {
+          if (where.tenantId && where.tenantId !== 't1') return null;
+          return {
+            id: 'r1', status, recycleNo: 'GAI1', customerId: 'c1', totalAmount: new Prisma.Decimal('100.00'),
+            note: null, lines: [{ productName: '啤酒', qty: 10 }], customer: { name: '店' },
+          };
+        },
         update: async () => { events.push('link'); return {}; },
       },
     };
@@ -495,6 +524,33 @@ describe('LQ1-008 bottle-cap confirmation claims status before the fee document'
     expect(events.indexOf('claim')).toBeLessThan(events.indexOf('expense'));
     expect(events.filter((e) => e === 'expense')).toHaveLength(1);
     expect(status).toBe('CONFIRMED');
+  });
+
+  it('does not confirm or read another tenant recycle, and accrual ignores that tenant policy', async () => {
+    const updateMany = jest.fn(async () => ({ count: 0 }));
+    const findFirst = jest.fn(async () => null);
+    const policyFind = jest.fn(async ({ where }: { where: { tenantId?: string } }) => {
+      expect(where.tenantId).toBe('t2');
+      return [];
+    });
+    const prisma = {
+      capRecycleOrder: { updateMany, findFirst },
+      capFeePolicy: { findMany: policyFind },
+      salesOrder: { findMany: jest.fn(async () => { throw new Error('orders must not be read when this tenant has no policy'); }) },
+      $transaction: async (fn: (tx: typeof prisma) => Promise<unknown>) => fn(prisma),
+    };
+    const expenses = { createLinkedInTx: jest.fn(), announceLinked: jest.fn() };
+    const svc = new CapFeesService(prisma as never, audit as never, expenses as never);
+    const other = { ...clerk, tenantId: 't2' };
+    await expect(svc.confirmRecycle(other, 'recycle-a', { payMode: 'AR_OFFSET' })).rejects.toBeInstanceOf(NotFoundException);
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'recycle-a', tenantId: 't2', status: 'PENDING_CONFIRM' },
+    }));
+    expect(expenses.createLinkedInTx).not.toHaveBeenCalled();
+    await expect(svc.cancelRecycle(other, 'recycle-a', 'no')).rejects.toBeInstanceOf(NotFoundException);
+    const accrued = await svc.accrue(other, '2026-09');
+    expect(accrued).toMatchObject({ expenses: 0, customers: 0 });
+    expect(policyFind).toHaveBeenCalled();
   });
 });
 
@@ -540,6 +596,20 @@ describe('LQ1-020 monthly corkage accrual is idempotent under concurrency', () =
     expect(a.skipped + b.skipped).toBe(1);
     expect(a.totalAmount + b.totalAmount).toBe(10);
     expect(sql.some((s) => s.includes('pg_advisory_xact_lock'))).toBe(true);
+  });
+});
+
+describe('S1 tenant models and S5 cap accrual rounding', () => {
+  it('scopes expense, cap recycle, cap policy, and promotion queries to the tenant', () => {
+    for (const model of ['Expense', 'CapRecycleOrder', 'CapFeePolicy', 'Promotion']) {
+      expect(TENANT_MODELS.has(model)).toBe(true);
+    }
+  });
+
+  it('rounds qty × fee × rate in cents, not via a binary float toFixed', () => {
+    expect(mulQtyFeeRateToCents(1, '1.005', 1)).toBe(101);
+    expect(Math.round(Number((1.005).toFixed(2)) * 100)).toBe(100);
+    expect(mulQtyFeeRateToCents(10, 1, 1)).toBe(1000);
   });
 });
 

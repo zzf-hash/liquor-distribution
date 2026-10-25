@@ -9,9 +9,14 @@ import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import { computeGiftLines } from '../promotions/promotions.controller';
 import { arOpenCents } from '../receivables/aging';
-import { centsToNumber, toCents } from '../../common/money';
+import { centsToNumber, mulQtyPriceToCents, toCents } from '../../common/money';
 import { giftStackConflict } from './gift-policy';
 import type { AuthUser } from '../../common/current-user.decorator';
+
+/** SystemConfig JSON number, yuan. Manual-gift reference value above this is audited and not blocked. */
+export const MANUAL_GIFT_AUDIT_KEY = 'manual_gift_audit_threshold';
+/** Used when the tenant has no config row. */
+export const DEFAULT_MANUAL_GIFT_AUDIT_YUAN = 500;
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
 // 设计依据: docs/baseline/开发任务书_MVP分期_v1.md WS-2 + docs/M0/业务适配清单.md
@@ -313,7 +318,44 @@ export class OrdersService {
       await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalNum, reason: dto.specialReason } , ip });
     }
     await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount: totalNum, precheck }, ip });
+    await this.auditManualGiftIfOver(user, customerId, dto.lines, order.id, orderNo, ip);
     return { id: order.id, orderNo, status: order.status, totalAmount: totalNum, precheck };
+  }
+
+  /**
+   * S3: 手工赠品不占信用、不拦截。参考价（当前生效售价 × 数量，不含买N送M）超过阈值时只写审计。
+   * 阈值：SystemConfig `manual_gift_audit_threshold`，JSON 数字，单位元；缺省 500。
+   */
+  private async auditManualGiftIfOver(
+    user: AuthUser, customerId: string, lines: CreateLineDto[], orderId: string, orderNo: string, ip?: string,
+  ): Promise<void> {
+    const giftLines = lines.filter((l) => l.isGift);
+    if (giftLines.length === 0) return;
+    let referenceCents = 0;
+    for (const l of giftLines) {
+      const resolved = await this.resolvePrice(customerId, l.productId, l.unit);
+      if (!resolved) continue;
+      referenceCents += mulQtyPriceToCents(l.qty, resolved.price);
+    }
+    const thresholdCents = await this.manualGiftAuditThresholdCents(user.tenantId);
+    if (referenceCents <= thresholdCents) return;
+    await this.audit.log({
+      user, action: AuditAction.ORDER_GIFT_MANUAL, entityType: 'Order', entityId: orderId, ip,
+      after: {
+        orderNo,
+        referenceYuan: centsToNumber(referenceCents),
+        thresholdYuan: centsToNumber(thresholdCents),
+        lines: giftLines.map((l) => ({ productId: l.productId, qty: l.qty, unit: l.unit })),
+      },
+    });
+  }
+
+  private async manualGiftAuditThresholdCents(tenantId: string): Promise<number> {
+    const row = await this.prisma.systemConfig.findFirst({ where: { tenantId, key: MANUAL_GIFT_AUDIT_KEY } });
+    const raw = row?.value;
+    const yuan = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN;
+    if (!Number.isFinite(yuan) || yuan < 0) return toCents(DEFAULT_MANUAL_GIFT_AUDIT_YUAN);
+    return toCents(yuan);
   }
 
   /** 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单) */

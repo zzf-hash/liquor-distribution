@@ -1385,7 +1385,7 @@ model IdempotencyRecord {
 model SystemConfig {
   id        String   @id @default(cuid())
   tenantId  String
-  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold / inventory_alert_config
+  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold / inventory_alert_config / manual_gift_audit_threshold
   value     Json
   note      String?
   updatedBy String
