@@ -771,6 +771,7 @@ describe('price change effectuate normalizes the unit and keeps cent prices', ()
       },
       price: {
         findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue(null),
         upsert: jest.fn(async ({ create }: { create: { unit: string } }) => {
           priceWrites.push(create);
           return { id: 'price-1', ...create };
@@ -786,6 +787,7 @@ describe('price change effectuate normalizes the unit and keeps cent prices', ()
           return create;
         }),
       },
+      $executeRaw: jest.fn().mockResolvedValue(0),
       $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
     };
     const svc = new PriceChangesService(prisma as never, audit as never, {} as never);

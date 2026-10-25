@@ -78,7 +78,9 @@ export class PriceChangesService {
   /** 一键生效: 审批通过后写入价格版本(D08: 不同生效日只新增, 不改历史行)。
    *  同一租户+商品+单位+价级+生效日再次生效时, Price 唯一键不能打成 500:
    *  事务内按该键 upsert, 更新已有行。客户专属价同一生效日同样 upsert。
-   *  C组 M2-7: customerSync=true 时平移该商品本租户客户专属价(价差=新价-旧价, 分位计算)。 */
+   *  C组 M2-7: customerSync=true 时平移本租户客户专属价。差额 = 新标准价 − 生效当时
+   *  实际在效的标准价(事务内先读), 不用调价单发起时的旧价快照, 避免两张单都在生效前
+   *  创建时把第一笔差额再加一次(LQ1-060)。同一商品价级用咨询锁串行, 并发生效不叠加。 */
   async effectuate(user: AuthUser, id: string): Promise<unknown> {
     const r = await this.prisma.priceChangeRequest.findUnique({ where: { id } });
     if (!r || r.tenantId !== user.tenantId) throw new NotFoundException('调价单不存在');
@@ -97,6 +99,29 @@ export class PriceChangesService {
     };
 
     const outcome = await this.prisma.$transaction(async (tx) => {
+      // 两张调价同时生效时, 后进入的事务必须看见先提交的标准价, 差额只取这一次的实际变动。
+      const lockKey = `price-effect:${user.tenantId}:${r.productId}:${unit}:${r.levelType}`;
+      await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}), 0)`);
+      const current = await tx.priceChangeRequest.findUnique({ where: { id } });
+      if (!current || current.tenantId !== user.tenantId) throw new NotFoundException('调价单不存在');
+      if (current.status === 'EFFECTIVE') throw new ConflictException('该调价已生效(幂等拒绝)');
+      if (current.status !== 'APPROVED') throw new ConflictException('审批通过后才可生效');
+
+      const now = new Date();
+      const inEffect = await tx.price.findFirst({
+        where: {
+          tenantId: user.tenantId,
+          productId: r.productId,
+          unit,
+          levelType: r.levelType,
+          validFrom: { lte: now },
+          OR: [{ validTo: null }, { validTo: { gte: now } }],
+        },
+        orderBy: { validFrom: 'desc' },
+      });
+      const actualCents = inEffect ? toCents(inEffect.price) : toCents(r.oldPrice);
+      const deltaCents = newCents - actualCents;
+
       const existing = await tx.price.findUnique({
         where: { tenantId_productId_unit_levelType_validFrom: priceKey },
       });
@@ -118,12 +143,11 @@ export class PriceChangesService {
       });
 
       // C组: 客户专属价联动(平移价差, 版本化留痕; COST 级不联动)。
+      // 差额相对锁内读到的在效标准价, 不是调价单上的 oldPrice。
       // 同一租户+客户+商品+单位+生效日已有行时走唯一键 upsert, 避免第二次生效 500。
       let customerSyncResult: { customers: number; delta: number } | null = null;
       const customerChanges: Array<{ customerId: string; oldPrice: string; newPrice: string }> = [];
-      const deltaCents = newCents - toCents(r.oldPrice);
       if (r.customerSync && r.levelType !== 'COST' && deltaCents !== 0) {
-        const now = new Date();
         const exclusives = await tx.customerPrice.findMany({
           where: {
             tenantId: user.tenantId,
@@ -137,7 +161,7 @@ export class PriceChangesService {
         const latestByCustomer = new Map<string, typeof exclusives[number]>();
         for (const cp of exclusives) if (!latestByCustomer.has(cp.customerId)) latestByCustomer.set(cp.customerId, cp);
         let synced = 0;
-        const shiftNote = `调价联动 ${centsToDecimal(toCents(r.oldPrice)).toFixed(2)}→${newPrice.toFixed(2)}`;
+        const shiftNote = `调价联动 ${centsToDecimal(actualCents).toFixed(2)}→${newPrice.toFixed(2)}`;
         for (const [, cp] of latestByCustomer) {
           if (cp.tenantId !== user.tenantId) continue;
           const nextCents = toCents(cp.price) + deltaCents;

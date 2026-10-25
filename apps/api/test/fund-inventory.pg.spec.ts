@@ -367,8 +367,8 @@ describe('fund/inventory rules on PostgreSQL', () => {
       where: { tenantId, customerId, productId, unit: 'BASE', validFrom: effective },
     });
     expect(exclusives).toHaveLength(1);
-    // 10.01 + (11.20-10.10) = 11.11, then + (11.25-10.10) = 12.26. One row, not a unique-key 500.
-    expect(exclusives[0].price.toFixed(2)).toBe('12.26');
+    // 10.01 + (11.20-10.10) = 11.11. 第二张看见已生效的 11.20，只再加 0.05，得到 11.16，不再叠 1.15。
+    expect(exclusives[0].price.toFixed(2)).toBe('11.16');
     const foreignExclusive = await prisma.customerPrice.findFirst({
       where: { tenantId: tenantB.id, customerId, productId, unit: 'BASE' },
     });
@@ -383,8 +383,63 @@ describe('fund/inventory rules on PostgreSQL', () => {
     });
     expect(syncAudit?.before).toEqual({ prices: [{ customerId, oldPrice: '11.11' }] });
     expect(syncAudit?.after).toEqual(expect.objectContaining({
-      prices: [{ customerId, newPrice: '12.26' }],
+      prices: [{ customerId, newPrice: '11.16' }],
+      delta: 0.05,
     }));
+  });
+
+  pgIt('LQ1-060 two simultaneous effectuations do not stack the exclusive delta', async () => {
+    const day = new Date('2026-10-25T00:00:00.000Z');
+    const past = new Date('2026-01-01T00:00:00.000Z');
+    const product = await prisma.product.create({
+      data: { tenantId, skuCode: `PG-PX-${Date.now()}`, name: '并发价', category: 'PIJIU', baseUnit: '箱', packSize: 12 },
+    });
+    await prisma.price.create({
+      data: {
+        tenantId, productId: product.id, unit: 'BASE', levelType: 'TIER1',
+        price: new Prisma.Decimal('100.00'), validFrom: past, createdBy: userId,
+      },
+    });
+    await prisma.customerPrice.create({
+      data: {
+        tenantId, customerId, productId: product.id, unit: 'BASE',
+        price: new Prisma.Decimal('95.00'), validFrom: past, createdBy: userId,
+      },
+    });
+    const mk = (newPrice: string, reason: string) => prisma.priceChangeRequest.create({
+      data: {
+        tenantId, productId: product.id, unit: 'BASE', levelType: 'TIER1',
+        oldPrice: new Prisma.Decimal('100.00'), newPrice: new Prisma.Decimal(newPrice),
+        effectiveDate: day, reason, customerSync: true, status: 'APPROVED', createdById: userId,
+      },
+    });
+    const a = await mk('110.00', 'A 100到110');
+    const b = await mk('115.00', 'B 100到115');
+    const svc = new PriceChangesService(prisma as never, new AuditService().bindClient(prisma), {} as never);
+    const settled = await Promise.all([
+      svc.effectuate(actor('OWNER'), a.id),
+      svc.effectuate(actor('OWNER'), b.id),
+    ]) as Array<{ customerSyncResult: { delta: number } | null }>;
+    const standard = await prisma.price.findFirstOrThrow({
+      where: { tenantId, productId: product.id, unit: 'BASE', levelType: 'TIER1', validFrom: day },
+    });
+    const exclusive = await prisma.customerPrice.findFirstOrThrow({
+      where: { tenantId, customerId, productId: product.id, unit: 'BASE', validFrom: day },
+    });
+    const deltaSum = settled.reduce((sum, row) => sum + (row.customerSyncResult?.delta ?? 0), 0);
+    expect(standard.price.minus(new Prisma.Decimal('100.00')).toNumber()).toBe(deltaSum);
+    expect(exclusive.price.toFixed(2)).toBe(standard.price.minus(new Prisma.Decimal('5.00')).toFixed(2));
+    expect(exclusive.price.toFixed(2)).not.toBe('120.00');
+    expect(await prisma.price.count({
+      where: { tenantId, productId: product.id, unit: 'BASE', levelType: 'TIER1', validFrom: day },
+    })).toBe(1);
+    expect(await prisma.customerPrice.count({
+      where: { tenantId, customerId, productId: product.id, unit: 'BASE', validFrom: day },
+    })).toBe(1);
+    const januaryStandard = await prisma.price.findFirst({ where: { tenantId, productId: product.id, validFrom: past } });
+    const januaryExclusive = await prisma.customerPrice.findFirst({ where: { tenantId, productId: product.id, validFrom: past } });
+    expect(januaryStandard?.price.toFixed(2)).toBe('100.00');
+    expect(januaryExclusive?.price.toFixed(2)).toBe('95.00');
   });
 });
 
