@@ -1254,7 +1254,7 @@ export interface GrossProfitRowDTO {
   name: string;
   revenue: number;
   cost: number;
-  profit: number;
+  profit: number | null;
   margin: number | null;
 }
 
@@ -1262,7 +1262,7 @@ export interface GrossProfitDTO {
   month: string;
   dimension: 'category' | 'customer' | 'rep' | 'product';
   rows: GrossProfitRowDTO[];
-  totals: { revenue: number; cost: number; profit: number; margin: number | null; orderCount: number };
+  totals: { revenue: number; cost: number; profit: number | null; margin: number | null; orderCount: number };
   caliber: string;
 }
 
