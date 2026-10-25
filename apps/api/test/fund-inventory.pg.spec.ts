@@ -11,7 +11,7 @@
  */
 import { execSync } from 'node:child_process';
 import path from 'node:path';
-import { HttpException, NotFoundException } from '@nestjs/common';
+import { ConflictException, HttpException, NotFoundException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { OrdersService } from '../src/modules/orders/orders.service';
 import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
@@ -287,7 +287,55 @@ describe('fund/inventory rules on PostgreSQL', () => {
     })).rejects.toThrow(/does not match product tenant/);
     expect(await prisma.capFeePolicy.count({ where: { productId: product.id } })).toBe(1);
   });
+
+  pgIt('savePolicy maps cap_fee_policy_same_tenant to HTTP 409', async () => {
+    const product = await prisma.product.create({
+      data: { tenantId, skuCode: 'PG-BEER-409', name: '啤酒丁', category: 'PIJIU', baseUnit: '箱', packSize: 12 },
+    });
+    const expenses = new ExpensesService(prisma as never, audit as never, approvals as never);
+    const svc = new CapFeesService(prisma as never, audit as never, expenses);
+    await prisma.$executeRawUnsafe(CAP_POLICY_TRIGGER_FORCE);
+    try {
+      const err = await svc.savePolicy(actor('OWNER'), { productId: product.id, perBottleFee: 1 }).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getStatus()).toBe(409);
+      expect(await prisma.capFeePolicy.count({ where: { productId: product.id } })).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe(CAP_POLICY_TRIGGER_FN);
+    }
+  });
 });
+
+const CAP_POLICY_TRIGGER_FORCE = `
+CREATE OR REPLACE FUNCTION cap_fee_policy_same_tenant()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+BEGIN
+  RAISE EXCEPTION 'CapFeePolicy tenantId % does not match product tenant %', NEW."tenantId", 'forced';
+END;
+$fn$;
+`;
+
+const CAP_POLICY_TRIGGER_FN = `
+CREATE OR REPLACE FUNCTION cap_fee_policy_same_tenant()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $fn$
+DECLARE
+  product_tenant text;
+BEGIN
+  SELECT "tenantId" INTO product_tenant FROM "Product" WHERE id = NEW."productId";
+  IF product_tenant IS NULL THEN
+    RAISE EXCEPTION 'CapFeePolicy product % does not exist', NEW."productId";
+  END IF;
+  IF product_tenant IS DISTINCT FROM NEW."tenantId" THEN
+    RAISE EXCEPTION 'CapFeePolicy tenantId % does not match product tenant %', NEW."tenantId", product_tenant;
+  END IF;
+  RETURN NEW;
+END;
+$fn$;
+`;
 
 async function wipe(prisma: PrismaClient): Promise<void> {
   await prisma.receivableLedger.deleteMany();

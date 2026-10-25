@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, HttpException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, HttpException, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { arOpenCents } from '../src/modules/receivables/aging';
 import { RebatesService } from '../src/modules/rebates/rebates.service';
@@ -155,13 +155,13 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
     expect(giftStackConflict(['other'], [{ productId: 'p1', giftProductId: 'p1' }])).toBeNull();
   });
 
-  function orderPrisma(promo: boolean, giftThreshold?: number) {
+  function orderPrisma(promo: boolean, giftThreshold?: number, priced = true) {
     const created: Array<Record<string, unknown>> = [];
     const prisma = {
       customer: { findUnique: jest.fn().mockResolvedValue({ id: 'c1', name: '店', status: 'ACTIVE', onboarding: 'ACTIVE', salespersonId: null, settlement: 'MONTHLY', creditLimit: new Prisma.Decimal(10000), minOrderAmount: new Prisma.Decimal(0), signMode: 'PHOTO', address: 'addr', salesperson: null }) },
       product: { findMany: jest.fn().mockResolvedValue([{ id: 'p1', name: '酒', status: 'ON_SALE', specText: '500', packSize: 6 }]) },
       customerPrice: { findFirst: jest.fn().mockResolvedValue(null) },
-      price: { findFirst: jest.fn().mockResolvedValue({ id: 'pr', price: new Prisma.Decimal('175.00'), validFrom: new Date('2026-01-01') }) },
+      price: { findFirst: jest.fn().mockResolvedValue(priced ? { id: 'pr', price: new Prisma.Decimal('175.00'), validFrom: new Date('2026-01-01') } : null) },
       promotion: { findMany: jest.fn().mockResolvedValue(promo ? [{ productId: 'p1', giftProductId: null, buyQty: 2, giftQty: 1, unit: 'BASE' }] : []) },
       receivable: { findMany: jest.fn().mockResolvedValue([]) },
       salesOrder: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0), create: jest.fn(async () => ({ id: 'o1', orderNo: 'SO1', status: 'PENDING_CONFIRM' })) },
@@ -232,6 +232,52 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
       action: AuditAction.ORDER_GIFT_MANUAL,
       entityId: 'o1',
       after: { referenceYuan: 175, thresholdYuan: 100 },
+    });
+  });
+
+  it('still returns the saved order when the gift audit write throws', async () => {
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    const failing = {
+      log: jest.fn(async (entry: { action?: string }) => {
+        if (entry?.action === AuditAction.ORDER_GIFT_MANUAL) throw new Error('audit down');
+      }),
+    };
+    const manual = orderPrisma(false, 100);
+    const svc = new OrdersService(manual.prisma as never, failing as never, idem as never);
+    try {
+      const created = await svc.create(
+        { customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] },
+        clerk,
+        'idem-lq1-004-gift-audit-down',
+      );
+      expect(created).toMatchObject({ id: 'o1', totalAmount: 0 });
+      expect(created.orderNo).toMatch(/^SO\d{8}-\d{4}$/);
+      expect(manual.prisma.salesOrder.create).toHaveBeenCalled();
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('ORDER_GIFT_MANUAL failed'));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('audits a manual gift line that has no reference price and marks it 无参考价', async () => {
+    (audit.log as jest.Mock).mockClear();
+    const manual = orderPrisma(false, undefined, false);
+    const svc = new OrdersService(manual.prisma as never, audit as never, idem as never);
+    const created = await svc.create(
+      { customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] },
+      clerk,
+      'idem-lq1-004-gift-unpriced',
+    );
+    expect(created.totalAmount).toBe(0);
+    expect(manual.prisma.salesOrder.create).toHaveBeenCalled();
+    const logged = (audit.log as jest.Mock).mock.calls.map((c) => c[0]).find((e) => e?.action === AuditAction.ORDER_GIFT_MANUAL);
+    expect(logged).toMatchObject({
+      action: AuditAction.ORDER_GIFT_MANUAL,
+      entityId: 'o1',
+      after: {
+        referenceYuan: 0,
+        lines: [{ productId: 'p1', qty: 1, unit: 'BASE', note: '无参考价' }],
+      },
     });
   });
 
@@ -610,6 +656,31 @@ describe('S1 tenant models and S5 cap accrual rounding', () => {
     expect(mulQtyFeeRateToCents(1, '1.005', 1)).toBe(101);
     expect(Math.round(Number((1.005).toFixed(2)) * 100)).toBe(100);
     expect(mulQtyFeeRateToCents(10, 1, 1)).toBe(1000);
+  });
+});
+
+describe('savePolicy maps cap_fee_policy_same_tenant to 409', () => {
+  function policyPrisma(upsert: jest.Mock) {
+    return {
+      product: { findFirst: jest.fn().mockResolvedValue({ id: 'p1', tenantId: 't1' }) },
+      capFeePolicy: { findFirst: jest.fn().mockResolvedValue(null), upsert },
+    };
+  }
+
+  it('returns HTTP 409 for either trigger message and leaves other errors alone', async () => {
+    for (const message of [
+      'CapFeePolicy tenantId t2 does not match product tenant t1',
+      'CapFeePolicy product p1 does not exist',
+    ]) {
+      const upsert = jest.fn().mockRejectedValue(new Prisma.PrismaClientUnknownRequestError(message, { clientVersion: 'test' }));
+      const svc = new CapFeesService(policyPrisma(upsert) as never, audit as never, {} as never);
+      const err = await svc.savePolicy(owner, { productId: 'p1', perBottleFee: 1 }).then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getStatus()).toBe(409);
+    }
+    const upsert = jest.fn().mockRejectedValue(new Error('connection reset'));
+    const svc = new CapFeesService(policyPrisma(upsert) as never, audit as never, {} as never);
+    await expect(svc.savePolicy(owner, { productId: 'p1', perBottleFee: 1 })).rejects.toThrow('connection reset');
   });
 });
 

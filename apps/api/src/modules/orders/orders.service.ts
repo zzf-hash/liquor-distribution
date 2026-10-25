@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -55,6 +55,8 @@ interface PrecheckResult {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -318,36 +320,54 @@ export class OrdersService {
       await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalNum, reason: dto.specialReason } , ip });
     }
     await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount: totalNum, precheck }, ip });
-    await this.auditManualGiftIfOver(user, customerId, dto.lines, order.id, orderNo, ip);
+    // I1: 订单已经落库。赠品审计（取价、阈值、写审计）失败只告警，不能把已成功的下单变成 500。
+    try {
+      await this.auditManualGiftIfOver(user, customerId, dto.lines, order.id, orderNo, ip);
+    } catch (e) {
+      this.logger.warn(`ORDER_GIFT_MANUAL failed for ${orderNo}: ${e instanceof Error ? e.message : String(e)}`);
+    }
     return { id: order.id, orderNo, status: order.status, totalAmount: totalNum, precheck };
   }
 
   /**
    * S3: 手工赠品不占信用、不拦截。参考价（当前生效售价 × 数量，不含买N送M）超过阈值时只写审计。
+   * 取不到参考价的手工赠品行也写审计，并标记「无参考价」（参考额仍只累加有价行，不回退成本价）。
    * 阈值：SystemConfig `manual_gift_audit_threshold`，JSON 数字，单位元；缺省 500。
+   * 取价、读阈值或写审计失败时只记 warn，不把已落库的订单变成 500。
    */
   private async auditManualGiftIfOver(
     user: AuthUser, customerId: string, lines: CreateLineDto[], orderId: string, orderNo: string, ip?: string,
   ): Promise<void> {
-    const giftLines = lines.filter((l) => l.isGift);
-    if (giftLines.length === 0) return;
-    let referenceCents = 0;
-    for (const l of giftLines) {
-      const resolved = await this.resolvePrice(customerId, l.productId, l.unit);
-      if (!resolved) continue;
-      referenceCents += mulQtyPriceToCents(l.qty, resolved.price);
+    try {
+      const giftLines = lines.filter((l) => l.isGift);
+      if (giftLines.length === 0) return;
+      let referenceCents = 0;
+      let unpriced = false;
+      const auditedLines: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; note?: string }> = [];
+      for (const l of giftLines) {
+        const resolved = await this.resolvePrice(customerId, l.productId, l.unit);
+        if (!resolved) {
+          unpriced = true;
+          auditedLines.push({ productId: l.productId, qty: l.qty, unit: l.unit, note: '无参考价' });
+          continue;
+        }
+        referenceCents += mulQtyPriceToCents(l.qty, resolved.price);
+        auditedLines.push({ productId: l.productId, qty: l.qty, unit: l.unit });
+      }
+      const thresholdCents = await this.manualGiftAuditThresholdCents(user.tenantId);
+      if (!unpriced && referenceCents <= thresholdCents) return;
+      await this.audit.log({
+        user, action: AuditAction.ORDER_GIFT_MANUAL, entityType: 'Order', entityId: orderId, ip,
+        after: {
+          orderNo,
+          referenceYuan: centsToNumber(referenceCents),
+          thresholdYuan: centsToNumber(thresholdCents),
+          lines: auditedLines,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(`ORDER_GIFT_MANUAL failed for ${orderNo}: ${e instanceof Error ? e.message : String(e)}`);
     }
-    const thresholdCents = await this.manualGiftAuditThresholdCents(user.tenantId);
-    if (referenceCents <= thresholdCents) return;
-    await this.audit.log({
-      user, action: AuditAction.ORDER_GIFT_MANUAL, entityType: 'Order', entityId: orderId, ip,
-      after: {
-        orderNo,
-        referenceYuan: centsToNumber(referenceCents),
-        thresholdYuan: centsToNumber(thresholdCents),
-        lines: giftLines.map((l) => ({ productId: l.productId, qty: l.qty, unit: l.unit })),
-      },
-    });
   }
 
   private async manualGiftAuditThresholdCents(tenantId: string): Promise<number> {

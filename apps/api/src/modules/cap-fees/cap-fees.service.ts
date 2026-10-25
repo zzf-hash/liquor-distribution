@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { centsToNumber, mulQtyFeeRateToCents, toCents } from '../../common/money';
-import { isUniqueViolation } from '../../common/prisma-error';
+import { isCapFeePolicyTenantTrigger, isUniqueViolation } from '../../common/prisma-error';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ B组 开瓶费引擎 (M3-4 回/不回瓶盖两态 + M7-7 瓶盖回收兑付) ═══════════════
@@ -49,16 +49,23 @@ export class CapFeesService {
     const product = await this.prisma.product.findFirst({ where: { id: dto.productId, tenantId: user.tenantId } });
     if (!product) throw new NotFoundException('商品不存在');
     const before = await this.prisma.capFeePolicy.findFirst({ where: { tenantId: user.tenantId, productId: dto.productId, closedAt: null } });
-    const saved = await this.prisma.capFeePolicy.upsert({
-      where: { tenantId_productId: { tenantId: user.tenantId, productId: dto.productId } },
-      update: { perBottleFee: new Prisma.Decimal(dto.perBottleFee), requireCap: dto.requireCap ?? before?.requireCap ?? true, noCapRate: new Prisma.Decimal(rate), closedAt: null, updatedAt: new Date() },
-      create: {
-        tenantId: user.tenantId, productId: dto.productId,
-        perBottleFee: new Prisma.Decimal(dto.perBottleFee),
-        requireCap: dto.requireCap ?? true, noCapRate: new Prisma.Decimal(rate),
-        createdById: user.id,
-      },
-    });
+    let saved: { id: string; requireCap: boolean };
+    try {
+      saved = await this.prisma.capFeePolicy.upsert({
+        where: { tenantId_productId: { tenantId: user.tenantId, productId: dto.productId } },
+        update: { perBottleFee: new Prisma.Decimal(dto.perBottleFee), requireCap: dto.requireCap ?? before?.requireCap ?? true, noCapRate: new Prisma.Decimal(rate), closedAt: null, updatedAt: new Date() },
+        create: {
+          tenantId: user.tenantId, productId: dto.productId,
+          perBottleFee: new Prisma.Decimal(dto.perBottleFee),
+          requireCap: dto.requireCap ?? true, noCapRate: new Prisma.Decimal(rate),
+          createdById: user.id,
+        },
+      });
+    } catch (e) {
+      // 触发器 cap_fee_policy_same_tenant：政策租户与商品租户不一致，或商品已不存在。不改写行。
+      if (isCapFeePolicyTenantTrigger(e)) throw new ConflictException('开瓶费政策与商品不属于同一商户');
+      throw e;
+    }
     await this.audit.log({ user, action: 'CAPFEE_POLICY_SAVE', entityType: 'CapFeePolicy', entityId: saved.id, before: before ? { perBottleFee: Number(before.perBottleFee), requireCap: before.requireCap, noCapRate: Number(before.noCapRate) } : null, after: { perBottleFee: dto.perBottleFee, requireCap: saved.requireCap, noCapRate: rate } });
     return saved;
   }
