@@ -255,31 +255,37 @@ export class ReportsController {
       erosions: [...erosionMap.values()],
       customerNames,
     });
+    const yuanOrNull = (cents: number | null): number | null => (cents === null ? null : centsToNumber(cents));
     const yuanRow = (r: typeof assembled.rows[number]) => ({
       key: r.key,
       name: r.name,
       revenue: centsToNumber(r.revenueCents),
       cost: centsToNumber(r.costCents),
-      profitBeforeErosion: centsToNumber(r.profitCents),
+      profitBeforeErosion: yuanOrNull(r.profitCents),
       rebateErosion: centsToNumber(r.rebateCents),
       feeErosion: centsToNumber(r.feeCents),
-      profit: centsToNumber(r.profitCents),
-      netContribution: centsToNumber(r.netContributionCents),
+      profit: yuanOrNull(r.profitCents),
+      netContribution: yuanOrNull(r.netContributionCents),
       margin: r.margin,
     });
-    const rows = assembled.rows.map(yuanRow).sort((a, b) => b.profit - a.profit);
+    const rows = assembled.rows.map(yuanRow).sort((a, b) => {
+      if (a.profit === null && b.profit === null) return 0;
+      if (a.profit === null) return 1;
+      if (b.profit === null) return -1;
+      return b.profit - a.profit;
+    });
     const t = assembled.totals;
     return {
       month, dimension: dim, rows,
       totals: {
         revenue: centsToNumber(t.revenueCents),
         cost: centsToNumber(t.costCents),
-        profitBeforeErosion: centsToNumber(t.profitCents),
+        profitBeforeErosion: yuanOrNull(t.profitCents),
         rebateErosion: centsToNumber(t.rebateCents),
         feeErosion: centsToNumber(t.feeCents),
-        profit: centsToNumber(t.profitCents),
-        netContribution: centsToNumber(t.netContributionCents),
-        margin: marginPercent(t.profitCents, t.revenueCents, t.costKnown),
+        profit: yuanOrNull(t.profitCents),
+        netContribution: yuanOrNull(t.netContributionCents),
+        margin: t.profitCents === null ? null : marginPercent(t.profitCents, t.revenueCents, t.costKnown),
         orderCount: orders.length,
       },
       caliber: GROSS_PROFIT_CALIBER,

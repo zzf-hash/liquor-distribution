@@ -4,26 +4,26 @@ import dayjs from 'dayjs';
 /**
  * LQ1-021 / LQ1-051 毛利与净贡献（C组清单 3.3）
  *
- * 毛利 = 签收实收收入 − 销售成本
- * 净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵
+ * 毛利 = 签收实收收入 − 销售成本；缺成本时该行毛利为空，不把成本当 0 去减
+ * 净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵；毛利为空时净贡献也为空
  * 收入 = 期间签收实收（拒收剔除，赠品行金额为 0）
  * 销售成本 = 出库批次成本；无出库时回退 COST 价（见 fallbackCostCents，LQ1-006）
  * 冲抵不按流水 createdAt：订单应收取原单签收月，期初及其他单据取应收 generatedAt；
  * 现金返利费用 source=REBATE_SETTLE:YYYY-MM:客户 时取核算期间，否则取 occurredAt。
  * 货补不再扣：随单赠品成本已在销售成本里，收入为 0
- * 毛利率 = 毛利 / 收入；任一计入行缺少成本时毛利率为空，不显示 100%
+ * 毛利率 = 毛利 / 收入；缺成本时该行毛利率为空。任一计入行缺少成本时，合计毛利、毛利率、净贡献均为空
  * 客户维度按客户归集冲抵；其他维度按该行收入占期间收入的比例分摊到净贡献（最大余数）
  */
 export const GROSS_PROFIT_CALIBER = [
-  '毛利 = 签收实收收入 − 销售成本。',
-  '净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵。',
+  '毛利 = 签收实收收入 − 销售成本。缺少成本时该行毛利为空, 成本仍记 0, 不从收入里减出毛利。',
+  '净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵。毛利为空时净贡献为空(冲抵额仍单列, 不从未知毛利里减出数字)。',
   '收入 = 期间签收实收(拒收剔除, 赠品行金额为 0)。',
   '销售成本 = 出库批次成本; 无出库时回退 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱(BASE)成本而行为瓶(MIN)时按箱价÷换算率; 仅有瓶(MIN)成本而行为箱(BASE)时按瓶价×换算率。',
   '返利冲抵 = 业务月属于本月的 REBATE_OFFSET + 业务月属于本月的已批/已付现金返利费用(REBATE)。货补不重复扣(赠品成本已在销售成本, 收入为 0)。',
   '费用冲抵 = 业务月属于本月的 FEE_OFFSET(陈列/进店/开瓶费冲货款)。',
   '冲抵归属不看流水 createdAt: 冲订单应收时业务月取原订单签收月(signedAt); 冲期初应收或其他非订单单据时业务月取应收 generatedAt。',
   '现金返利费用 source 为 REBATE_SETTLE:YYYY-MM:客户 时业务月取该核算期间, 否则取 occurredAt。',
-  '毛利率 = 毛利 / 收入; 任一计入行缺少成本时毛利率为空, 不按 100% 显示。',
+  '毛利率 = 毛利 / 收入; 缺少成本时该行毛利率为空, 不按 100% 显示。任一计入行缺少成本时, 合计毛利、毛利率、净贡献均为空。',
   '客户维度按客户归集冲抵; 其他维度按该行收入占期间收入的比例把冲抵分摊进净贡献。',
 ].join('');
 
@@ -97,10 +97,10 @@ export interface CustomerErosion {
 export interface GrossRowOut extends GrossRowIn {
   rebateCents: number;
   feeCents: number;
-  /** 毛利 = 收入 − 成本 */
-  profitCents: number;
-  /** 净贡献 = 毛利 − 本月冲抵 */
-  netContributionCents: number;
+  /** 毛利 = 收入 − 成本。缺成本时为空，不把成本当 0。 */
+  profitCents: number | null;
+  /** 净贡献 = 毛利 − 本月冲抵。毛利为空时为空。 */
+  netContributionCents: number | null;
   margin: number | null;
 }
 
@@ -126,7 +126,7 @@ export function assembleGrossProfit(args: {
   rows: GrossRowIn[];
   erosions: CustomerErosion[];
   customerNames?: ReadonlyMap<string, string>;
-}): { rows: GrossRowOut[]; totals: { revenueCents: number; costCents: number; rebateCents: number; feeCents: number; profitCents: number; netContributionCents: number; costKnown: boolean } } {
+}): { rows: GrossRowOut[]; totals: { revenueCents: number; costCents: number; rebateCents: number; feeCents: number; profitCents: number | null; netContributionCents: number | null; costKnown: boolean } } {
   const rebateTotal = args.erosions.reduce((s, e) => s + e.rebateCents, 0);
   const feeTotal = args.erosions.reduce((s, e) => s + e.feeCents, 0);
   const rows = args.rows.map((r) => ({ ...r }));
@@ -161,23 +161,29 @@ export function assembleGrossProfit(args: {
 }
 
 function finishRow(r: GrossRowIn, rebateCents: number, feeCents: number): GrossRowOut {
+  // 缺成本时不把 costCents(0) 从收入里减掉。净贡献以毛利为底，毛利未知则净贡献未知；冲抵额仍留在本行。
+  if (!r.costKnown) {
+    return { ...r, rebateCents, feeCents, profitCents: null, netContributionCents: null, margin: null };
+  }
   const profitCents = r.revenueCents - r.costCents;
-  const netContributionCents = profitCents - rebateCents - feeCents;
   return {
     ...r,
     rebateCents,
     feeCents,
     profitCents,
-    netContributionCents,
-    margin: marginPercent(profitCents, r.revenueCents, r.costKnown),
+    netContributionCents: profitCents - rebateCents - feeCents,
+    margin: marginPercent(profitCents, r.revenueCents, true),
   };
 }
 
 function finishTotals(rows: GrossRowOut[], rebateCents: number, feeCents: number) {
   const revenueCents = rows.reduce((s, r) => s + r.revenueCents, 0);
   const costCents = rows.reduce((s, r) => s + r.costCents, 0);
-  const profitCents = revenueCents - costCents;
   const costKnown = rows.every((r) => r.costKnown);
+  if (!costKnown) {
+    return { revenueCents, costCents, rebateCents, feeCents, profitCents: null, netContributionCents: null, costKnown };
+  }
+  const profitCents = revenueCents - costCents;
   return {
     revenueCents,
     costCents,

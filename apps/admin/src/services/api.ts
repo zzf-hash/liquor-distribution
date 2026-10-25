@@ -1254,9 +1254,10 @@ export interface GrossProfitRowDTO {
   name: string;
   revenue: number;
   cost: number;
-  profit: number;
-  /** 净贡献 = 毛利 − 归入本月的返利/费用冲抵 */
-  netContribution?: number;
+  /** 缺成本时为空，不把成本当 0。 */
+  profit: number | null;
+  /** 净贡献 = 毛利 − 归入本月的返利/费用冲抵。毛利为空时为空。 */
+  netContribution?: number | null;
   rebateErosion?: number;
   feeErosion?: number;
   margin: number | null;
@@ -1266,7 +1267,7 @@ export interface GrossProfitDTO {
   month: string;
   dimension: 'category' | 'customer' | 'rep' | 'product';
   rows: GrossProfitRowDTO[];
-  totals: { revenue: number; cost: number; profit: number; netContribution?: number; margin: number | null; orderCount: number };
+  totals: { revenue: number; cost: number; profit: number | null; netContribution?: number | null; margin: number | null; orderCount: number };
   caliber: string;
 }
 

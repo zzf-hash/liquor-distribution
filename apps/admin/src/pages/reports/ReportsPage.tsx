@@ -56,6 +56,12 @@ export default function ReportsPage(): JSX.Element {
 
 type GrossDimension = 'category' | 'customer' | 'rep' | 'product';
 
+/** 缺成本时毛利/净贡献为 null，展示「—」。真实 0 仍走 fmtMoney（¥0.00）。 */
+function moneyOrDash(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  return fmtMoney(v);
+}
+
 function GrossProfitTab(): JSX.Element {
   const { message } = AntApp.useApp();
   const [month, setMonth] = useState<string>(recentMonths(1)[0]);
@@ -80,7 +86,7 @@ function GrossProfitTab(): JSX.Element {
   const doExport = (): void => {
     exportCsv(`毛利分析-${data?.dimension ?? dimension}-${month}`, [
       ['维度项', '收入', '成本', '毛利', '毛利率(%)', '净贡献'],
-      ...(data?.rows ?? []).map((r) => [r.name, r.revenue, r.cost, r.profit, r.margin ?? '', r.netContribution ?? '']),
+      ...(data?.rows ?? []).map((r) => [r.name, r.revenue, r.cost, moneyOrDash(r.profit), r.margin === null ? '—' : r.margin, moneyOrDash(r.netContribution)]),
     ]);
   };
 
@@ -104,9 +110,9 @@ function GrossProfitTab(): JSX.Element {
       <Space style={{ marginBottom: 16 }} wrap>
         <Statistic title="收入(实收口径)" value={fmtMoney(t?.revenue)} />
         <Statistic title="销售成本" value={fmtMoney(t?.cost)} />
-        <Statistic title="毛利" value={fmtMoney(t?.profit)} valueStyle={{ color: (t?.profit ?? 0) >= 0 ? '#389e0d' : '#cf1322' }} />
+        <Statistic title="毛利" value={moneyOrDash(t?.profit)} valueStyle={t?.profit === null || t?.profit === undefined ? undefined : { color: t.profit >= 0 ? '#389e0d' : '#cf1322' }} />
         <Statistic title="毛利率" value={t?.margin !== null && t?.margin !== undefined ? `${t.margin}%` : '—'} />
-        <Statistic title="净贡献" value={t?.netContribution !== undefined && t?.netContribution !== null ? fmtMoney(t.netContribution) : '—'} valueStyle={{ color: (t?.netContribution ?? 0) >= 0 ? '#389e0d' : '#cf1322' }} />
+        <Statistic title="净贡献" value={moneyOrDash(t?.netContribution)} valueStyle={t?.netContribution === null || t?.netContribution === undefined ? undefined : { color: t.netContribution >= 0 ? '#389e0d' : '#cf1322' }} />
         <Statistic title="签收订单" value={t?.orderCount ?? 0} />
       </Space>
       <Table<GrossProfitRowDTO>
@@ -122,7 +128,7 @@ function GrossProfitTab(): JSX.Element {
           { title: '成本', dataIndex: 'cost', width: 120, align: 'right' as const, render: (v: number) => fmtMoney(v) },
           {
             title: '毛利', dataIndex: 'profit', width: 120, align: 'right' as const,
-            render: (v: number) => <span style={{ color: v >= 0 ? '#389e0d' : '#cf1322', fontWeight: 600 }}>{fmtMoney(v)}</span>,
+            render: (v: number | null) => (v === null ? '—' : <span style={{ color: v >= 0 ? '#389e0d' : '#cf1322', fontWeight: 600 }}>{fmtMoney(v)}</span>),
           },
           { title: '毛利率', dataIndex: 'margin', width: 100, align: 'right' as const, render: (v: number | null) => (v === null ? '—' : `${v}%`) },
           {

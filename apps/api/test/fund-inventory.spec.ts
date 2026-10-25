@@ -426,6 +426,43 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
     expect(GROSS_PROFIT_CALIBER).toContain('不看流水 createdAt');
   });
 
+  it('leaves profit, margin, and net contribution null when cost is unknown, including totals if any row is unknown', () => {
+    const unknown = assembleGrossProfit({
+      dimension: 'product',
+      rows: [{ key: 'p', name: '酒', revenueCents: 17500, costCents: 0, costKnown: false }],
+      erosions: [{ customerId: 'c1', rebateCents: 500, feeCents: 200 }],
+    });
+    expect(unknown.rows[0].costCents).toBe(0);
+    expect(unknown.rows[0].profitCents).toBeNull();
+    expect(unknown.rows[0].margin).toBeNull();
+    expect(unknown.rows[0].netContributionCents).toBeNull();
+    expect(unknown.rows[0].rebateCents).toBe(500);
+    expect(unknown.totals.profitCents).toBeNull();
+    expect(unknown.totals.netContributionCents).toBeNull();
+    expect(unknown.totals.costKnown).toBe(false);
+
+    const mixed = assembleGrossProfit({
+      dimension: 'category',
+      rows: [
+        { key: 'known', name: '白酒', revenueCents: 35000, costCents: 20000, costKnown: true },
+        { key: 'missing', name: '啤酒', revenueCents: 10000, costCents: 0, costKnown: false },
+      ],
+      erosions: [],
+    });
+    const priced = mixed.rows.find((r) => r.key === 'known')!;
+    const missing = mixed.rows.find((r) => r.key === 'missing')!;
+    expect(priced.profitCents).toBe(15000);
+    expect(priced.netContributionCents).toBe(15000);
+    expect(priced.margin).toBe(42.9);
+    expect(missing.profitCents).toBeNull();
+    expect(missing.margin).toBeNull();
+    expect(missing.netContributionCents).toBeNull();
+    expect(mixed.totals.profitCents).toBeNull();
+    expect(mixed.totals.netContributionCents).toBeNull();
+    expect(mixed.totals.revenueCents).toBe(45000);
+    expect(mixed.totals.costCents).toBe(20000);
+  });
+
   it('attributes offsets by the source document month, not the ledger createdAt', () => {
     expect(offsetBusinessMonth({
       sourceType: 'INITIAL',
@@ -513,9 +550,18 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
       $transaction: async (arg: Promise<unknown>[]) => Promise.all(arg),
     };
     const ctrl = new ReportsController(prisma as never);
-    const report = await ctrl.grossProfit({ tenantId: 't1' } as never, '2026-10', 'category') as { totals: { cost: number; margin: number | null; profit: number } };
+    const report = await ctrl.grossProfit({ tenantId: 't1' } as never, '2026-10', 'category') as {
+      rows: Array<{ profit: number | null; margin: number | null; netContribution: number | null; cost: number }>;
+      totals: { cost: number; margin: number | null; profit: number | null; netContribution: number | null };
+    };
     expect(report.totals.cost).toBe(0);
+    expect(report.totals.profit).toBeNull();
     expect(report.totals.margin).toBeNull();
+    expect(report.totals.netContribution).toBeNull();
+    expect(report.rows[0].cost).toBe(0);
+    expect(report.rows[0].profit).toBeNull();
+    expect(report.rows[0].margin).toBeNull();
+    expect(report.rows[0].netContribution).toBeNull();
   });
 });
 
