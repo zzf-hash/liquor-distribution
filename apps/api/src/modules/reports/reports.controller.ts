@@ -1,8 +1,8 @@
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizMonthRange } from '../../common/business-time';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -21,8 +21,7 @@ export class ReportsController {
   @Get('monthly')
   async monthly(@CurrentUser() user: AuthUser, @Query('month') month: string): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new ConflictException('月份格式 YYYY-MM');
-    const start = dayjs(`${month}-01`).startOf('month').toDate();
-    const end = dayjs(`${month}-01`).endOf('month').toDate();
+    const { start, end } = bizMonthRange(month);
     // 销售: 期间签收订单(含明细, 按品类聚合 + top 商品)
     const orders = await this.prisma.salesOrder.findMany({
       where: { signedAt: { gte: start, lte: end }, status: { in: ['SIGNED', 'SETTLED'] } },
@@ -103,8 +102,7 @@ export class ReportsController {
   async grossProfit(@CurrentUser() user: AuthUser, @Query('month') month: string, @Query('dimension') dimension?: string): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new ConflictException('月份格式 YYYY-MM');
     const dim = (['category', 'customer', 'rep', 'product'] as const).includes(dimension as never) ? dimension : 'category';
-    const start = dayjs(`${month}-01`).startOf('month').toDate();
-    const end = dayjs(`${month}-01`).endOf('month').toDate();
+    const { start, end } = bizMonthRange(month);
     const orders = await this.prisma.salesOrder.findMany({
       where: { signedAt: { gte: start, lte: end }, status: { in: ['SIGNED', 'SETTLED'] } },
       include: {

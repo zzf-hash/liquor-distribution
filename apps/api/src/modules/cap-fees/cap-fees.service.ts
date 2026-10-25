@@ -1,7 +1,8 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp, bizMonthRange, bizPrevMonthKey } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
 import { centsToNumber, mulQtyFeeRateToCents, toCents } from '../../common/money';
@@ -72,6 +73,8 @@ export class CapFeesService {
 
   async closePolicy(user: AuthUser, id: string): Promise<unknown> {
     if (user.role !== 'OWNER' && user.role !== 'CLERK') throw new ForbiddenException('仅老板/内勤可维护开瓶费政策');
+    const existing = await this.prisma.capFeePolicy.findFirst({ where: { id, tenantId: user.tenantId }, select: { id: true, closedAt: true } });
+    if (!existing) throw new NotFoundException('政策不存在');
     const claimed = await this.prisma.capFeePolicy.updateMany({ where: { id, tenantId: user.tenantId, closedAt: null }, data: { closedAt: new Date() } });
     if (claimed.count === 0) throw new ConflictException('政策不存在或已关闭');
     await this.audit.log({ user, action: 'CAPFEE_POLICY_CLOSE', entityType: 'CapFeePolicy', entityId: id });
@@ -97,10 +100,10 @@ export class CapFeesService {
       });
     }
     const total = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2));
-    const day = dayjs().format('YYYYMMDD');
+    const day = bizDayStamp();
     let order: Awaited<ReturnType<typeof this.prisma.capRecycleOrder.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !order; attempt++) {
-      const seq = (await this.prisma.capRecycleOrder.count({ where: { recycleNo: { startsWith: `GAI${day}` } } })) + 1 + attempt;
+      const seq = (await this.prisma.capRecycleOrder.count({ where: { tenantId: user.tenantId, recycleNo: { startsWith: `GAI${day}` } } })) + 1 + attempt;
       try {
         order = await this.prisma.capRecycleOrder.create({
           data: {
@@ -123,11 +126,12 @@ export class CapFeesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = {
+      tenantId: user.tenantId,
       status: q.status as never,
       // 业务员只见自己登记/自己客户
       ...(user.role === 'REP' ? { createdById: user.id } : {}),
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.capRecycleOrder.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { customer: { select: { code: true, name: true } } },
@@ -203,9 +207,8 @@ export class CapFeesService {
    * 幂等: source=CAP_ACCRUAL:<period>:<customerId> 的费用单已存在则跳过该客户。
    */
   async accrue(actor: AuthUser, periodInput?: string): Promise<{ period: string; customers: number; expenses: number; totalAmount: number; skipped: number }> {
-    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : dayjs().subtract(1, 'month').format('YYYY-MM');
-    const start = dayjs(`${period}-01`).startOf('month').toDate();
-    const end = dayjs(`${period}-01`).endOf('month').toDate();
+    const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput) ? periodInput : bizPrevMonthKey();
+    const { start, end } = bizMonthRange(period);
     const policies = await this.prisma.capFeePolicy.findMany({
       where: { tenantId: actor.tenantId, requireCap: false, closedAt: null },
       include: { product: { select: { name: true } } },

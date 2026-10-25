@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp, bizMonthKey, bizMonthRange } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { arOpenOf } from '../receivables/aging';
@@ -64,10 +64,10 @@ export class ExpensesService {
       if (!customer) throw new NotFoundException('客户不存在');
     }
     // P1-14 同款: count+1 撞号顺延重试
-    const fyDay = dayjs().format('YYYYMMDD');
+    const fyDay = bizDayStamp();
     let expense: Awaited<ReturnType<typeof this.prisma.expense.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
-      const seq = (await this.prisma.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+      const seq = (await this.prisma.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
       try {
         expense = await this.prisma.expense.create({
           data: {
@@ -94,7 +94,7 @@ export class ExpensesService {
       amount: dto.amount, reason: dto.note?.trim() || dto.title.trim(),
       payload: { expenseNo: expense.expenseNo, category: dto.category, payMode: expense.payMode, customerName: customer?.name },
     });
-    const updated = await this.prisma.expense.update({ where: { id: expense.id }, data: { approvalId: approval.id } });
+    const updated = await this.prisma.expense.update({ where: { id: expense.id, tenantId: user.tenantId }, data: { approvalId: approval.id } });
     await this.audit.log({ user, action: 'EXPENSE_CREATE', entityType: 'Expense', entityId: expense.id, after: { expenseNo: expense.expenseNo, category: dto.category, amount: dto.amount, payMode: expense.payMode, customerId: dto.customerId, approvalId: approval.id } });
     return updated;
   }
@@ -105,10 +105,10 @@ export class ExpensesService {
     category: 'CAP_FEE' | 'DISPLAY' | 'ENTRY'; title: string; amount: number; customerId: string;
     payMode: 'CASH' | 'AR_OFFSET'; occurredAt?: Date; note?: string; source: string;
   }, db: ExpenseWriter = this.prisma): Promise<{ id: string; expenseNo: string }> {
-    const fyDay = dayjs().format('YYYYMMDD');
+    const fyDay = bizDayStamp();
     let expense: { id: string; expenseNo: string } | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
-      const seq = (await db.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+      const seq = (await db.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
       try {
         expense = await db.expense.create({
           data: {
@@ -136,11 +136,11 @@ export class ExpensesService {
     payMode: 'CASH' | 'AR_OFFSET'; note?: string; source: string;
     customerName?: string;
   }): Promise<{ id: string; expenseNo: string; approvalId: string }> {
-    const fyDay = dayjs().format('YYYYMMDD');
+    const fyDay = bizDayStamp();
     const amount = dto.amount instanceof Prisma.Decimal ? dto.amount : centsToDecimal(toCents(dto.amount));
     let expense: { id: string; expenseNo: string; payMode: string } | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
-      const seq = (await tx.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+      const seq = (await tx.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
       try {
         expense = await tx.expense.create({
           data: {
@@ -183,9 +183,11 @@ export class ExpensesService {
     const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 20));
     let occurredAt: Prisma.DateTimeFilter | undefined;
     if (q.month && /^\d{4}-\d{2}$/.test(q.month)) {
-      occurredAt = { gte: dayjs(`${q.month}-01`).startOf('month').toDate(), lte: dayjs(`${q.month}-01`).endOf('month').toDate() };
+      const range = bizMonthRange(q.month);
+      occurredAt = { gte: range.start, lte: range.end };
     }
     const where: Prisma.ExpenseWhereInput = {
+      tenantId: user.tenantId,
       category: q.category as never, status: q.status as never, customerId: q.customerId, occurredAt,
     };
     const [items, total, sumAgg] = await this.prisma.$transaction([
@@ -210,12 +212,11 @@ export class ExpensesService {
 
   /** M10-3 费用台账汇总: 按科目×月份 */
   async summary(user: AuthUser, monthInput?: string): Promise<unknown> {
-    const month = monthInput && /^\d{4}-\d{2}$/.test(monthInput) ? monthInput : dayjs().format('YYYY-MM');
-    const start = dayjs(`${month}-01`).startOf('month').toDate();
-    const end = dayjs(`${month}-01`).endOf('month').toDate();
+    const month = monthInput && /^\d{4}-\d{2}$/.test(monthInput) ? monthInput : bizMonthKey();
+    const { start, end } = bizMonthRange(month);
     const groups = await this.prisma.expense.groupBy({
       by: ['category', 'status', 'payMode'],
-      where: { occurredAt: { gte: start, lte: end }, status: { in: ['PENDING_APPROVAL', 'APPROVED', 'PAID'] } },
+      where: { tenantId: user.tenantId, occurredAt: { gte: start, lte: end }, status: { in: ['PENDING_APPROVAL', 'APPROVED', 'PAID'] } },
       _sum: { amount: true },
     });
     const byCategory: Record<string, number> = {};
@@ -230,7 +231,7 @@ export class ExpensesService {
   }
 
   async detail(user: AuthUser, id: string): Promise<unknown> {
-    const e = await this.prisma.expense.findUnique({ where: { id }, include: { customer: { select: { code: true, name: true } } } });
+    const e = await this.prisma.expense.findUnique({ where: { id, tenantId: user.tenantId }, include: { customer: { select: { code: true, name: true } } } });
     if (!e) throw new NotFoundException('费用单不存在');
     return e;
   }
@@ -238,14 +239,14 @@ export class ExpensesService {
   /** 付款/冲抵: APPROVED → PAID。AR_OFFSET 按 FIFO 写 FEE_OFFSET 流水(最早到期优先, 与销账同序) */
   async pay(user: AuthUser, id: string, dto: { voucherUrl?: string; note?: string }, ip?: string): Promise<unknown> {
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤出纳/老板可执行付款');
-    const expense = await this.prisma.expense.findUnique({ where: { id } });
+    const expense = await this.prisma.expense.findUnique({ where: { id, tenantId: user.tenantId } });
     if (!expense) throw new NotFoundException('费用单不存在');
     if (expense.status !== 'APPROVED') throw new ConflictException(`仅已批费用可付款(当前 ${expense.status})`);
     const amount = Number(expense.amount);
 
     if (expense.payMode === 'CASH') {
       const claimed = await this.prisma.expense.updateMany({
-        where: { id, status: 'APPROVED' },
+        where: { id, tenantId: user.tenantId, status: 'APPROVED' },
         data: { status: 'PAID', paidAt: new Date(), paidById: user.id, voucherUrl: dto.voucherUrl ?? expense.voucherUrl, paidNote: dto.note },
       });
       if (claimed.count === 0) throw new ConflictException('费用单状态已变化, 请刷新后重试');
@@ -256,7 +257,7 @@ export class ExpensesService {
     // AR_OFFSET: 冲抵货款(FEE_OFFSET FIFO, 与 settleFifo 同串行化口径)
     let applied: Array<{ receivableId: string; sourceDocNo: string; amount: number }> = [];
     await this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.expense.updateMany({ where: { id, status: 'APPROVED' }, data: { status: 'PAID', paidAt: new Date(), paidById: user.id, paidNote: dto.note } });
+      const claimed = await tx.expense.updateMany({ where: { id, tenantId: user.tenantId, status: 'APPROVED' }, data: { status: 'PAID', paidAt: new Date(), paidById: user.id, paidNote: dto.note } });
       if (claimed.count === 0) throw new ConflictException('费用单状态已变化, 请刷新后重试');
       await tx.$queryRaw(Prisma.sql`SELECT id FROM "Receivable" WHERE "tenantId" = ${expense.tenantId} AND "customerId" = ${expense.customerId} AND "disputeFlag" = false ORDER BY id FOR UPDATE`);
       const ars = await tx.receivable.findMany({
@@ -290,7 +291,9 @@ export class ExpensesService {
   async cancel(user: AuthUser, id: string, reason: string, ip?: string): Promise<unknown> {
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤出纳/老板可取消');
     if (!reason?.trim()) throw new BadRequestException('取消原因必填');
-    const claimed = await this.prisma.expense.updateMany({ where: { id, status: 'PENDING_APPROVAL' }, data: { status: 'CANCELLED', note: reason } });
+    const existing = await this.prisma.expense.findUnique({ where: { id, tenantId: user.tenantId }, select: { id: true } });
+    if (!existing) throw new NotFoundException('费用单不存在');
+    const claimed = await this.prisma.expense.updateMany({ where: { id, tenantId: user.tenantId, status: 'PENDING_APPROVAL' }, data: { status: 'CANCELLED', note: reason } });
     if (claimed.count === 0) throw new ConflictException('仅待审批费用可取消');
     await this.audit.log({ user, action: 'EXPENSE_CANCEL', entityType: 'Expense', entityId: id, after: { reason }, ip });
     return { id, status: 'CANCELLED' };

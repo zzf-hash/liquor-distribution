@@ -29,10 +29,15 @@ services:
     image: liquor/api:${TAG:-latest}
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql://liquor:${POSTGRES_PASSWORD}@postgres:5432/liquor
+      # 业务连接不是超级用户, 也不是表主。迁移和授权走 MIGRATE_DATABASE_URL。
+      DATABASE_URL: postgresql://liquor_app:${LIQUOR_APP_PASSWORD}@postgres:5432/liquor
+      MIGRATE_DATABASE_URL: postgresql://liquor:${POSTGRES_PASSWORD}@postgres:5432/liquor
+      LIQUOR_APP_PASSWORD: ${LIQUOR_APP_PASSWORD:?请在.env设置}
       NODE_ENV: production
       PORT: 3000
       JWT_SECRET: ${JWT_SECRET:?请在.env设置}
+      # 未设置或留空时，生产（NODE_ENV=production）不允许跨域。见 apps/api/.env.example
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
       postgres:
         condition: service_healthy

@@ -344,8 +344,12 @@ async function wipe(prisma: PrismaClient): Promise<void> {
   await prisma.approvalRecord.deleteMany();
   await prisma.capRecycleOrder.deleteMany();
   await prisma.capFeePolicy.deleteMany();
+  await prisma.promotion.deleteMany();
   await prisma.orderLine.deleteMany();
   await prisma.salesOrder.deleteMany();
+  await prisma.inventoryLedger.deleteMany();
+  await prisma.batchStock.deleteMany();
+  await prisma.price.deleteMany();
   await prisma.customer.deleteMany();
   await prisma.product.deleteMany();
   await prisma.user.deleteMany();

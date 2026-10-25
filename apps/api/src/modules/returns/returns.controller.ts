@@ -51,6 +51,13 @@ export class ReturnsController {
     return this.svc.appendLines(user, id, dto.lines);
   }
 
+  /** 收货预览：将回冲的批次和应收冲减额。字段与管理端 previewReceive 一致。 */
+  @Get(':id/preview-receive')
+  @Roles('WAREHOUSE', 'OWNER')
+  async previewReceive(@Param('id') id: string): Promise<unknown> {
+    return this.svc.previewReceive(id);
+  }
+
   /** 收货回冲(仓库, APPROVED 后) */
   @Post(':id/receive')
   @Roles('WAREHOUSE', 'OWNER')

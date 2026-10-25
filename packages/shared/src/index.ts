@@ -12,7 +12,7 @@
 
 // ── API 统一响应外壳(对齐 apps/api 全局 ResponseInterceptor / HttpExceptionFilter) ──
 // 成功: { code: 0, data }
-// 失败: { code: <HTTP 状态码>, message }
+// 失败: { code: <HTTP 状态码>, message, data? }。data 只在 422 预检等受控场景出现，不含堆栈
 //   401=认证失败 403=越权 409=状态机非法转换 422=业务预检拦截 500=内部错误
 export interface ApiResponse<T = unknown> {
   code: 0;
@@ -21,6 +21,8 @@ export interface ApiResponse<T = unknown> {
 export interface ApiFailure {
   code: number;
   message: string;
+  /** 422 预检等受控业务数据；不含堆栈 */
+  data?: unknown;
 }
 export type ApiResult<T = unknown> = ApiResponse<T> | ApiFailure;
 
