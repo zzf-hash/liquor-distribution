@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { BUSINESS_TZ, bizDayStamp } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/order-state';
@@ -220,6 +221,7 @@ export class OrdersService {
     // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用)
     const promoRules = await this.prisma.promotion.findMany({
       where: {
+        tenantId: user.tenantId,
         productId: { in: productIds }, closedAt: null, validFrom: { lte: new Date() },
         OR: [{ validTo: null }, { validTo: { gte: new Date() } }],
       },
@@ -662,7 +664,7 @@ export class OrdersService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.outbound.findMany({
         where,
         orderBy: { createdAt: 'desc' },

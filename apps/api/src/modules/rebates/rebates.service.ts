@@ -147,7 +147,7 @@ export class RebatesService {
         const fyDay = bizDayStamp();
         let expense: { id: string; expenseNo: string } | null = null;
         for (let attempt = 0; attempt < 5 && !expense; attempt++) {
-          const seq = (await tx.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+          const seq = (await tx.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
           try {
             expense = await tx.expense.create({
               data: {

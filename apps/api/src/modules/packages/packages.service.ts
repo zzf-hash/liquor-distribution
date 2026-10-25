@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -107,7 +108,7 @@ export class PackagesService {
       customerId: q.customerId, category: q.category,
       type: q.type as never,
     };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.packageRecord.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { customer: { select: { code: true, name: true } } },

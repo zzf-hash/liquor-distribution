@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { bizDateKey, bizNow, bizStartOfDay } from '../../common/business-time';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -187,7 +188,7 @@ export class PriceChangesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.priceChangeRequest.findMany({
         where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize,
         include: { product: { select: { skuCode: true, name: true } } },
