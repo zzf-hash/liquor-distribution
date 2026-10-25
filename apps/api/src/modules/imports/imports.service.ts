@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import dayjs from 'dayjs';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -78,7 +79,8 @@ export class ImportsService {
     const warn = errs.filter((e) => e.level === 'WARN');
     const passed = validated.length - rejectRow.length;
 
-    const batchNo = `IMP${dayjs().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}`;
+    // 同一秒内连续预览会撞 (tenantId, batchNo)。秒级时间后面再加 4 字节随机后缀。
+    const batchNo = `IMP${dayjs().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}-${randomBytes(4).toString('hex')}`;
     const snapshotDate = kind === 'INVENTORY' ? parseDate(rows[0].cells['盘点基准日*'] ?? rows[0].cells['盘点基准日'] ?? '') : null;
     if (kind === 'INVENTORY') {
       const dates = new Set(rows.map((r) => r.cells['盘点基准日*'] ?? r.cells['盘点基准日'] ?? ''));

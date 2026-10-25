@@ -97,6 +97,13 @@ function harness() {
       update: jest.fn(async () => ({})),
     },
     product: { findUnique: jest.fn(async () => ({ name: '飞天茅台53度500ml' })), findMany: jest.fn() },
+    salesOrder: {
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) => (
+        where.id === 'ord1' || where.id === state.so?.convertedOrderId
+          ? { id: where.id, orderNo: 'SO-1' }
+          : null
+      )),
+    },
     $transaction: jest.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma)),
   };
   const approvals = new ApprovalsService(prisma as never, audit as never, notify as never);
@@ -128,7 +135,7 @@ describe('special order unit mapping', () => {
     ['MIN', 'MIN'],
     ['瓶', 'MIN'],
   ] as const)('approves and converts a seed-shaped special order whose unit is %s', async (raw, expected) => {
-    const { state, orders, specials, approvals, priceFind } = harness();
+    const { state, orders, prisma, specials, approvals, priceFind } = harness();
     await specials.create(rep, seedInput(raw));
     expect(state.so?.status).toBe('DRAFT');
     expect((state.so?.lines as Array<{ unit: string }>)[0].unit).toBe(raw);
@@ -149,6 +156,8 @@ describe('special order unit mapping', () => {
     expect(lines).toEqual([
       expect.objectContaining({ productId: 'p-maotai', unit: expected, qty: 2, priceOverride: 2900 }),
     ]);
+    expect(orders.create.mock.calls[0][2]).toBe('special-convert:so-seed');
+    expect(orders.create.mock.calls[0][4]).toBe(prisma);
   });
 
   it('rejects an unmapped unit with 422 on create, decide, and convert', async () => {
@@ -181,6 +190,46 @@ describe('special order unit mapping', () => {
     };
     await expectUnit422(() => approved.specials.convert(owner, 'so-seed'));
     expect(approved.orders.create).not.toHaveBeenCalled();
+    expect(approved.state.so?.status).toBe('APPROVED');
+  });
+
+  it('replays the linked order when convert is repeated, and only one order when two converts race', async () => {
+    const h = harness();
+    h.state.so = {
+      id: 'so-seed', status: 'APPROVED', customerId: 'c1', address: '示例街道1号', isBanquet: true,
+      specialNo: 'SP-SEED-1', deliveryDate: null, convertedOrderId: null,
+      lines: [{ productId: 'p-maotai', productName: '飞天茅台53度500ml', unit: '箱', qty: 2, price: 2900 }],
+    };
+    h.prisma.specialOrder.updateMany = jest.fn(async ({ where, data }: { where: { status: string }; data: Record<string, unknown> }) => {
+      const so = h.state.so!;
+      if (so.status !== where.status || so.convertedOrderId) return { count: 0 };
+      Object.assign(so, data);
+      return { count: 1 };
+    });
+    let chain = Promise.resolve();
+    h.prisma.$transaction = jest.fn((fn: (tx: unknown) => Promise<unknown>) => {
+      const run = chain.then(() => fn(h.prisma));
+      chain = run.then(() => undefined, () => undefined);
+      return run;
+    });
+
+    const [first, second] = await Promise.all([
+      h.specials.convert(owner, 'so-seed'),
+      h.specials.convert(owner, 'so-seed'),
+    ]) as Array<{ orderId: string; orderNo: string; replay?: boolean }>;
+
+    expect(h.orders.create).toHaveBeenCalledTimes(1);
+    expect(h.orders.create.mock.calls[0][2]).toBe('special-convert:so-seed');
+    expect(first.orderId).toBe(second.orderId);
+    expect(first.orderNo).toBe('SO-1');
+    expect([first.replay, second.replay].filter(Boolean)).toEqual([true]);
+    expect(h.state.so?.status).toBe('CONVERTED');
+    expect(h.state.so?.convertedOrderId).toBe('ord1');
+
+    h.orders.create.mockClear();
+    const again = await h.specials.convert(owner, 'so-seed') as { orderId: string; replay?: boolean };
+    expect(again).toMatchObject({ orderId: 'ord1', orderNo: 'SO-1', replay: true });
+    expect(h.orders.create).not.toHaveBeenCalled();
   });
 
   it('maps a voice-draft 箱 into BASE and rejects 打 before creating an order', async () => {

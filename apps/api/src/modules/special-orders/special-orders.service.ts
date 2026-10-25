@@ -120,25 +120,65 @@ export class SpecialOrdersService {
   async convert(user: AuthUser, id: string): Promise<unknown> {
     const so = await this.prisma.specialOrder.findUnique({ where: { id }, include: { lines: true } });
     if (!so) throw new NotFoundException('特单不存在');
+    if (so.status === 'CONVERTED' && so.convertedOrderId) {
+      const replayed = await this.replayConverted(so.specialNo, so.convertedOrderId);
+      return { specialNo: replayed.specialNo, orderId: replayed.orderId, orderNo: replayed.orderNo, replay: true as const };
+    }
     if (so.status !== 'APPROVED') throw new ConflictException('未经定价审批不可出货(P1-T02 红线), 仅 APPROVED 可转单');
-    if (so.convertedOrderId) throw new ConflictException('该特单已转单');
     if (!so.customerId) throw new ConflictException('缺少客户档案, 请先补建客户档案再转单');
     const productLines = so.lines.filter((l) => l.productId);
     if (productLines.length === 0) throw new ConflictException('无可转单的商品行(自由品名行不入正式订单)');
+    // 非法单位在抢状态之前 422，失败不把特单改成 CONVERTED。
+    const lines = productLines.map((l) => ({
+      productId: l.productId!,
+      qty: Number(l.qty),
+      unit: requirePriceUnit(l.unit),
+      priceOverride: Number(l.price),
+    }));
     const approval = await this.prisma.approvalRecord.findFirst({ where: { entityType: 'SPECIAL_ORDER', entityId: id, status: 'APPROVED' }, orderBy: { createdAt: 'desc' } });
-    const order = await this.orders.create(
-      {
-        customerId: so.customerId,
-        source: user.role === 'REP' ? 'REP' : 'CLERK',
-        lines: productLines.map((l) => ({ productId: l.productId!, qty: Number(l.qty), unit: requirePriceUnit(l.unit), priceOverride: Number(l.price) })),
-        addressOverride: so.address,
-        deliveryDate: so.deliveryDate ? dayjs(so.deliveryDate).format('YYYY-MM-DD') : undefined,
-        note: `特单 ${so.specialNo} 转单${so.isBanquet ? '(宴席)' : ''}`,
-      },
-      user,
-    );
-    await this.prisma.specialOrder.update({ where: { id }, data: { status: 'CONVERTED', convertedOrderId: (order as { id: string }).id } });
-    await this.audit.log({ user, action: 'SPECIAL_CONVERT', entityType: 'SPECIAL_ORDER', entityId: id, after: { specialNo: so.specialNo, orderNo: (order as { orderNo: string }).orderNo, approvalId: approval?.id } });
-    return { specialNo: so.specialNo, orderId: (order as { id: string }).id, orderNo: (order as { orderNo: string }).orderNo };
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 条件更新抢 APPROVED→CONVERTED。行锁持有到建单和回写 convertedOrderId 提交。
+      const claimed = await tx.specialOrder.updateMany({
+        where: { id, status: 'APPROVED', convertedOrderId: null },
+        data: { status: 'CONVERTED' },
+      });
+      if (claimed.count === 0) {
+        const current = await tx.specialOrder.findUnique({ where: { id } });
+        if (current?.convertedOrderId) return this.replayConverted(current.specialNo, current.convertedOrderId, tx as Prisma.TransactionClient);
+        throw new ConflictException('未经定价审批不可出货(P1-T02 红线), 仅 APPROVED 可转单');
+      }
+      // 与 PR #1 的稳定键同一字符串。键和订单行写在这个事务里，回滚后可以再用这把键。
+      const order = await this.orders.create(
+        {
+          customerId: so.customerId!,
+          source: user.role === 'REP' ? 'REP' : 'CLERK',
+          lines,
+          addressOverride: so.address,
+          deliveryDate: so.deliveryDate ? dayjs(so.deliveryDate).format('YYYY-MM-DD') : undefined,
+          note: `特单 ${so.specialNo} 转单${so.isBanquet ? '(宴席)' : ''}`,
+        },
+        user,
+        `special-convert:${id}`,
+        undefined,
+        tx as Prisma.TransactionClient,
+      );
+      await tx.specialOrder.update({ where: { id }, data: { convertedOrderId: order.id } });
+      return { specialNo: so.specialNo, orderId: order.id, orderNo: order.orderNo, replay: order.replay === true, linked: true };
+    });
+    if (result.linked) {
+      await this.audit.log({ user, action: 'SPECIAL_CONVERT', entityType: 'SPECIAL_ORDER', entityId: id, after: { specialNo: so.specialNo, orderNo: result.orderNo, approvalId: approval?.id } });
+    }
+    return { specialNo: result.specialNo, orderId: result.orderId, orderNo: result.orderNo, ...(result.replay ? { replay: true } : {}) };
+  }
+
+  /** 抢状态失败或已经转过: 返回已挂上的那张订单，不再建单。 */
+  private async replayConverted(
+    specialNo: string,
+    orderId: string,
+    db: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<{ specialNo: string; orderId: string; orderNo: string; replay: true; linked: false }> {
+    const order = await db.salesOrder.findUnique({ where: { id: orderId } });
+    if (!order) throw new ConflictException('该特单已转单');
+    return { specialNo, orderId: order.id, orderNo: order.orderNo, replay: true, linked: false };
   }
 }
