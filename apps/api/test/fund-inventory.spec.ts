@@ -756,6 +756,7 @@ describe('price change effectuate normalizes the unit and keeps cent prices', ()
       priceChangeRequest: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'pc-1',
+          tenantId: 't1',
           status: 'APPROVED',
           productId: 'p1',
           unit: '箱',
@@ -769,26 +770,31 @@ describe('price change effectuate normalizes the unit and keeps cent prices', ()
         update: jest.fn().mockResolvedValue({}),
       },
       price: {
-        create: jest.fn(async ({ data }: { data: { unit: string } }) => {
-          priceWrites.push(data);
-          return { id: 'price-1' };
+        findUnique: jest.fn().mockResolvedValue(null),
+        findFirst: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(async ({ create }: { create: { unit: string } }) => {
+          priceWrites.push(create);
+          return { id: 'price-1', ...create };
         }),
       },
       customerPrice: {
         findMany: jest.fn().mockResolvedValue([
-          { customerId: 'c1', price: exclusive, productId: 'p1' },
+          { tenantId: 't1', customerId: 'c1', price: exclusive, productId: 'p1' },
         ]),
-        create: jest.fn(async ({ data }: { data: { unit: string; price: Prisma.Decimal } }) => {
-          customerWrites.push(data);
-          return data;
+        findUnique: jest.fn().mockResolvedValue(null),
+        upsert: jest.fn(async ({ create }: { create: { unit: string; price: Prisma.Decimal } }) => {
+          customerWrites.push(create);
+          return create;
         }),
       },
+      $executeRaw: jest.fn().mockResolvedValue(0),
+      $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
     };
     const svc = new PriceChangesService(prisma as never, audit as never, {} as never);
     await svc.effectuate(owner, 'pc-1');
 
     expect(prisma.customerPrice.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({ unit: 'BASE' }),
+      where: expect.objectContaining({ unit: 'BASE', tenantId: 't1' }),
     }));
     expect(priceWrites[0]?.unit).toBe('BASE');
     expect(customerWrites).toHaveLength(1);
