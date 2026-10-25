@@ -449,4 +449,38 @@ describe('租户隔离 / RLS / 登录', () => {
       data: { username: 'system' },
     }))).rejects.toThrow('用户名 system 为系统保留');
   });
+
+  it('用户名 system 的登录失败不会记成 SYSTEM/cron', async () => {
+    await expect(auth.login('system', 'password-wrong', '10.2.4.1', tenantA.code)).rejects.toThrow('用户名或密码错误');
+    const missing = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: 'system', ip: '10.2.4.1' },
+    });
+    expect(missing).toHaveLength(1);
+    expect(missing[0].userId).toBeNull();
+    expect(missing[0].role).not.toBe('SYSTEM');
+    expect(missing[0].channel).not.toBe('cron');
+    expect(missing[0].role).toBe('-');
+    expect(missing[0].channel).toBe('web');
+
+    await rawClient.user.create({
+      data: {
+        tenantId: tenantA.id,
+        username: 'system',
+        name: '同名',
+        role: 'CLERK',
+        dataScope: 'ALL',
+        passwordHash: bcrypt.hashSync('password-sys', 4),
+        status: 'ACTIVE',
+      },
+    });
+    await expect(auth.login('system', 'password-wrong', '10.2.4.2', tenantA.code)).rejects.toThrow('用户名或密码错误');
+    const named = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: 'system', ip: '10.2.4.2' },
+    });
+    expect(named).toHaveLength(1);
+    expect(named[0].role).toBe('CLERK');
+    expect(named[0].channel).toBe('web');
+    expect(named[0].role).not.toBe('SYSTEM');
+    expect(named[0].channel).not.toBe('cron');
+  });
 });

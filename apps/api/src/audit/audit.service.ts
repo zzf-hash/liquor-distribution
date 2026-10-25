@@ -137,7 +137,8 @@ export class AuditService {
     // username 原样保留(系统任务是 'system')。列在 0_init 里已是可空 TEXT, 不必再迁移。
     // null 不进 rowHash(见 hash), 插在已有链中间也不会让后续校验失败。
     const userId = entry.user.id && entry.user.id !== 'system' ? entry.user.id : null;
-    const systemActor = entry.user.id === 'system' || entry.user.username.toLowerCase() === 'system';
+    // 只认定时任务的 id。用户名碰巧叫 system 的登录失败不能记成 SYSTEM/cron。
+    const systemActor = entry.user.id === 'system';
     const role = systemActor ? 'SYSTEM' : String(entry.user.role);
     const channel = entry.channel ?? (systemActor ? 'cron' : 'web');
     await this.db.$transaction(async (tx) => {
