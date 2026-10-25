@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { OrdersService } from '../orders/orders.service';
 import { QwenEngineService } from './qwen-engine.service';
@@ -67,11 +67,11 @@ export class DraftsService {
         const resolved = await this.resolveAliases(user, parsed.items, dto.text);
         items = resolved.items;
         const customerId = resolved.customerId;
-        const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${dayjs().format('YYYYMMDD')}` } } })) + 1;
+        const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${bizDayStamp()}` } } })) + 1;
         const created = await this.prisma.orderDraft.create({
           data: {
             tenantId: user.tenantId,
-            draftNo: `DF${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+            draftNo: `DF${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
             source: dto.source, rawText: dto.text, photoUrl: dto.photoUrl,
             customerId, customerHint, items: items as never,
             confidence, ambiguities: (ambiguities.length ? ambiguities : undefined) as never,
@@ -84,11 +84,11 @@ export class DraftsService {
         ambiguities = [`引擎解析失败(${String(e).slice(0, 80)}), 已转人工填写`];
       }
     }
-    const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.orderDraft.create({
       data: {
         tenantId: user.tenantId,
-        draftNo: `DF${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        draftNo: `DF${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         source: dto.source, rawText: dto.text, photoUrl: dto.photoUrl,
         customerHint, items: items as never, confidence, ambiguities: (ambiguities.length ? ambiguities : undefined) as never,
         engine: 'manual', status: 'PENDING_REVIEW', createdById: user.id,
@@ -169,6 +169,7 @@ export class DraftsService {
     const order = await this.orders.create(
       { customerId, source: user.role === 'REP' ? 'REP' : 'CLERK', lines, note: `草稿转单 ${d.draftNo}${d.source === 'VOICE' ? '(语音)' : d.source === 'PHOTO' ? '(拍照)' : ''}` },
       user,
+      `draft-convert:${id}`,
     );
     await this.prisma.orderDraft.update({ where: { id }, data: { status: 'CONFIRMED', customerId, convertedOrderId: (order as { id: string }).id } });
     // 别名学习(AUTO_LEARNED): 草稿原名 ≠ 标准商品名 的映射回写词典

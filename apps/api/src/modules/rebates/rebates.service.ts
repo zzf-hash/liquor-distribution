@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUSINESS_TZ, bizDayStamp, bizMonthRange, bizStartOfMonth } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -43,7 +44,7 @@ export class RebatesService {
       where: { customerId: dto.customerId, closedAt: null, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
     });
     if (active) {
-      throw new ConflictException(`该客户已有生效中 ${active.type} 方案(${dayjs(active.validFrom).format('YYYY-MM-DD')}起), b/c 互斥(D02); 请先关闭`);
+      throw new ConflictException(`该客户已有生效中 ${active.type} 方案(${dayjs(active.validFrom).tz(BUSINESS_TZ).format('YYYY-MM-DD')}起), b/c 互斥(D02); 请先关闭`);
     }
     const created = await this.prisma.rebateScheme.create({
       data: {
@@ -89,14 +90,15 @@ export class RebatesService {
       where: { customerId, closedAt: null, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
     });
     if (!scheme) throw new ConflictException('该客户无生效中返利方案');
-    const start = dayjs(`${period}-01`).startOf('month').toDate();
-    const end = dayjs(`${period}-01`).endOf('month').toDate();
+    const { start, end } = bizMonthRange(period);
     // P1-13: 期间护栏——不可核算未来账期, 不可早于方案生效月追溯套利
-    if (dayjs(start).isAfter(dayjs().startOf('month'))) {
+    const currentMonthStart = bizStartOfMonth();
+    if (start.getTime() > currentMonthStart.getTime()) {
       throw new ConflictException(`期间 ${period} 尚未开始, 不可核算未来账期`);
     }
-    if (dayjs(start).isBefore(dayjs(scheme.validFrom).startOf('month'))) {
-      throw new ConflictException(`期间 ${period} 早于方案生效月 ${dayjs(scheme.validFrom).format('YYYY-MM')}, 不可追溯核算`);
+    const schemeMonth = dayjs(scheme.validFrom).tz(BUSINESS_TZ).startOf('month');
+    if (start.getTime() < schemeMonth.toDate().getTime()) {
+      throw new ConflictException(`期间 ${period} 早于方案生效月 ${schemeMonth.format('YYYY-MM')}, 不可追溯核算`);
     }
     const payAgg = await this.prisma.payment.aggregate({
       where: { customerId, status: 'CONFIRMED', kind: 'PAYMENT', confirmedAt: { gte: start, lte: end } },
@@ -142,7 +144,7 @@ export class RebatesService {
       let cashExpenseNo: string | null = null;
       if (dto.settleType === 'CASH' && preview.rebateAmount > 0) {
         // C组: 现金返利 → REBATE 费用单(系统直入已批, 出纳在费用中心付款)
-        const fyDay = dayjs().format('YYYYMMDD');
+        const fyDay = bizDayStamp();
         let expense: { id: string; expenseNo: string } | null = null;
         for (let attempt = 0; attempt < 5 && !expense; attempt++) {
           const seq = (await tx.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;

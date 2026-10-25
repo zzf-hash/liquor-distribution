@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp, bizMonthKey, bizMonthRange } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { arOpenOf } from '../receivables/aging';
@@ -60,7 +60,7 @@ export class ExpensesService {
       if (!customer) throw new NotFoundException('客户不存在');
     }
     // P1-14 同款: count+1 撞号顺延重试
-    const fyDay = dayjs().format('YYYYMMDD');
+    const fyDay = bizDayStamp();
     let expense: Awaited<ReturnType<typeof this.prisma.expense.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
       const seq = (await this.prisma.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
@@ -100,7 +100,7 @@ export class ExpensesService {
     category: 'CAP_FEE' | 'DISPLAY' | 'ENTRY'; title: string; amount: number; customerId: string;
     payMode: 'CASH' | 'AR_OFFSET'; occurredAt?: Date; note?: string; source: string;
   }): Promise<{ id: string; expenseNo: string }> {
-    const fyDay = dayjs().format('YYYYMMDD');
+    const fyDay = bizDayStamp();
     let expense: Awaited<ReturnType<typeof this.prisma.expense.create>> | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
       const seq = (await this.prisma.expense.count({ where: { tenantId: user.tenantId, expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
@@ -129,7 +129,8 @@ export class ExpensesService {
     const pageSize = Math.min(200, Math.max(1, q.pageSize ?? 20));
     let occurredAt: Prisma.DateTimeFilter | undefined;
     if (q.month && /^\d{4}-\d{2}$/.test(q.month)) {
-      occurredAt = { gte: dayjs(`${q.month}-01`).startOf('month').toDate(), lte: dayjs(`${q.month}-01`).endOf('month').toDate() };
+      const range = bizMonthRange(q.month);
+      occurredAt = { gte: range.start, lte: range.end };
     }
     const where: Prisma.ExpenseWhereInput = {
       tenantId: user.tenantId,
@@ -157,9 +158,8 @@ export class ExpensesService {
 
   /** M10-3 费用台账汇总: 按科目×月份 */
   async summary(user: AuthUser, monthInput?: string): Promise<unknown> {
-    const month = monthInput && /^\d{4}-\d{2}$/.test(monthInput) ? monthInput : dayjs().format('YYYY-MM');
-    const start = dayjs(`${month}-01`).startOf('month').toDate();
-    const end = dayjs(`${month}-01`).endOf('month').toDate();
+    const month = monthInput && /^\d{4}-\d{2}$/.test(monthInput) ? monthInput : bizMonthKey();
+    const { start, end } = bizMonthRange(month);
     const groups = await this.prisma.expense.groupBy({
       by: ['category', 'status', 'payMode'],
       where: { tenantId: user.tenantId, occurredAt: { gte: start, lte: end }, status: { in: ['PENDING_APPROVAL', 'APPROVED', 'PAID'] } },

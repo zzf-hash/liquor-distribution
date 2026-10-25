@@ -1,8 +1,9 @@
-import { ValidationPipe } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { HttpExceptionFilter } from './common/http-exception.filter';
+import { formatValidationErrors } from './common/validation-message';
 import { tenantContext } from './prisma/tenant-context';
 
 // B5 租户上下文中间件: 从 JWT 解出 tenantId, als.run 包裹下游整条链(守卫 enterWith 在部分环境不传播)。
@@ -33,6 +34,11 @@ export function configureApp(app: NestExpressApplication): void {
   app.use(urlencoded({ extended: true, limit: '6mb' }));
   app.use(tenantContextMiddleware);
   app.setGlobalPrefix('api');
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: false }));
+  app.useGlobalPipes(new ValidationPipe({
+    transform: true,
+    whitelist: true,
+    forbidNonWhitelisted: false,
+    exceptionFactory: (errors) => new BadRequestException(formatValidationErrors(errors)),
+  }));
   app.useGlobalFilters(new HttpExceptionFilter());
 }

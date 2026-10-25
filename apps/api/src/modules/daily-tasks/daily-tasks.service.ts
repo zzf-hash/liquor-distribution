@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { BUSINESS_TZ, bizDateKey, bizDayDiff, bizMonthRange, bizNow, bizPrevMonthKey } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { NotifyService } from '../../common/notify.service';
 import { StatementsService } from '../statements/statements.service';
@@ -52,13 +53,13 @@ export class DailyTasksService {
     for (const ar of ars) {
       const { open } = arOpenOf(Number(ar.total), ar.ledger);
       if (open <= 0.0001) continue;
-      const days = dayjs().startOf('day').diff(dayjs(ar.dueDate).startOf('day'), 'day');
+      const days = bizDayDiff(ar.dueDate);
       if (days > 0) {
         const b = days <= aging.b1 ? 'b1' : days <= aging.b2 ? 'b2' : days <= aging.b3 ? 'b3' : 'b4';
         overdue[b] += open;
         overdueTotal += open;
-      } else if (dayjs(ar.dueDate).isBefore(dayjs().add(n, 'day').endOf('day'))) {
-        dueSoon.push({ docNo: ar.sourceDocNo, customer: ar.customer.name, open, dueDate: dayjs(ar.dueDate).format('YYYY-MM-DD'), daysLeft: -days });
+      } else if (dayjs(ar.dueDate).tz(BUSINESS_TZ).isBefore(bizNow().add(n, 'day').endOf('day'))) {
+        dueSoon.push({ docNo: ar.sourceDocNo, customer: ar.customer.name, open, dueDate: dayjs(ar.dueDate).tz(BUSINESS_TZ).format('YYYY-MM-DD'), daysLeft: -days });
       }
     }
     const dueSoonAmount = dueSoon.reduce((s, r) => s + r.open, 0);
@@ -73,7 +74,7 @@ export class DailyTasksService {
       try { await this.notify.send('应收到期提醒(每日)', lines); notified = true; } catch { /* 推送失败不阻断, 次日重推 */ }
     }
     await this.audit.log({
-      user: actor, action: 'AR_REMINDER_RUN', entityType: 'Receivable', entityId: dayjs().format('YYYY-MM-DD'),
+      user: actor, action: 'AR_REMINDER_RUN', entityType: 'Receivable', entityId: bizDateKey(),
       after: { dueSoon: dueSoon.length, dueSoonAmount, overdue, overdueTotal, notified },
     });
     return { dueSoonCount: dueSoon.length, dueSoonAmount, overdue, notified };
@@ -83,9 +84,8 @@ export class DailyTasksService {
   async runMonthlyStatements(actor: AuthUser, periodInput?: string): Promise<{ period: string; generated: number; sent: number; skipped: number; errors: number }> {
     const period = periodInput && /^\d{4}-\d{2}$/.test(periodInput)
       ? periodInput
-      : dayjs().subtract(1, 'month').format('YYYY-MM'); // 默认上月
-    const start = dayjs(`${period}-01`).startOf('month').toDate();
-    const end = dayjs(`${period}-01`).endOf('month').toDate();
+      : bizPrevMonthKey(); // 默认上月
+    const { start, end } = bizMonthRange(period);
     // 活动客户 = 期间内生成过应收 或 期间内核销过(旧单当期收款也要对账, 与 P1-11 口径一致)
     const ars = await this.prisma.receivable.findMany({
       where: { archivedAt: null, OR: [{ generatedAt: { gte: start, lte: end } }, { ledger: { some: { createdAt: { gte: start, lte: end } } } }] },
@@ -124,7 +124,7 @@ export class DailyTasksService {
 
   /** ③ 自动归档(M9-8/R8): 已结满 6 个月 → archivedAt(软归档, 客户不可见, 后台可恢复) */
   async runAutoArchive(actor: AuthUser): Promise<{ archived: number; candidates: number }> {
-    const cutoff = dayjs().subtract(6, 'month').toDate();
+    const cutoff = bizNow().subtract(6, 'month').toDate();
     const ars = await this.prisma.receivable.findMany({
       where: { archivedAt: null },
       include: { ledger: { orderBy: { createdAt: 'desc' } } },
@@ -141,7 +141,7 @@ export class DailyTasksService {
       archived += 1;
     }
     if (archived > 0) {
-      await this.audit.log({ user: actor, action: 'AR_AUTO_ARCHIVE_RUN', entityType: 'Receivable', entityId: dayjs().format('YYYY-MM-DD'), after: { archived, candidates } });
+      await this.audit.log({ user: actor, action: 'AR_AUTO_ARCHIVE_RUN', entityType: 'Receivable', entityId: bizDateKey(), after: { archived, candidates } });
     }
     return { archived, candidates };
   }

@@ -146,6 +146,7 @@ async function main() {
   try {
     const d = await api('POST', '/orders', {
       token: clerkTok,
+      idemKey: `smoke-${Date.now()}`,
       body: {
         customerId,
         source: 'CLERK',

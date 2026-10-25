@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import type { AuthUser } from '../../common/current-user.decorator';
@@ -43,11 +43,11 @@ export class StocktakesService {
       })
       .filter((l) => l.systemQty !== 0);
     if (lines.length === 0) throw new ConflictException('无可盘批次(账面为零)');
-    const seq = (await this.prisma.stocktake.count({ where: { takeNo: { startsWith: `PD${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.stocktake.count({ where: { takeNo: { startsWith: `PD${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.stocktake.create({
       data: {
         tenantId: user.tenantId,
-        takeNo: `PD${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        takeNo: `PD${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         type: dto.type, status: 'DRAFT', countedById: user.id,
         lines: { create: lines.map((l) => ({ tenantId: user.tenantId, ...l, systemQty: new Prisma.Decimal(l.systemQty), countedQty: new Prisma.Decimal(l.systemQty), unitCost: new Prisma.Decimal(l.unitCost) })) },
       } as never,
