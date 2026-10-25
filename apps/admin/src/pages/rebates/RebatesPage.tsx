@@ -3,7 +3,7 @@
 // 同客户同一时刻仅一个生效方案（后端 409 互斥，前端捕获展示）；
 // 月末核算：GOODS=货补走随单赠下单 / INVOICE=票折冲应收 / CASH=现金(生成返利费用单付款)；
 // 随单赠：买N送M 规则，下单管线自动追加 0 价赠品行。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { PlusOutlined } from '@ant-design/icons';
 import {
@@ -12,6 +12,8 @@ import {
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
 import { customersApi, productsApi, promotionsApi, rebatesApi, ApiError } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   CustomerDTO, ProductDTO, PromotionDTO, RebateSchemeDTO, RebateSettlementDTO, RebateSettlementPreviewDTO, RebateSettleTypeDTO, RebateTierDTO, RebateTypeDTO,
 } from '../../services/api';
@@ -516,6 +518,7 @@ function SettlementsTab(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     customersApi.list({ page: 1, pageSize: 200 })
@@ -580,11 +583,13 @@ function SettlementsTab(): JSX.Element {
       onOk: async () => {
         setConfirming(true);
         try {
-          await rebatesApi.createSettlement({
+          const payload = {
             customerId: preview.customerId,
             period: preview.period,
             settleType,
-          });
+          };
+          await rebatesApi.createSettlement(payload, rememberIdemKey(idemRef, payload));
+          idemRef.current = null;
           message.success(settleType === 'INVOICE'
             ? '票折核算完成，已冲减该客户应收'
             : settleType === 'CASH'

@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Canvas, Image, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
@@ -92,6 +94,7 @@ export default function WarehouseSignPage() {
   const drawing = useRef(false)
   const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const hasDrawn = useRef(false)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   useEffect(() => {
     // 页面渲染完成后再取 canvas 节点（2d 模式必须 node 方式拿 context）
@@ -265,7 +268,7 @@ export default function WarehouseSignPage() {
       // E_SIGN: canvas 导出签名 base64; PHOTO: 凭证图转 base64(对象存储未接前的内联过渡)
       const signatureData = type === 'E_SIGN' ? exportSignature() : undefined
       const photoUrl = type === 'PHOTO' && photoPath ? await fileToDataUrl(photoPath) : undefined
-      const res = await ordersApi.sign(order.id, {
+      const body = {
         type,
         signerName: signerName.trim() || undefined,
         signatureData,
@@ -273,7 +276,9 @@ export default function WarehouseSignPage() {
         deviceInfo: `${Taro.getSystemInfoSync().platform ?? ''} sign-canvas`,
         returnPackages: returnPackages.length ? returnPackages : undefined,
         lines,
-      })
+      }
+      const res = await ordersApi.sign(order.id, body, rememberIdemKey(idemRef, { id: order.id, ...body }))
+      idemRef.current = null
       Taro.showToast({
         title: res.status === 'REJECTED' ? '已按整单拒收处理' : `签收成功 ${fmtMoney(res.acceptedAmount)}`,
         icon: 'success',

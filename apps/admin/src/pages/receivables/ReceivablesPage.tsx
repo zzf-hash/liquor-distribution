@@ -1,5 +1,5 @@
 // 应收台账（P0-T30~T31）：账龄分档 tab（档位可配 M9-3）/ 收款登记（幂等键）/ 待确认收款→确认销账（二次确认摘要）
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { DownloadOutlined, SettingOutlined } from '@ant-design/icons';
@@ -8,6 +8,8 @@ import {
   Select, Space, Table, Tag, Typography,
 } from 'antd';
 import { agingApi, customersApi, downloadApiFile, receivablesApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import { getAuth } from '../../services/auth';
 import type {
   AgingConfigDTO,
@@ -165,6 +167,7 @@ function FundActionModal({
   const [amount, setAmount] = useState<number | null>(null);
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (state) {
@@ -186,10 +189,14 @@ function FundActionModal({
     setSubmitting(true);
     try {
       if (state.type === 'waive') {
-        await receivablesApi.waive(state.row.id, amount as number, reason.trim());
+        const payload = { id: state.row.id, amount, reason: reason.trim() };
+        await receivablesApi.waive(state.row.id, amount as number, reason.trim(), rememberIdemKey(idemRef, payload));
+        idemRef.current = null;
         message.success('抹零已提交');
       } else {
-        await receivablesApi.writeOff(state.row.id, reason.trim());
+        const payload = { id: state.row.id, reason: reason.trim(), writeOff: true };
+        await receivablesApi.writeOff(state.row.id, reason.trim(), rememberIdemKey(idemRef, payload));
+        idemRef.current = null;
         message.success('坏账已核销');
       }
       onDone();
@@ -341,6 +348,7 @@ function PaymentModal({
   const [voucher, setVoucher] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -366,14 +374,15 @@ function PaymentModal({
     }
     setSubmitting(true);
     try {
-      // api 层自动带 Idempotency-Key（P0-03 幂等，重试不双写）
-      const res = await receivablesApi.createPayment({
+      const payload = {
         customerId,
         amount,
         method,
         voucher: voucher || undefined,
         note: note || undefined,
-      });
+      };
+      const res = await receivablesApi.createPayment(payload, rememberIdemKey(idemRef, payload));
+      idemRef.current = null;
       message.success(`收款已登记：${res.paymentNo ?? ''}（待确认后 FIFO 销账）`);
       onSaved();
     } catch (e) {

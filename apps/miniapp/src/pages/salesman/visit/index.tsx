@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Image, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, fmtDateTime, getToken, visitsApi } from '../../../services/api'
@@ -39,6 +41,7 @@ function stepDone(v: VisitDTO): number {
  * 下方「我的拜访」时间线 + 月度统计（本月 X 次）。触控元素均 ≥88px 计量红线。
  */
 export default function SalesmanVisitPage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<VisitCustomerDTO[]>([])
   const [customerId, setCustomerId] = useState('')
   const [located, setLocated] = useState('')
@@ -120,13 +123,15 @@ export default function SalesmanVisitPage() {
     }
     setSubmitting(true)
     try {
-      await visitsApi.create({
+      const payload = {
         customerId,
         location: located || undefined,
         photoUrl: photo ? `pending:${photo}` : undefined,
         steps,
         notes: notes.trim() || undefined,
-      })
+      }
+      await visitsApi.create(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showToast({ title: '打卡成功', icon: 'success' })
       setCustomerId('')
       setLocated('')

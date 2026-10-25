@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { openAppPage } from '../../../services/navigation'
 import {
   UNIT_LABELS,
@@ -23,6 +25,7 @@ import './index.scss'
 export default function CustomerCartPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [submitting, setSubmitting] = useState(false)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   useDidShow(() => {
     if (!getToken()) {
@@ -56,9 +59,9 @@ export default function CustomerCartPage() {
         cancelText: '再看看',
       })
       if (!confirm.confirm) return
-      const res = await ordersApi.create(
-        cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty })),
-      )
+      const lines = cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty }))
+      const res = await ordersApi.create(lines, rememberIdemKey(idemRef, lines))
+      idemRef.current = null
       saveCart([])
       setCart([])
       await Taro.showModal({

@@ -1,7 +1,7 @@
 // 退货（P1-T03，F10 全流程）：关联原单（必填）→ 勾行定数（上限=行净数量，红字已扣减）
 // → 待审批（RETURN 线）→ APPROVED 后仓库收货确认（批次回冲+应收冲减二次确认）。
 // R4「数量只能多不少」：待审批单可追加行，已审批后不可再加。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -9,6 +9,8 @@ import {
   Select, Space, Spin, Steps, Table, Tag, Typography,
 } from 'antd';
 import { customersApi, ordersApi, returnsApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   CustomerDTO,
   OrderDTO,
@@ -42,6 +44,7 @@ export default function ReturnsPage(): JSX.Element {
   const [activeStatus, setActiveStatus] = useState('ALL');
   const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   const reload = (): void => setRefreshKey((k) => k + 1);
 
@@ -49,7 +52,8 @@ export default function ReturnsPage(): JSX.Element {
   function receiveReturn(r: ReturnOrderDTO): void {
     const doReceive = async (): Promise<void> => {
       try {
-        const res = await returnsApi.receive(r.id);
+        const res = await returnsApi.receive(r.id, rememberIdemKey(idemRef, { receive: r.id }));
+        idemRef.current = null;
         message.success(`收货完成，批次已回冲、应收已重算：${res.returnNo ?? r.returnNo}`);
         reload();
       } catch (e) {
@@ -335,6 +339,7 @@ function CreateReturnModal({
   const [selectedLineIds, setSelectedLineIds] = useState<string[]>([]);
   const [qtyByLine, setQtyByLine] = useState<Record<string, number>>({});
   const [reason, setReason] = useState('');
+  const idemRef = useRef<IdemSlot | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   // 开启即复位 + 拉客户
@@ -421,13 +426,15 @@ function CreateReturnModal({
     }
     setSubmitting(true);
     try {
-      const res = await returnsApi.create({
+      const payload = {
         sourceOrderId: orderId,
         reason: reason.trim(),
         lines: selectedLineIds
           .filter((id) => (qtyByLine[id] ?? 0) > 0)
           .map((id) => ({ orderLineId: id, qty: qtyByLine[id] })),
-      });
+      };
+      const res = await returnsApi.create(payload, rememberIdemKey(idemRef, payload));
+      idemRef.current = null;
       message.success(`退货单已创建：${res.returnNo ?? ''}，已进入审批中心（退货线）待审批`);
       onCreated();
     } catch (e) {

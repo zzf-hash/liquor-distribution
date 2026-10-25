@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
@@ -238,6 +240,7 @@ function DisputePopup({
 }) {
   const [items, setItems] = useState<DisputeDraft[]>([{ type: 'MISSING_ORDER', content: '' }])
   const [submitting, setSubmitting] = useState(false)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   function setItem(i: number, patch: Partial<DisputeDraft>) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, ...patch } : it)))
@@ -251,7 +254,9 @@ function DisputePopup({
     }
     setSubmitting(true)
     try {
-      await statementsApi.dispute(statement.id, valid.map((it) => ({ type: it.type, content: it.content.trim() })))
+      const rows = valid.map((it) => ({ type: it.type, content: it.content.trim() }))
+      await statementsApi.dispute(statement.id, rows, rememberIdemKey(idemRef, { id: statement.id, rows }))
+      idemRef.current = null
       Taro.showToast({ title: '差异已提交', icon: 'success' })
       onSubmitted()
     } catch (e) {
