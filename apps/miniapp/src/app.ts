@@ -1,32 +1,72 @@
 import { PropsWithChildren } from 'react'
 import { useDidShow, useError, useLaunch } from '@tarojs/taro'
-import { ApiError, LOGIN_PAGE, authApi, clearSession, readSession, writeSession } from './services/api'
+import { LOGIN_PAGE, authApi, clearSession, readSession, writeSession } from './services/api'
 import { sessionAfterMe } from './services/session-cache'
-import { enforceCurrentRoute, installRouteGuard, relaunchWhenRouterReady } from './services/route-guard-runtime'
+import { guardRedirect, homeForRole } from './services/route-guard'
+import {
+  coverBlockedRoute,
+  currentPageUrl,
+  enforceCurrentRoute,
+  holdRouteGuard,
+  installRouteGuard,
+  releaseRouteGuard,
+  relaunchWhenRouterReady,
+  uncoverBlockedRoute,
+} from './services/route-guard-runtime'
 import { reportError } from './services/telemetry'
 
 import './app.scss'
 
+let identitySettled = false
+
 async function validateCachedToken(): Promise<void> {
   const cached = readSession()
   if (!cached.token) {
+    identitySettled = true
+    releaseRouteGuard()
     enforceCurrentRoute()
     return
   }
+  // 身份还没对上之前先盖住，避免用本地 ld_role 画出另一个工作台。
+  holdRouteGuard()
+  coverBlockedRoute()
   try {
     const me = await authApi.me()
     const next = sessionAfterMe(cached, { ok: true, user: me })
     if (next.redirectToLogin) {
       clearSession()
+      identitySettled = true
+      releaseRouteGuard()
       relaunchWhenRouterReady(LOGIN_PAGE)
       return
     }
     writeSession(next.session)
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 401) return
-    // 网络失败留着缓存，下面仍按缓存角色守门。
+    identitySettled = true
+    releaseRouteGuard()
+    const here = currentPageUrl()
+    const redirected = here ? guardRedirect(next.session.role, here) : null
+    const roleChanged = cached.role.trim().toUpperCase() !== next.session.role.trim().toUpperCase()
+    if (redirected) {
+      relaunchWhenRouterReady(redirected)
+      return
+    }
+    if (roleChanged) {
+      const home = homeForRole(next.session.role)
+      if (home) {
+        relaunchWhenRouterReady(home)
+        return
+      }
+    }
+    uncoverBlockedRoute()
+    enforceCurrentRoute()
+  } catch {
+    const next = sessionAfterMe(cached, { ok: false, unauthorized: false })
+    clearSession()
+    identitySettled = true
+    releaseRouteGuard()
+    if (next.redirectToLogin) relaunchWhenRouterReady(LOGIN_PAGE)
+    else uncoverBlockedRoute()
   }
-  enforceCurrentRoute()
 }
 
 function App({ children }: PropsWithChildren<any>) {
@@ -36,6 +76,7 @@ function App({ children }: PropsWithChildren<any>) {
   })
 
   useDidShow(() => {
+    if (!identitySettled && readSession().token) return
     enforceCurrentRoute()
   })
 

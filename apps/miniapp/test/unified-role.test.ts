@@ -7,7 +7,8 @@ import {
   sessionAfterMe,
   sessionFromLogin,
 } from '../src/services/session-cache'
-import { guardRedirect, homeForRole, LOGIN_PATH } from '../src/services/route-guard'
+import { deferGuardedRelaunch, guardRedirect, homeForRole, LOGIN_PATH } from '../src/services/route-guard'
+import { mountRouteGuardMask, removeRouteGuardMask, ROUTE_GUARD_MASK_ID } from '../src/services/route-guard-cover'
 
 describe('role routing follows the backend role', () => {
   it('sends each known role to its own home', () => {
@@ -88,13 +89,74 @@ describe('logout and startup token check', () => {
     expect(next.session).toEqual({ token: 'tok', role: 'REP', name: '李业务员', id: 'u2' })
   })
 
-  it('does not validate when there is no token, and keeps the cache if the check cannot connect', () => {
-    const cached = { token: 'tok', role: 'CUSTOMER', name: '张三', id: 'u1' }
-    expect(sessionAfterMe(emptySession(), { ok: false, unauthorized: true }).redirectToLogin).toBe(false)
-    expect(sessionAfterMe(cached, { ok: false, unauthorized: false })).toEqual({
-      session: cached,
-      redirectToLogin: false,
+  it('overwrites a forged OWNER cache when /auth/me says CUSTOMER', () => {
+    const next = sessionAfterMe(
+      { token: 'cust-token', role: 'OWNER', name: '伪造', id: 'u1' },
+      { ok: true, user: { id: 'u1', name: '张三', role: 'CUSTOMER' } },
+    )
+    expect(next.redirectToLogin).toBe(false)
+    expect(next.session).toEqual({ token: 'cust-token', role: 'CUSTOMER', name: '张三', id: 'u1' })
+  })
+
+  it('clears the session and returns to login when /auth/me fails, including 403', () => {
+    const forged = { token: 'cust-token', role: 'OWNER', name: '张三', id: 'u1' }
+    expect(sessionAfterMe(forged, { ok: false, unauthorized: false })).toEqual({
+      session: emptySession(),
+      redirectToLogin: true,
     })
-    expect(sessionAfterMe(cached, { ok: true, user: { role: '  ' } }).redirectToLogin).toBe(true)
+    expect(sessionAfterMe(forged, { ok: false, unauthorized: true }).session.role).toBe('')
+    expect(sessionAfterMe(emptySession(), { ok: false, unauthorized: true }).redirectToLogin).toBe(false)
+    expect(sessionAfterMe(forged, { ok: true, user: { role: '  ' } }).redirectToLogin).toBe(true)
+  })
+})
+
+describe('H5 blocked route is covered before the other shell can paint', () => {
+  it('covers first, then schedules the relaunch', () => {
+    const order: string[] = []
+    deferGuardedRelaunch('/pages/customer/products/index', {
+      cover: () => order.push('cover'),
+      schedule: (fn) => {
+        order.push('schedule')
+        fn()
+      },
+      relaunch: (url) => order.push(url),
+    })
+    expect(order).toEqual(['cover', 'schedule', '/pages/customer/products/index'])
+  })
+
+  it('mounts an opaque mask with no page text and removes it', () => {
+    const nodes = new Map<string, { id: string; style: { cssText: string }; remove: () => void }>()
+    const doc = {
+      getElementById(id: string) {
+        return nodes.get(id) ?? null
+      },
+      createElement() {
+        const el = {
+          id: '',
+          style: { cssText: '' },
+          setAttribute() {},
+          remove() {
+            nodes.delete(el.id)
+          },
+        }
+        return el
+      },
+      documentElement: {
+        appendChild(el: { id: string; style: { cssText: string } }) {
+          nodes.set(el.id, el as { id: string; style: { cssText: string }; remove: () => void })
+        },
+      },
+    }
+    const maskDoc = doc as unknown as Document
+    mountRouteGuardMask(maskDoc)
+    mountRouteGuardMask(maskDoc)
+    expect(nodes.size).toBe(1)
+    const mask = nodes.get(ROUTE_GUARD_MASK_ID)
+    expect(mask?.style.cssText).toContain('position:fixed')
+    expect(mask?.style.cssText).toContain('background:#F7F4F1')
+    expect(mask?.style.cssText).toContain('z-index:2147483647')
+    expect(mask?.style.cssText).not.toContain('跑店')
+    removeRouteGuardMask(maskDoc)
+    expect(nodes.size).toBe(0)
   })
 })

@@ -57,3 +57,19 @@ export function guardRedirect(role: string | null | undefined, route: string): s
   }
   return LOGIN_PATH
 }
+
+/**
+ * H5 越权跳转要先盖住画面，再排队换页。
+ * 同步 reLaunch 只改 hash，页面还会画出对方角色的壳。
+ */
+export function deferGuardedRelaunch(
+  url: string,
+  effects: {
+    cover: () => void
+    schedule: (fn: () => void) => void
+    relaunch: (url: string) => void
+  },
+): void {
+  effects.cover()
+  effects.schedule(() => effects.relaunch(url))
+}

@@ -4,6 +4,9 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { Roles } from '../../common/roles.guard';
+
+const LOGGED_IN_ROLES = ['OWNER', 'REP', 'CLERK', 'WAREHOUSE', 'CUSTOMER'] as const;
 
 class LoginDto {
   @IsString() username!: string;
@@ -30,12 +33,14 @@ export class AuthController {
   }
 
   @Get('me')
+  @Roles(...LOGGED_IN_ROLES)
   async me(@CurrentUser() user: AuthUser): Promise<AuthUser> {
     return user;
   }
 
-  /** 登出 = 吊销本用户全部令牌(B1: 立即生效) */
+  /** 登出 = 吊销本用户全部令牌(B1: 立即生效)。五种已登录角色都可调用。 */
   @Post('logout')
+  @Roles(...LOGGED_IN_ROLES)
   @HttpCode(200)
   async logout(@CurrentUser() user: AuthUser, @Body() dto: LogoutDto): Promise<{ ok: boolean }> {
     await this.auth.revokeTokens(user.id, dto.reason ?? 'logout');

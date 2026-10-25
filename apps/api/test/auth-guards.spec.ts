@@ -1,3 +1,4 @@
+import 'reflect-metadata';
 /**
  * P0-02 越权/禁用 单元测试 —— 验收项「越权用例全绿(≥3 正常 + 2 异常)」
  *
@@ -30,6 +31,8 @@ jest.mock('@prisma/client', () => {
 
 import { AuthGuard } from '../src/common/auth.guard';
 import { RolesGuard, ROLES_KEY } from '../src/common/roles.guard';
+import { AuthController } from '../src/modules/auth/auth.controller';
+import { AuthService } from '../src/modules/auth/auth.service';
 
 type Req = { path?: string; headers?: Record<string, string>; user?: any };
 
@@ -179,5 +182,86 @@ describe('RolesGuard (RBAC 角色面 + P1-1 客户/内勤信道分离)', () => {
 
   it('机制锚: ROLES_KEY 元数据键名稳定(@Roles 装饰器依赖)', () => {
     expect(ROLES_KEY).toBe('roles');
+  });
+
+  it('异常④: 客户令牌调未声明角色的内勤接口 → 403', () => {
+    const guard = new RolesGuard(makeReflector(undefined));
+    const req: Req = { path: '/api/products', user: userOf('CUSTOMER', 'customer') };
+    expect(() => guard.canActivate(makeContext(req))).toThrow(ForbiddenException);
+  });
+
+  it('正常④: 客户令牌调 /api/auth/me 与 /api/auth/logout（无 @Roles 也放行）', () => {
+    const guard = new RolesGuard(makeReflector(undefined));
+    expect(guard.canActivate(makeContext({ path: '/api/auth/me', user: userOf('CUSTOMER', 'customer') }))).toBe(true);
+    expect(guard.canActivate(makeContext({ path: '/api/auth/logout', user: userOf('CUSTOMER', 'customer') }))).toBe(true);
+  });
+});
+
+describe('客户 me / logout (PR14-1)', () => {
+  const customer = {
+    id: 'u-cust', tenantId: 't1', username: 'cust-c0001', name: '张三',
+    role: 'CUSTOMER' as const, dataScope: 'SELF_ORDER' as const, customerId: 'C0001', aud: 'customer' as const,
+  };
+
+  function handlerContext(req: Req, handler: (...args: never[]) => unknown) {
+    return {
+      switchToHttp: () => ({ getRequest: () => req }),
+      getHandler: () => handler,
+      getClass: () => AuthController,
+    };
+  }
+
+  it('客户调 me 放行并返回身份（HTTP 200）', async () => {
+    const reflector = new Reflector();
+    const roles = reflector.get<string[]>(ROLES_KEY, AuthController.prototype.me);
+    expect(roles).toEqual(expect.arrayContaining(['OWNER', 'REP', 'CLERK', 'WAREHOUSE', 'CUSTOMER']));
+    const guard = new RolesGuard(reflector);
+    const req: Req = { path: '/api/auth/me', method: 'GET', user: customer };
+    expect(guard.canActivate(handlerContext(req, AuthController.prototype.me) as any)).toBe(true);
+    const controller = new AuthController({ revokeTokens: jest.fn() } as any, {} as any);
+    await expect(controller.me(customer)).resolves.toEqual(customer);
+  });
+
+  it('客户 logout 后 tokenVersion + 1，旧 token 调 shop/products 为 401', async () => {
+    let tokenVersion = 0;
+    const row = () => ({
+      id: customer.id, tenantId: customer.tenantId, username: customer.username, name: customer.name,
+      role: customer.role, dataScope: customer.dataScope, status: 'ACTIVE', tokenVersion, customerId: customer.customerId,
+    });
+    const prisma = {
+      user: {
+        findUnique: jest.fn(async () => row()),
+        update: jest.fn(async (args: { data: { tokenVersion: { increment: number } } }) => {
+          tokenVersion += args.data.tokenVersion.increment;
+          return row();
+        }),
+      },
+    };
+    const audit = { log: jest.fn(async () => undefined) };
+    const auth = new AuthService(prisma as any, { signAsync: jest.fn() } as any, audit as any);
+    const controller = new AuthController(auth, prisma as any);
+    const reflector = new Reflector();
+    const rolesGuard = new RolesGuard(reflector);
+    const logoutReq: Req = { path: '/api/auth/logout', method: 'POST', user: customer };
+    expect(rolesGuard.canActivate(handlerContext(logoutReq, AuthController.prototype.logout) as any)).toBe(true);
+
+    await expect(controller.logout(customer, {})).resolves.toEqual({ ok: true });
+    expect(tokenVersion).toBe(1);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: customer.id },
+      data: { tokenVersion: { increment: 1 } },
+    });
+
+    const jwt = makeJwt(async () => ({ sub: customer.id, tv: 0 }));
+    const authGuard = new AuthGuard(jwt, prisma as any);
+    const shopReq: Req = {
+      path: '/api/shop/products',
+      method: 'GET',
+      headers: { authorization: 'Bearer old-customer-token' },
+    };
+    await expect(authGuard.canActivate(makeContext(shopReq))).rejects.toMatchObject({
+      status: 401,
+      message: '令牌已失效, 请重新登录',
+    });
   });
 });
