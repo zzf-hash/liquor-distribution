@@ -209,13 +209,34 @@ export class StockAlertService {
       });
     }
 
-    // 3. 幂等落库: 当日已有 → 覆盖(delete+createMany, 无外键入向引用先删)
-    // #24: 同日并发重跑会撞 reportDate 唯一键 → 事务内先删后建, 冲突重试一次
+    // 3. 幂等落库。未挂报货单的行先删再插。已挂报货单的行不能删、也不能整行重插:
+    //    (tenantId, reportDate, productId) 唯一, 留下 restockId 再 createMany 会 P2002(LQ1-056)。
+    //    这些行只更新数量/等级, restockId 与 restockStatus 保持原值(报货单仍挂在这一行上)。
+    // #24: 同日并发重跑仍可能撞唯一键 → 冲突重试一次
     for (let attempt = 0; ; attempt++) {
       try {
         await this.prisma.$transaction(async (tx) => {
+          const linked = await tx.dailyStockReport.findMany({
+            where: { tenantId, reportDate: reportAt, NOT: { restockId: null } },
+            select: { productId: true },
+          });
+          const linkedIds = new Set(linked.map((r) => r.productId));
           await tx.dailyStockReport.deleteMany({ where: { tenantId, reportDate: reportAt, restockId: null } });
-          await tx.dailyStockReport.createMany({ data: rows.map(({ _packSize, _name, _sku, ...r }) => r) });
+          const fresh = rows.filter((r) => !linkedIds.has(r.productId));
+          if (fresh.length > 0) {
+            await tx.dailyStockReport.createMany({ data: fresh.map(({ _packSize, _name, _sku, ...r }) => r) });
+          }
+          for (const r of rows) {
+            if (!linkedIds.has(r.productId)) continue;
+            await tx.dailyStockReport.updateMany({
+              where: { tenantId, reportDate: reportAt, productId: r.productId, NOT: { restockId: null } },
+              data: {
+                onHand: r.onHand, baseQty: r.baseQty, sold3d: r.sold3d, sold7d: r.sold7d, soldWindow: r.soldWindow,
+                dailyAvg: r.dailyAvg, thresholdQty: r.thresholdQty, inTransitQty: r.inTransitQty, suggestedQty: r.suggestedQty,
+                level: r.level, stockValue: r.stockValue,
+              },
+            });
+          }
         });
         break;
       } catch (e) {
