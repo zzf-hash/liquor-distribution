@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import TabsScroll from '../../../components/TabsScroll'
 import { openAppPage } from '../../../services/navigation'
 import { ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerOrderDTO } from '../../../services/api'
 import './index.scss'
 
@@ -43,6 +44,7 @@ export default function CustomerOrdersPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/orders/index')) return
     void load()
   })
 

@@ -22,7 +22,7 @@
   gap: $space-sm;
   height: $size-input;
   margin-bottom: $space-md;
-  padding: 0 $space-lg;
+  padding: 0 $space-xxs 0 $space-lg;
   background: $color-card;
   border: $border-width solid $color-neutral-line-strong;
   border-radius: $radius-pill;
@@ -52,6 +52,34 @@
   &::placeholder {
     line-height: calc(#{$size-input} - #{$border-width} * 2);
     color: $color-text-sub;
+  }
+}
+
+.plist__search .plist__go {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 112px;
+  height: 64px;
+  min-height: 64px;
+  margin: 0;
+  padding: 0 $space-md;
+  line-height: 1.2;
+  font-size: $font-sub;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
+
+  &::after {
+    border: none;
+  }
+
+  .btn-label {
+    color: $color-neutral-white;
+    font-size: $font-sub;
+    font-weight: $weight-semibold;
   }
 }
 

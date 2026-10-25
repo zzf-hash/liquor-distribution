@@ -6,6 +6,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { readRouteQuery } from '../../../services/route-param'
 import ReasonPopup from '../../../components/reason-popup'
 import { rejectConfirmText } from '../../../services/sign-reject'
+import { bumpReceivedQty, receivedQtyForSubmit } from '../../../services/sign-qty'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -221,14 +222,14 @@ export default function WarehouseSignPage() {
     }
   }
 
+  function setActual(i: number, v: string) {
+    setSignLines((prev) => prev.map((s, idx) => (idx === i ? { ...s, actual: v } : s)))
+  }
+
   function bumpActual(i: number, delta: number) {
-    setSignLines((prev) => prev.map((s, idx) => {
-      if (idx !== i) return s
-      const cur = Number(s.actual)
-      const base = Number.isFinite(cur) ? cur : s.net
-      const next = Math.min(s.net, Math.max(0, Math.round((base + delta) * 1000) / 1000))
-      return { ...s, actual: String(next) }
-    }))
+    setSignLines((prev) => prev.map((s, idx) => (
+      idx === i ? { ...s, actual: bumpReceivedQty(s.actual, s.net, delta) } : s
+    )))
   }
 
   function setPackage(idx: number, patch: Partial<{ category: string; qty: string }>) {
@@ -240,12 +241,12 @@ export default function WarehouseSignPage() {
     const lines: Array<{ orderLineId: string; actualQty: number }> = []
     for (let i = 0; i < signLines.length; i++) {
       const s = signLines[i]
-      const actual = Number(s.actual)
-      if (!Number.isFinite(actual) || actual < 0 || actual > s.net) {
+      const actualQty = receivedQtyForSubmit(s.actual, s.net)
+      if (actualQty === null) {
         Taro.showToast({ title: `${s.line.productName} 实收须在 0~${s.net} 之间`, icon: 'none' })
         return
       }
-      lines.push({ orderLineId: s.line.id, actualQty: Number(actual.toFixed(3)) })
+      lines.push({ orderLineId: s.line.id, actualQty })
     }
     const returnPackages = packages
       .map((p) => ({ category: p.category, qty: Math.trunc(Number(p.qty)) }))
@@ -355,6 +356,12 @@ export default function WarehouseSignPage() {
               </View>
               <View className='sline__ops'>
                 <Text className='sline__label'>实收</Text>
+                <Input
+                  className='sline__ipt'
+                  type='digit'
+                  value={s.actual}
+                  onInput={(e) => setActual(i, e.detail.value)}
+                />
                 <View className='stepper'>
                   <Button className='stepper__btn' disabled={Number(s.actual) <= 0} onClick={() => bumpActual(i, -1)}>−</Button>
                   <Text className='stepper__num'>{s.actual}</Text>

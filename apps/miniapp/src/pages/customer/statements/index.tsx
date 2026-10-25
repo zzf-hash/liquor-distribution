@@ -13,6 +13,7 @@ import {
 } from '../../../services/api'
 import type { DisputeType, StatementDTO } from '../../../services/api'
 import TabsScroll from '../../../components/TabsScroll'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import './index.scss'
 
 type TabKey = 'SENT' | 'CONFIRMED' | 'DISPUTED' | 'ALL'
@@ -56,6 +57,7 @@ export default function CustomerStatementsPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/statements/index')) return
     void load(tab)
   })
 

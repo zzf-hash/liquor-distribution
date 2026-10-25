@@ -20,6 +20,7 @@ import {
   toNum,
 } from '../../../services/api'
 import type { CartItem } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import './index.scss'
 
 /**
@@ -38,6 +39,7 @@ export default function CustomerCartPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/cart/index')) return
     setCart(loadCart())
     promotionsApi.active()
       .then((rows) => {

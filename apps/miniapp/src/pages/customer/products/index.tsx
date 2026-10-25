@@ -15,6 +15,8 @@ import {
   shopApi,
   toNum,
 } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
+import { productSearchOnConfirm, productSearchOnInput } from '../../../services/product-search'
 import type { CartItem, ShopProductDTO } from '../../../services/api'
 import './index.scss'
 
@@ -36,10 +38,13 @@ export default function CustomerProductsPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
     setCart(loadCart())
   })
 
   useEffect(() => {
+    if (!getToken()) return
+    if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
     void load('')
   }, [])
 
@@ -111,9 +116,16 @@ export default function CustomerProductsPage() {
           value={keyword}
           onFocus={() => setFocus(true)}
           onBlur={() => setFocus(false)}
-          onInput={(e) => setKeyword(e.detail.value)}
-          onConfirm={() => { void load(keyword) }}
+          onInput={(e) => {
+            const next = productSearchOnInput(e.detail.value)
+            setKeyword(next.keyword)
+            if (next.loadNow !== null) void load(next.loadNow)
+          }}
+          onConfirm={(e) => { void load(productSearchOnConfirm(e.detail.value)) }}
         />
+        <Button className='plist__go' onClick={() => { void load(keyword) }}>
+          <Text className='btn-label'>搜索</Text>
+        </Button>
       </View>
 
       <TabsScroll>
@@ -137,11 +149,9 @@ export default function CustomerProductsPage() {
           </View>
           <Text className='state__title'>{keyword.trim() ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
           <Text className='state__txt'>
-            {keyword.trim() ? '换个品名再搜一次' : '可以先联系业务员，或稍后再来看看'}
+            {keyword.trim() ? '换个品名再搜一次' : '可以稍后再来看看'}
           </Text>
-          <Button className='btn-ghost' onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}>
-            联系业务员
-          </Button>
+          <Text className='state__txt'>找不到想要的酒？请联系您的专属业务员</Text>
         </View>
       ) : (
         <View className='plist__body'>

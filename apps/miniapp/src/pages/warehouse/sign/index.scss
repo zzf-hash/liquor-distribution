@@ -32,6 +32,7 @@
 .sline__ops {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: $gap-base;
   min-height: $touch-min;
 }
@@ -42,12 +43,16 @@
   flex-shrink: 0;
 }
 
-.sline__ipt {
+.sline__ops .sline__ipt {
+  flex: 0 0 auto;
   width: 176px;
+  height: $touch-min;
   min-height: $touch-min;
+  margin: 0;
   padding: 0 $gap-base;
   font-size: $font-body;
   font-weight: 600;
+  line-height: $touch-min;
   color: $color-text;
   text-align: center;
   background: $color-bg;
