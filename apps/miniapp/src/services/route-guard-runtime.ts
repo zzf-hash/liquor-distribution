@@ -1,5 +1,5 @@
 import Taro from '@tarojs/taro'
-import { getRole } from './api'
+import { confirmedRoleForGuard } from './session-cache'
 import { mountRouteGuardMask, removeRouteGuardMask } from './route-guard-cover'
 import { deferGuardedRelaunch, guardRedirect } from './route-guard'
 
@@ -65,7 +65,7 @@ export function relaunchWhenRouterReady(url: string): void {
 
 export function enforceCurrentRoute(): void {
   if (routeGuardHeld) return
-  const redirect = guardRedirect(getRole(), currentRoute())
+  const redirect = guardRedirect(confirmedRoleForGuard(), currentRoute())
   if (redirect) relaunchWhenRouterReady(redirect)
 }
 
@@ -99,7 +99,7 @@ export function installRouteGuard(): void {
     redirectTo: taro.redirectTo.bind(Taro),
     reLaunch: taro.reLaunch.bind(Taro),
   }
-  const retarget = (url: string) => guardRedirect(getRole(), url) ?? url
+  const retarget = (url: string) => guardRedirect(confirmedRoleForGuard(), url) ?? url
   taro.navigateTo = (option) => original.navigateTo({ ...option, url: retarget(option.url) })
   taro.redirectTo = (option) => original.redirectTo({ ...option, url: retarget(option.url) })
   taro.reLaunch = (option) => original.reLaunch({ ...option, url: retarget(option.url) })
@@ -111,7 +111,7 @@ export function installRouteGuard(): void {
         coverBlockedRoute()
         return
       }
-      if (guardRedirect(getRole(), currentRoute())) coverBlockedRoute()
+      if (guardRedirect(confirmedRoleForGuard(), currentRoute())) coverBlockedRoute()
       enforceCurrentRoute()
     }, true)
   }

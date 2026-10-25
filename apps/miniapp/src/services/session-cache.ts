@@ -21,6 +21,41 @@ export function clearMemorySession(): MemorySession {
   return emptySession()
 }
 
+/** 守卫只用这份内存角色。它只在服务端身份写入或清空时更新，不读 ld_role。 */
+let confirmedRole = ''
+
+export function setConfirmedRole(role: string | null | undefined): void {
+  confirmedRole = (role ?? '').trim()
+}
+
+export function confirmedRoleForGuard(): string {
+  return confirmedRole
+}
+
+export function clearConfirmedRole(): void {
+  confirmedRole = ''
+}
+
+/**
+ * 已有 token 时先吊销，再清本地。logout 失败也清本地，避免旧令牌还留在存储里。
+ * 没有 token 时什么都不做。
+ */
+export async function revokePreviousSession(input: {
+  hasToken: boolean
+  logout: () => Promise<unknown>
+  clear: () => void
+}): Promise<'revoked' | 'cleared-after-failure' | 'skipped'> {
+  if (!input.hasToken) return 'skipped'
+  try {
+    await input.logout()
+    input.clear()
+    return 'revoked'
+  } catch {
+    input.clear()
+    return 'cleared-after-failure'
+  }
+}
+
 export function sessionFromLogin(login: {
   token: string
   user?: { id?: string | null; name?: string | null; role?: string | null } | null

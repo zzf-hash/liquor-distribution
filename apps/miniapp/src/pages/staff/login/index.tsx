@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { authApi, clearSession, saveSession } from '../../../services/api'
+import { authApi, clearSession, getToken, saveSession } from '../../../services/api'
 import { homeForRole } from '../../../services/route-guard'
+import { revokePreviousSession } from '../../../services/session-cache'
 import './index.scss'
 
 /**
@@ -37,6 +38,12 @@ export default function StaffLoginPage() {
     setError('')
     setSubmitting(true)
     try {
+      // 换账号前先吊销上一枚令牌。失败也清掉本地，避免旧 token 继续可用。
+      await revokePreviousSession({
+        hasToken: getToken() !== '',
+        logout: () => authApi.logout(),
+        clear: clearSession,
+      })
       const res = await authApi.login(username.trim(), password, tenantCode)
       const role = (res.user?.role ?? '').trim()
       const home = homeForRole(role)

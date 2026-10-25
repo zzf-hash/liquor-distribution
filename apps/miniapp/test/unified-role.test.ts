@@ -1,11 +1,18 @@
-import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { afterEach, describe, expect, it } from 'vitest'
 import { ROLE_HOME_PAGE } from '../src/config/role-home'
 import {
   SESSION_KEYS,
+  clearConfirmedRole,
   clearMemorySession,
+  confirmedRoleForGuard,
   emptySession,
+  revokePreviousSession,
   sessionAfterMe,
   sessionFromLogin,
+  setConfirmedRole,
 } from '../src/services/session-cache'
 import { deferGuardedRelaunch, guardRedirect, homeForRole, LOGIN_PATH } from '../src/services/route-guard'
 import { mountRouteGuardMask, removeRouteGuardMask, ROUTE_GUARD_MASK_ID } from '../src/services/route-guard-cover'
@@ -158,5 +165,106 @@ describe('H5 blocked route is covered before the other shell can paint', () => {
     expect(mask?.style.cssText).not.toContain('跑店')
     removeRouteGuardMask(maskDoc)
     expect(nodes.size).toBe(0)
+  })
+})
+
+const miniappSrc = join(dirname(fileURLToPath(import.meta.url)), '../src')
+
+describe('switching accounts revokes the previous token', () => {
+  it('logs out and then clears when a token is already stored', async () => {
+    const steps: string[] = []
+    const result = await revokePreviousSession({
+      hasToken: true,
+      logout: async () => {
+        steps.push('logout')
+      },
+      clear: () => {
+        steps.push('clear')
+      },
+    })
+    expect(result).toBe('revoked')
+    expect(steps).toEqual(['logout', 'clear'])
+  })
+
+  it('still clears local storage when logout fails', async () => {
+    const steps: string[] = []
+    const result = await revokePreviousSession({
+      hasToken: true,
+      logout: async () => {
+        steps.push('logout')
+        throw new Error('network')
+      },
+      clear: () => {
+        steps.push('clear')
+      },
+    })
+    expect(result).toBe('cleared-after-failure')
+    expect(steps).toEqual(['logout', 'clear'])
+  })
+
+  it('does nothing when there is no token', async () => {
+    let called = false
+    const result = await revokePreviousSession({
+      hasToken: false,
+      logout: async () => {
+        called = true
+      },
+      clear: () => {
+        called = true
+      },
+    })
+    expect(result).toBe('skipped')
+    expect(called).toBe(false)
+  })
+
+  it('calls logout before the next login on the unified login page', () => {
+    const source = readFileSync(join(miniappSrc, 'pages/staff/login/index.tsx'), 'utf8')
+    const logoutAt = source.indexOf('revokePreviousSession')
+    const loginAt = source.indexOf('authApi.login')
+    expect(logoutAt).toBeGreaterThan(-1)
+    expect(loginAt).toBeGreaterThan(logoutAt)
+    expect(source).toContain('authApi.logout()')
+    expect(source).toContain('clearSession')
+    expect(source).toContain('saveSession')
+  })
+
+  it('gives the customer home a sign-out that calls signOut', () => {
+    const source = readFileSync(join(miniappSrc, 'pages/customer/products/index.tsx'), 'utf8')
+    expect(source).toContain('signOut')
+    expect(source).toContain('退出登录')
+    expect(source).toContain('void signOut()')
+  })
+})
+
+describe('the route guard uses only the in-memory server role', () => {
+  afterEach(() => {
+    clearConfirmedRole()
+  })
+
+  it('keeps a customer off the boss dashboard after the stored role is forged', () => {
+    setConfirmedRole('CUSTOMER')
+    const forgedStorageRole = 'OWNER'
+    expect(confirmedRoleForGuard()).toBe('CUSTOMER')
+    expect(confirmedRoleForGuard()).not.toBe(forgedStorageRole)
+    expect(guardRedirect(confirmedRoleForGuard(), '/pages/boss/dashboard/index')).toBe(ROLE_HOME_PAGE.CUSTOMER)
+  })
+
+  it('treats a cleared memory role as a guest even if storage still says OWNER', () => {
+    setConfirmedRole('OWNER')
+    clearConfirmedRole()
+    expect(confirmedRoleForGuard()).toBe('')
+    expect(guardRedirect(confirmedRoleForGuard(), '/pages/boss/dashboard/index')).toBe(LOGIN_PATH)
+  })
+
+  it('does not read getRole inside the guard or the customer-page redirect', () => {
+    const runtime = readFileSync(join(miniappSrc, 'services/route-guard-runtime.ts'), 'utf8')
+    const redirect = readFileSync(join(miniappSrc, 'services/customer-page-redirect.ts'), 'utf8')
+    const tabs = readFileSync(join(miniappSrc, 'components/RoleTabBar/index.tsx'), 'utf8')
+    expect(runtime).toContain('confirmedRoleForGuard()')
+    expect(runtime).not.toContain('getRole(')
+    expect(redirect).toContain('confirmedRoleForGuard()')
+    expect(redirect).not.toContain('getRole(')
+    expect(tabs).toContain('confirmedRoleForGuard()')
+    expect(tabs).not.toContain('getRole(')
   })
 })

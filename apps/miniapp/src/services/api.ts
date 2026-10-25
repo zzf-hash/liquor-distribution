@@ -2,7 +2,7 @@
 // 信封约定与 admin 一致（{code:0,data}）；token 存 Taro storage 'ld_token'；
 // BASE 从环境变量读（构建时 TARO_APP_API_BASE 注入），默认本机开发后端。
 import Taro from '@tarojs/taro'
-import { SESSION_KEYS, sessionFromLogin, type MemorySession } from './session-cache'
+import { SESSION_KEYS, clearConfirmedRole, sessionFromLogin, setConfirmedRole, type MemorySession } from './session-cache'
 import { reportError, trackEvent } from './telemetry'
 
 const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api'
@@ -115,6 +115,7 @@ export function writeSession(session: MemorySession): void {
   Taro.setStorageSync(USER_KEY, session.name)
   Taro.setStorageSync(ROLE_KEY, session.role)
   Taro.setStorageSync(UID_KEY, session.id)
+  setConfirmedRole(session.role)
 }
 
 export function saveSession(login: LoginResult): void {
@@ -126,6 +127,7 @@ export function clearSession(): void {
   Taro.removeStorageSync(USER_KEY)
   Taro.removeStorageSync(ROLE_KEY)
   Taro.removeStorageSync(UID_KEY)
+  clearConfirmedRole()
 }
 
 /** 角色首页路由表（统一登录后按 role 自动跳转）。定义在 config/role-home.ts。 */
