@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { fmtDate, fmtMoney, getToken, receivablesApi } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
 
@@ -42,6 +43,7 @@ export default function CustomerReceivablesPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/receivables/index')) return
     void load()
   })
 

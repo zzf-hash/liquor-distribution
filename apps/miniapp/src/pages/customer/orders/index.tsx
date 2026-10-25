@@ -3,6 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { openAppPage } from '../../../services/navigation'
 import { fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
+import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerOrderDTO } from '../../../services/api'
 import './index.scss'
 
@@ -43,6 +44,7 @@ export default function CustomerOrdersPage() {
       Taro.reLaunch({ url: '/pages/customer/login/index' })
       return
     }
+    if (redirectIfStaffOnCustomerPage('pages/customer/orders/index')) return
     void load()
   })
 
