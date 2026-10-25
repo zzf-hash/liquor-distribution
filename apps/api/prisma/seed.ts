@@ -7,6 +7,9 @@ async function main() {
   const passwordHash = bcrypt.hashSync("demo1234", 10);
 
   await prisma.$transaction(async (tx) => {
+    // seed 没有请求租户。事务局部 bypass, 避免 FORCE RLS 后非超级用户的种子被策略挡掉。
+    // 请求路径不走这里; 它们用 set_config('app.tenant_id', …, true)。
+    await tx.$queryRawUnsafe(`SELECT set_config('app.rls_bypass', 'on', true)`);
     // ─── 1. 租户 ───
     const tenant = await tx.tenant.upsert({
       where: { code: "TENANT-DEMO" },

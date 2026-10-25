@@ -21,7 +21,7 @@ cd apps/admin && pnpm dev   # vite 已配 /api -> localhost:3000 代理
 
 ## 部署
 
-`./deploy/deploy.sh`（构建 api+web 镜像 → liquor-sg 起 compose；api 入口 dist/main.js，自动 `prisma migrate deploy`）。
+`./deploy/deploy.sh`（构建 api+web 镜像 → liquor-sg 起 compose）。API 用 `liquor_app` 连库，迁移和授权用表主账号 `MIGRATE_DATABASE_URL`。步骤、验证 SQL 和切回旧账号的回滚见 `deploy/README.md`。
 
 ## 状态
 

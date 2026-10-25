@@ -163,8 +163,10 @@ describe('PR35-2 CORS allowlist', () => {
     }
 
     const main = fs.readFileSync(path.join(__dirname, '../src/main.ts'), 'utf8');
-    expect(main).toContain('enableCors(buildCorsOptions())');
-    expect(main).not.toMatch(/origin:\s*['"]\*['"]/);
+    const configure = fs.readFileSync(path.join(__dirname, '../src/configure-app.ts'), 'utf8');
+    expect(main).toContain('configureApp(app)');
+    expect(configure).toContain('enableCors(buildCorsOptions())');
+    expect(main + configure).not.toMatch(/origin:\s*['"]\*['"]/);
   });
 
   async function preflight(origin: string, env: NodeJS.ProcessEnv): Promise<{ status: number; allowOrigin: string | null; allowHeaders: string | null; allowMethods: string | null }> {

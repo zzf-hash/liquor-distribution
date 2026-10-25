@@ -8,6 +8,8 @@ import type { AuthUser } from '../../common/current-user.decorator';
 class LoginDto {
   @IsString() username!: string;
   @IsString() @MinLength(6) password!: string;
+  /** 租户编码。同名账号分属多个租户时必填; 用户名全局唯一时可以不传(兼容旧客户端)。 */
+  @IsOptional() @IsString() tenantCode?: string;
 }
 
 class LogoutDto {
@@ -24,7 +26,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() dto: LoginDto, @Ip() ip: string): Promise<unknown> {
-    return this.auth.login(dto.username, dto.password, ip);
+    return this.auth.login(dto.username, dto.password, ip, dto.tenantCode);
   }
 
   @Get('me')
