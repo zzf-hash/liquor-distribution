@@ -1,12 +1,13 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayStamp } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import { OrdersService } from '../orders/orders.service';
 import { QwenEngineService } from './qwen-engine.service';
 import { AsrService } from '../../common/asr.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P1-T12 语音/照片/文字 → 可编辑草稿 → 确认转单 ═══════════════
 // 红线(D16/Q13): 草稿永远是可编辑的; confirm 只创建 PENDING_CONFIRM 订单(状态机
@@ -67,11 +68,11 @@ export class DraftsService {
         const resolved = await this.resolveAliases(user, parsed.items, dto.text);
         items = resolved.items;
         const customerId = resolved.customerId;
-        const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${dayjs().format('YYYYMMDD')}` } } })) + 1;
+        const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${bizDayStamp()}` } } })) + 1;
         const created = await this.prisma.orderDraft.create({
           data: {
             tenantId: user.tenantId,
-            draftNo: `DF${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+            draftNo: `DF${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
             source: dto.source, rawText: dto.text, photoUrl: dto.photoUrl,
             customerId, customerHint, items: items as never,
             confidence, ambiguities: (ambiguities.length ? ambiguities : undefined) as never,
@@ -84,11 +85,11 @@ export class DraftsService {
         ambiguities = [`引擎解析失败(${String(e).slice(0, 80)}), 已转人工填写`];
       }
     }
-    const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${dayjs().format('YYYYMMDD')}` } } })) + 1;
+    const seq = (await this.prisma.orderDraft.count({ where: { draftNo: { startsWith: `DF${bizDayStamp()}` } } })) + 1;
     const created = await this.prisma.orderDraft.create({
       data: {
         tenantId: user.tenantId,
-        draftNo: `DF${dayjs().format('YYYYMMDD')}-${String(seq).padStart(4, '0')}`,
+        draftNo: `DF${bizDayStamp()}-${String(seq).padStart(4, '0')}`,
         source: dto.source, rawText: dto.text, photoUrl: dto.photoUrl,
         customerHint, items: items as never, confidence, ambiguities: (ambiguities.length ? ambiguities : undefined) as never,
         engine: 'manual', status: 'PENDING_REVIEW', createdById: user.id,
@@ -162,13 +163,15 @@ export class DraftsService {
     const draftItems = (d.items as unknown as DraftItem[]) ?? [];
     const customerId = dto.customerId ?? d.customerId;
     if (!customerId) throw new BadRequestException('请先选定客户');
-    const lines = (dto.lines?.length
+    const rawLines = dto.lines?.length
       ? dto.lines
-      : draftItems.filter((i) => i.productId).map((i) => ({ productId: i.productId!, qty: Number(i.qty), unit: (i.unit === '瓶' || i.unit === '个' ? 'MIN' : 'BASE') as 'BASE' | 'MIN', priceOverride: i.unitPrice ?? undefined })));
+      : draftItems.filter((i) => i.productId).map((i) => ({ productId: i.productId!, qty: Number(i.qty), unit: i.unit, priceOverride: i.unitPrice ?? undefined }));
+    const lines = rawLines.map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: requirePriceUnit(l.unit), priceOverride: l.priceOverride }));
     if (!lines.length) throw new BadRequestException('无可转单行(请先为商品行匹配商品)');
     const order = await this.orders.create(
       { customerId, source: user.role === 'REP' ? 'REP' : 'CLERK', lines, note: `草稿转单 ${d.draftNo}${d.source === 'VOICE' ? '(语音)' : d.source === 'PHOTO' ? '(拍照)' : ''}` },
       user,
+      `draft-convert:${id}`,
     );
     await this.prisma.orderDraft.update({ where: { id }, data: { status: 'CONFIRMED', customerId, convertedOrderId: (order as { id: string }).id } });
     // 别名学习(AUTO_LEARNED): 草稿原名 ≠ 标准商品名 的映射回写词典

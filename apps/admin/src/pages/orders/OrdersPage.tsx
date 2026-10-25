@@ -1,5 +1,5 @@
 // 订单池（P0-T20~T25）：状态筛选 tab + 行展开明细（含红字冲销行负数）+ 预检结果 + 状态机操作 + 内勤开单
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -24,6 +24,8 @@ import type {
   ProductDTO,
 } from '../../services/api';
 import { getAuth } from '../../services/auth';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type { Role } from '../../constants/roles';
 import type { ReactNode } from 'react';
 import {
@@ -467,6 +469,7 @@ function CreateOrderModal({
   onCreated: () => void;
 }): JSX.Element {
   const { message } = AntApp.useApp();
+  const idemRef = useRef<IdemSlot | null>(null);
   const [customers, setCustomers] = useState<CustomerDTO[]>([]);
   const [products, setProducts] = useState<ProductDTO[]>([]);
   const [customerId, setCustomerId] = useState<string>();
@@ -476,6 +479,7 @@ function CreateOrderModal({
 
   useEffect(() => {
     if (!open) return;
+    idemRef.current = null;
     setLines([newLine()]);
     setCustomerId(undefined);
     setPrecheckError(null);
@@ -524,12 +528,14 @@ function CreateOrderModal({
     }
     setSubmitting(true);
     setPrecheckError(null);
+    const payload = {
+      customerId,
+      source: 'CLERK' as const,
+      lines: valid.map((l) => ({ productId: l.productId as string, unit: l.unit, qty: l.qty as number })),
+    };
     try {
-      const res = await ordersApi.create({
-        customerId,
-        source: 'CLERK',
-        lines: valid.map((l) => ({ productId: l.productId as string, unit: l.unit, qty: l.qty as number })),
-      });
+      const res = await ordersApi.create(payload, rememberIdemKey(idemRef, payload));
+      idemRef.current = null;
       message.success(`下单成功：${res.orderNo}（${fmtMoney(res.totalAmount)}）`);
       onCreated();
     } catch (e) {

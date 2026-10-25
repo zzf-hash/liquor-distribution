@@ -20,6 +20,7 @@ const ROLE_NAME: Record<string, string> = {
 }
 
 export default function StaffLoginPage() {
+  const [tenantCode, setTenantCode] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -32,7 +33,7 @@ export default function StaffLoginPage() {
     }
     setSubmitting(true)
     try {
-      const res = await authApi.login(username.trim(), password)
+      const res = await authApi.login(username.trim(), password, tenantCode)
       const role = res.user?.role ?? ''
       const home = ROLE_HOME_PAGE[role]
       if (!home) {
@@ -59,6 +60,12 @@ export default function StaffLoginPage() {
       </View>
 
       <View className='login__form'>
+        <Input
+          className='ipt'
+          placeholder='租户编码（同名账号时必填）'
+          value={tenantCode}
+          onInput={(e) => setTenantCode(e.detail.value)}
+        />
         <Input
           className='ipt'
           placeholder='账号'

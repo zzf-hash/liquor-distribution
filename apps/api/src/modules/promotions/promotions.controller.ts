@@ -5,6 +5,7 @@ import { AuditService } from '../../audit/audit.service';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ C组 随单赠规则引擎 (M3-1 买N送M) ═══════════════
 // 规则商品级: 下单管线(OrdersService.create)对命中的行自动追加 0 价赠品行(promoNote 留痕),
@@ -33,11 +34,11 @@ export class PromotionsController {
 
   @Get()
   @Roles('OWNER', 'CLERK', 'REP', 'WAREHOUSE', 'CUSTOMER')
-  async list(@Query('active') active?: string): Promise<unknown> {
+  async list(@CurrentUser() user: AuthUser, @Query('active') active?: string): Promise<unknown> {
     const now = new Date();
     const where = active === '1'
-      ? { closedAt: null, validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] }
-      : undefined;
+      ? { tenantId: user.tenantId, closedAt: null, validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] }
+      : { tenantId: user.tenantId };
     const rows = await this.prisma.promotion.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -66,7 +67,7 @@ export class PromotionsController {
     const created = await this.prisma.promotion.create({
       data: {
         tenantId: user.tenantId, productId: dto.productId, giftProductId: dto.giftProductId ?? null,
-        buyQty: dto.buyQty, giftQty: dto.giftQty, unit: dto.unit ?? 'BASE',
+        buyQty: dto.buyQty, giftQty: dto.giftQty, unit: requirePriceUnit(dto.unit ?? 'BASE'),
         validTo: dto.validTo ? new Date(dto.validTo) : null, note: dto.note, createdById: user.id,
       },
     });
@@ -77,7 +78,7 @@ export class PromotionsController {
   @Post(':id/close')
   @Roles('OWNER', 'CLERK')
   async close(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReasonDto): Promise<unknown> {
-    const claimed = await this.prisma.promotion.updateMany({ where: { id, closedAt: null }, data: { closedAt: new Date(), note: dto.reason } });
+    const claimed = await this.prisma.promotion.updateMany({ where: { id, tenantId: user.tenantId, closedAt: null }, data: { closedAt: new Date(), note: dto.reason } });
     if (claimed.count === 0) throw new NotFoundException('规则不存在或已关闭');
     await this.audit.log({ user, action: 'PROMOTION_CLOSE', entityType: 'Promotion', entityId: id, after: { reason: dto.reason } });
     return { id, closed: true };

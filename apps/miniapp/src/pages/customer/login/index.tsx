@@ -10,6 +10,7 @@ import './index.scss'
  * 仅 CUSTOMER 角色可进客户端，登录成功切到「订货」tab。
  */
 export default function CustomerLoginPage() {
+  const [tenantCode, setTenantCode] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -22,7 +23,7 @@ export default function CustomerLoginPage() {
     }
     setSubmitting(true)
     try {
-      const res = await authApi.login(username.trim(), password)
+      const res = await authApi.login(username.trim(), password, tenantCode)
       if (res.user?.role !== 'CUSTOMER') {
         Taro.showToast({ title: '该账号不是客户账号，请联系商家开通', icon: 'none' })
         return
@@ -45,6 +46,12 @@ export default function CustomerLoginPage() {
       </View>
 
       <View className='login__form'>
+        <Input
+          className='ipt'
+          placeholder='租户编码（同名账号时必填）'
+          value={tenantCode}
+          onInput={(e) => setTenantCode(e.detail.value)}
+        />
         <Input
           className='ipt'
           placeholder='客户账号'
