@@ -181,24 +181,32 @@ export class ReportsController {
     const repName = (id: string) => reps.find((u) => u.id === id)?.name ?? '未归属';
     const CATEGORY_LABELS: Record<string, string> = { BAIJIU: '白酒', PIJIU: '啤酒', HONGJIU: '红酒', YANGJIU: '洋酒', YINLIAO: '饮料', QITA: '其他' };
     const rows = [...agg.values()].map((r) => {
-      const profit = Number((r.revenue - r.cost).toFixed(2));
+      const numericProfit = Number((r.revenue - r.cost).toFixed(2));
       const { costKnown: rowCostKnown, ...rest } = r;
+      // 成本未知时不把缺价当成 0 去减收入：毛利与毛利率都为空
+      const profit = rowCostKnown ? numericProfit : null;
       return {
         ...rest,
         name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
         revenue: Number(r.revenue.toFixed(2)), cost: Number(r.cost.toFixed(2)),
-        profit, margin: r.revenue > 0 && rowCostKnown ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
+        profit,
+        margin: r.revenue > 0 && profit !== null ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
       };
-    }).sort((a, b) => b.profit - a.profit);
-    const totalProfit = Number((totalRevenue - totalCost).toFixed(2));
+    }).sort((a, b) => {
+      if (a.profit === null && b.profit === null) return b.revenue - a.revenue;
+      if (a.profit === null) return 1;
+      if (b.profit === null) return -1;
+      return b.profit - a.profit;
+    });
+    const totalProfit = costKnown ? Number((totalRevenue - totalCost).toFixed(2)) : null;
     return {
       month, dimension: dim, rows,
       totals: {
         revenue: Number(totalRevenue.toFixed(2)), cost: Number(totalCost.toFixed(2)), profit: totalProfit,
-        margin: totalRevenue > 0 && costKnown ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
+        margin: totalRevenue > 0 && totalProfit !== null ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
         orderCount: orders.length,
       },
-      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱价 BASE 而行为瓶 MIN 时按箱价÷换算率; 仅有瓶价 MIN 而行为箱 BASE 时按瓶价×换算率; 缺少成本时毛利率为空); 赠品行收入0成本照计(促销侵蚀如实反映)',
+      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱价 BASE 而行为瓶 MIN 时按箱价÷换算率; 仅有瓶价 MIN 而行为箱 BASE 时按瓶价×换算率; 缺少成本时该行毛利与毛利率为空，合计里任一行缺成本则合计毛利与毛利率为空); 赠品行收入0成本照计(促销侵蚀如实反映)',
     };
   }
 }

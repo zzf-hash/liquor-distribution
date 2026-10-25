@@ -314,8 +314,8 @@ describe('LQ-FE-004 gross-margin cost fallback', () => {
     };
     const ctrl = new ReportsController(prisma as never);
     const body = await ctrl.grossProfit({ tenantId: 't1' } as never, '2026-10', 'category') as {
-      rows: Array<{ cost: number; margin: number | null; costKnown?: boolean }>;
-      totals: { revenue: number; cost: number; margin: number | null };
+      rows: Array<{ name: string; cost: number; profit: number | null; margin: number | null; costKnown?: boolean }>;
+      totals: { revenue: number; cost: number; profit: number | null; margin: number | null };
     };
     return { body, prisma };
   }
@@ -361,8 +361,37 @@ describe('LQ-FE-004 gross-margin cost fallback', () => {
     );
     expect(body.totals.revenue).toBe(175);
     expect(body.totals.cost).toBe(0);
+    expect(body.totals.profit).toBeNull();
     expect(body.totals.margin).toBeNull();
+    expect(body.rows[0].profit).toBeNull();
     expect(body.rows[0].margin).toBeNull();
+  });
+
+  it('nulls total profit when any row is missing a cost', async () => {
+    const known = signedLine({ qty: 1, unit: 'BASE', conversionRate: 6, amount: '100.00' });
+    const unknown = {
+      ...signedLine({ qty: 1, unit: 'BASE', conversionRate: 6, amount: '100.00' }),
+      lines: [{
+        id: 'l2', productId: 'p2', productName: '无成本', reversalOfId: null,
+        qty: new Prisma.Decimal(1), unit: 'BASE' as const, conversionRate: 6,
+        amount: new Prisma.Decimal('100.00'),
+        product: { category: 'QITA', skuCode: 'SKU-NOCOST' },
+      }],
+    };
+    const { body } = await report(
+      [known, unknown],
+      [{ productId: 'p1', unit: 'BASE', price: new Prisma.Decimal('40.00'), validFrom: new Date('2026-01-01') }],
+    );
+    const priced = body.rows.find((row) => row.name === '白酒');
+    const missing = body.rows.find((row) => row.name === '其他');
+    expect(priced?.profit).toBe(60);
+    expect(priced?.margin).toBe(60);
+    expect(missing?.cost).toBe(0);
+    expect(missing?.profit).toBeNull();
+    expect(missing?.margin).toBeNull();
+    expect(body.totals.revenue).toBe(200);
+    expect(body.totals.profit).toBeNull();
+    expect(body.totals.margin).toBeNull();
   });
 
   it('keeps outbound batch cost and does not treat a zero-receipt line as missing cost', async () => {
