@@ -11,6 +11,7 @@ import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import { computeGiftLines } from '../promotions/promotions.controller';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { assertSignProof } from './sign-proof';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
 // 设计依据: docs/baseline/开发任务书_MVP分期_v1.md WS-2 + docs/M0/业务适配清单.md
@@ -686,6 +687,8 @@ export class OrdersService {
     body: { type: 'E_SIGN' | 'PHOTO' | 'PAPER'; signerName?: string; photoUrl?: string; signatureData?: string; deviceInfo?: string; returnPackages?: Array<{ category: string; qty: number }>; lines?: Array<{ orderLineId: string; actualQty: number }> },
     ip?: string,
   ): Promise<unknown> {
+    // 缺凭证直接 400，不读库、不进事务（DTO 层同一规则；这里兜住绕过管道的调用）
+    assertSignProof(body);
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true, customer: true, outbounds: { include: { lines: true } } } });
     if (!order) throw new NotFoundException('订单不存在');
     if (order.status !== 'DELIVERING') throw new ConflictException('仅配送中订单可签收(未签收不可销账由状态机保证)');
@@ -727,6 +730,8 @@ export class OrdersService {
     const signedAt = new Date();
 
     await this.prisma.$transaction(async (tx) => {
+      // 事务内、任何写入之前再查一次：没有凭证就不能改状态、落签收记录或生成应收
+      assertSignProof(body);
       // 抢占式状态推进: 并发签收/拒收/重复请求只有一个能提交(check-then-act 竞态修复),
       // 否则 sign×reject 并发会同时落"应收+全量回冲"两套矛盾数据
       const claimed = await tx.salesOrder.updateMany({

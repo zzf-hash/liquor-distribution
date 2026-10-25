@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Headers, Ip, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsObject, IsOptional, IsString, Min, registerDecorator, ValidateNested, ValidationArguments, ValidationOptions } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { Response } from 'express';
 import dayjs from 'dayjs';
@@ -10,6 +10,27 @@ import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { buildXlsx, sendXlsx, exportFilename, ExportSheet } from '../../common/export.util';
+import { signProofMessage, type SignProofInput } from './sign-proof';
+
+/** 挂在 type 上，校验整张签收单：电子签要签名，纸单和拍照要照片。 */
+function SignProofPresent(validationOptions?: ValidationOptions) {
+  return function (object: object, propertyName: string): void {
+    registerDecorator({
+      name: 'signProofPresent',
+      target: object.constructor,
+      propertyName,
+      options: validationOptions,
+      validator: {
+        validate(_value: unknown, args: ValidationArguments): boolean {
+          return signProofMessage(args.object as SignProofInput) === null;
+        },
+        defaultMessage(args: ValidationArguments): string {
+          return signProofMessage(args.object as SignProofInput) ?? '签收凭证缺失';
+        },
+      },
+    });
+  };
+}
 
 class LineDto {
   @IsString() productId!: string;
@@ -41,8 +62,10 @@ class ApproveSpecialDto {
   @IsOptional() @IsNumber() amount?: number;
 }
 
-class SignDto {
-  @IsEnum(['E_SIGN', 'PHOTO', 'PAPER']) type!: 'E_SIGN' | 'PHOTO' | 'PAPER';
+export class SignDto {
+  @IsEnum(['E_SIGN', 'PHOTO', 'PAPER'])
+  @SignProofPresent()
+  type!: 'E_SIGN' | 'PHOTO' | 'PAPER';
   @IsOptional() @IsString() signerName?: string;
   @IsOptional() @IsString() photoUrl?: string;
   @IsOptional() @IsString() signatureData?: string;

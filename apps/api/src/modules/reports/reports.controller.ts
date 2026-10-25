@@ -5,6 +5,7 @@ import { bizMonthRange } from '../../common/business-time';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { fallbackLineCost } from './cost-fallback';
 
 // ═══════════════ P1-T11 一键报表 (口径与台账一致: 流水投影, 不另立账) ═══════════════
 // 月报表: 销售(签收口径)/回款/退货/采购 + 品类/业务员/Top商品 维度
@@ -107,22 +108,26 @@ export class ReportsController {
         outbounds: { include: { lines: { include: { batch: { select: { unitCost: true } } } } } },
       },
     });
-    // 行 → 成本: 出库行按批次成本×数量聚合; 无出库回退商品最新 COST 价(按行数量折最小单位)
-    const costPriceFallback = new Map<string, number>();
+    // 行 → 成本: 出库行按批次成本×数量聚合; 无出库回退最新 COST 价（BASE 与 MIN，按换算率，LQ-FE-004）
+    const baseCost = new Map<string, number>();
+    const minCost = new Map<string, number>();
     {
       const rows = await this.prisma.price.findMany({
-        where: { tenantId: user.tenantId, levelType: 'COST', unit: 'MIN', validFrom: { lte: new Date() } },
+        where: { tenantId: user.tenantId, levelType: 'COST', unit: { in: ['BASE', 'MIN'] }, validFrom: { lte: new Date() } },
         orderBy: { validFrom: 'desc' },
       });
-      for (const r of rows) if (!costPriceFallback.has(r.productId)) costPriceFallback.set(r.productId, Number(r.price));
+      for (const r of rows) {
+        const bucket = r.unit === 'BASE' ? baseCost : minCost;
+        if (!bucket.has(r.productId)) bucket.set(r.productId, Number(r.price));
+      }
     }
-    const agg = new Map<string, { key: string; name: string; revenue: number; cost: number }>();
-    const bump = (key: string, name: string, revenue: number, cost: number) => {
-      const cur = agg.get(key) ?? { key, name, revenue: 0, cost: 0 };
-      cur.revenue += revenue; cur.cost += cost;
+    const agg = new Map<string, { key: string; name: string; revenue: number; cost: number; costKnown: boolean }>();
+    const bump = (key: string, name: string, revenue: number, cost: number, lineCostKnown: boolean) => {
+      const cur = agg.get(key) ?? { key, name, revenue: 0, cost: 0, costKnown: true };
+      cur.revenue += revenue; cur.cost += cost; cur.costKnown = cur.costKnown && lineCostKnown;
       agg.set(key, cur);
     };
-    let totalRevenue = 0; let totalCost = 0;
+    let totalRevenue = 0; let totalCost = 0; let costKnown = true;
     const repIds = new Set<string>();
     for (const o of orders) {
       if (o.salespersonId) repIds.add(o.salespersonId);
@@ -149,40 +154,57 @@ export class ReportsController {
         const ratio = ratioByLine.get(l.id) ?? 0;
         const revenue = Number((Number(l.amount) * ratio).toFixed(2));
         let cost = Number(((costByLine.get(l.id) ?? 0) * ratio).toFixed(2));
+        let lineCostKnown = true;
         if (!costByLine.has(l.id)) {
-          // 无出库批次记录(历史单/数据迁移): 回退最新成本价 × 折最小单位数量
-          const qtyMin = Number(l.qty) * (l.unit === 'BASE' ? l.conversionRate : 1) * ratio;
-          const unitCostMin = (costPriceFallback.get(l.productId) ?? 0) / (Number(l.conversionRate) || 1);
-          cost = Number((qtyMin * unitCostMin).toFixed(2));
+          const fallback = fallbackLineCost({
+            qty: Number(l.qty),
+            unit: l.unit,
+            conversionRate: Number(l.conversionRate) || 1,
+            ratio,
+            basePrice: baseCost.has(l.productId) ? baseCost.get(l.productId)! : null,
+            minPrice: minCost.has(l.productId) ? minCost.get(l.productId)! : null,
+          });
+          if (fallback === null) { lineCostKnown = false; cost = 0; }
+          else cost = fallback;
         }
+        if (!lineCostKnown) costKnown = false;
         totalRevenue += revenue; totalCost += cost;
-        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenue, cost);
-        else if (dim === 'customer') bump(o.customerId, customerName, revenue, cost);
-        else if (dim === 'product') bump(l.productId, l.productName, revenue, cost);
-        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenue, cost);
+        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenue, cost, lineCostKnown);
+        else if (dim === 'customer') bump(o.customerId, customerName, revenue, cost, lineCostKnown);
+        else if (dim === 'product') bump(l.productId, l.productName, revenue, cost, lineCostKnown);
+        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenue, cost, lineCostKnown);
       }
     }
     const reps = repIds.size ? await this.prisma.user.findMany({ where: { id: { in: [...repIds] } }, select: { id: true, name: true } }) : [];
     const repName = (id: string) => reps.find((u) => u.id === id)?.name ?? '未归属';
     const CATEGORY_LABELS: Record<string, string> = { BAIJIU: '白酒', PIJIU: '啤酒', HONGJIU: '红酒', YANGJIU: '洋酒', YINLIAO: '饮料', QITA: '其他' };
     const rows = [...agg.values()].map((r) => {
-      const profit = Number((r.revenue - r.cost).toFixed(2));
+      const numericProfit = Number((r.revenue - r.cost).toFixed(2));
+      const { costKnown: rowCostKnown, ...rest } = r;
+      // 成本未知时不把缺价当成 0 去减收入：毛利与毛利率都为空
+      const profit = rowCostKnown ? numericProfit : null;
       return {
-        ...r,
+        ...rest,
         name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
         revenue: Number(r.revenue.toFixed(2)), cost: Number(r.cost.toFixed(2)),
-        profit, margin: r.revenue > 0 ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
+        profit,
+        margin: r.revenue > 0 && profit !== null ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
       };
-    }).sort((a, b) => b.profit - a.profit);
-    const totalProfit = Number((totalRevenue - totalCost).toFixed(2));
+    }).sort((a, b) => {
+      if (a.profit === null && b.profit === null) return b.revenue - a.revenue;
+      if (a.profit === null) return 1;
+      if (b.profit === null) return -1;
+      return b.profit - a.profit;
+    });
+    const totalProfit = costKnown ? Number((totalRevenue - totalCost).toFixed(2)) : null;
     return {
       month, dimension: dim, rows,
       totals: {
         revenue: Number(totalRevenue.toFixed(2)), cost: Number(totalCost.toFixed(2)), profit: totalProfit,
-        margin: totalRevenue > 0 ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
+        margin: totalRevenue > 0 && totalProfit !== null ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
         orderCount: orders.length,
       },
-      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新成本价); 赠品行收入0成本照计(促销侵蚀如实反映)',
+      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱价 BASE 而行为瓶 MIN 时按箱价÷换算率; 仅有瓶价 MIN 而行为箱 BASE 时按瓶价×换算率; 缺少成本时该行毛利与毛利率为空，合计里任一行缺成本则合计毛利与毛利率为空); 赠品行收入0成本照计(促销侵蚀如实反映)',
     };
   }
 }

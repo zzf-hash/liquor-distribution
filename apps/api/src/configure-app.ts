@@ -2,6 +2,7 @@ import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { json, urlencoded } from 'express';
 import type { NextFunction, Request, Response } from 'express';
+import { buildCorsOptions } from './common/cors';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { formatValidationErrors } from './common/validation-message';
 import { tenantContext } from './prisma/tenant-context';
@@ -27,6 +28,8 @@ function tenantContextMiddleware(req: Request, _res: Response, next: NextFunctio
 
 /** 与生产入口相同的 HTTP 装配。e2e 复用这里, 避免 import main.ts 触发 listen。 */
 export function configureApp(app: NestExpressApplication): void {
+  // 预检要先于 body parser。来源只来自白名单，见 common/cors.ts（CORS_ORIGINS）。
+  app.enableCors(buildCorsOptions());
   // 只信任回环和私网这一跳(nginx / 本机代理)。公网直连伪造的 X-Forwarded-For 不采用。
   // proxy-addr 2.x 不拆逗号字符串, 必须传数组。
   app.set('trust proxy', ['loopback', 'uniquelocal']);
