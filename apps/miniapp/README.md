@@ -33,6 +33,6 @@ pnpm build:h5:staff       # 产物 dist-h5-staff/
 | 变量 | 作用 |
 | --- | --- |
 | `TARO_APP_API_BASE` | 接口前缀。`src/services/api.ts` 和 `config/index.ts` 读取。缺省 `http://127.0.0.1:3000/api`。示例见 `.env.example`。 |
-| `TARO_APP_ROLE` | `customer`（默认）或 `staff`，以及上面的单角色包。写在 `.env` 里会影响不带该变量的客户包脚本，打客户包时不要设成 `staff`。 |
+| `TARO_APP_ROLE` | `customer`（默认）或 `staff`，以及上面的单角色包。会编进客户端。脚本里写的值优先于 `.env`。`.env` 里设成 `staff` 时，不带该变量的客户包脚本也会打成员工包。 |
 
 appid 写在 `project.config.json`：`wxc6de50fcfe6fc065`。客户包和员工包共用这一份，仓库里没有第二套 appid。Taro 构建时把该文件拷进产物，并把 `miniprogramRoot` 改成 `./`。环境变量 `TARO_APP_ID` 若有值，Taro CLI 会用它覆盖产物里的 appid；本仓库没有配置这个变量，所以产物仍是上面的 appid。

@@ -45,6 +45,7 @@ export default function StaffLoginPage() {
       const block = loginBlock(APP_ROLE, role, 'staff')
       if (block) {
         if (block.clearSession) clearSession()
+        setError(block.toast)
         Taro.showToast({ title: block.toast, icon: 'none' })
         return
       }

@@ -37,3 +37,11 @@ export function loginBlock(
 export function storedCustomerOnStaffPackage(appRole: AppRole, role: string | null | undefined): boolean {
   return appRole === 'staff' && (role ?? '').trim().toUpperCase() === 'CUSTOMER'
 }
+
+export const STAFF_LOGIN_PAGE = '/pages/staff/login/index'
+export const CUSTOMER_LOGIN_PAGE = '/pages/customer/login/index'
+
+/** 未登录时去哪个登录页。员工包没有客户 tab，不能落到客户登录页。 */
+export function loggedOutLoginPage(appRole: AppRole): string {
+  return appRole === 'staff' ? STAFF_LOGIN_PAGE : CUSTOMER_LOGIN_PAGE
+}

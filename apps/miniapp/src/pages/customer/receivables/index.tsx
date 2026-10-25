@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { APP_ROLE } from '../../../config/app-role'
 import { fmtDate, fmtMoney, getToken, receivablesApi } from '../../../services/api'
+import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
 import type { CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
@@ -40,7 +42,7 @@ export default function CustomerReceivablesPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: '/pages/customer/login/index' })
+      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/receivables/index')) return

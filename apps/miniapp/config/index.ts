@@ -34,8 +34,11 @@ export default defineConfig<'vite'>(async (merge) => {
       ? (process.env.TARO_APP_ROLE === 'staff' ? 'dist-h5-staff' : 'dist-h5')
       : (process.env.TARO_APP_ROLE === 'staff' ? 'dist-staff' : 'dist'),
     plugins: [],
-    defineConstants: {
-    },
+    // Vite 会把未声明的 process.env 换成 {}，壳层变量到不了页面里。
+    // 脚本显式设置时用 defineConstants 盖过 .env，保证员工包里的 APP_ROLE 真是 staff。
+    defineConstants: process.env.TARO_APP_ROLE
+      ? { 'process.env.TARO_APP_ROLE': JSON.stringify(process.env.TARO_APP_ROLE) }
+      : {},
     copy: {
       patterns: [
       ],

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CUSTOMER_PACKAGE_STAFF_TOAST,
   STAFF_PACKAGE_CUSTOMER_TOAST,
+  loggedOutLoginPage,
   loginBlock,
   storedCustomerOnStaffPackage,
 } from '../src/services/package-login-gate'
@@ -20,6 +21,7 @@ describe('staff package rejects customer accounts', () => {
   it('clears a stored customer token when the staff package starts', () => {
     expect(storedCustomerOnStaffPackage('staff', 'CUSTOMER')).toBe(true)
     expect(storedCustomerOnStaffPackage('staff', ' customer ')).toBe(true)
+    expect(loggedOutLoginPage('staff')).toBe('/pages/staff/login/index')
   })
 
   it('still admits staff roles on the staff package', () => {
@@ -38,6 +40,7 @@ describe('customer package login is unchanged', () => {
     expect(loginBlock('customer', 'CUSTOMER', 'staff')).toBeNull()
     expect(loginBlock('customer', 'CUSTOMER', 'customer')).toBeNull()
     expect(storedCustomerOnStaffPackage('customer', 'CUSTOMER')).toBe(false)
+    expect(loggedOutLoginPage('customer')).toBe('/pages/customer/login/index')
   })
 
   it('keeps rejecting staff accounts on the customer login door without clearing a session', () => {

@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { APP_ROLE } from '../../../config/app-role'
 import TabsScroll from '../../../components/TabsScroll'
+import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import { openAppPage } from '../../../services/navigation'
 import { ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
@@ -41,7 +43,7 @@ export default function CustomerOrdersPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: '/pages/customer/login/index' })
+      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/orders/index')) return

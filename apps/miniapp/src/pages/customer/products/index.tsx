@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { APP_ROLE } from '../../../config/app-role'
 import Icon from '../../../components/Icon'
+import { loggedOutLoginPage } from '../../../services/package-login-gate'
 import TabsScroll from '../../../components/TabsScroll'
 import {
   UNIT_LABELS,
@@ -35,7 +37,7 @@ export default function CustomerProductsPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: '/pages/customer/login/index' })
+      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return

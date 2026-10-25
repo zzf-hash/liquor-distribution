@@ -20,10 +20,11 @@ export function readAppRole(raw: string | undefined): AppRole {
   return (APP_ROLES as readonly string[]).includes(value) ? (value as AppRole) : 'customer'
 }
 
-/** 编译期包别。未设置 TARO_APP_ROLE 时是客户包。 */
-export const APP_ROLE: AppRole = readAppRole(
-  typeof process !== 'undefined' ? process.env.TARO_APP_ROLE : undefined,
-)
+/**
+ * 编译期包别。未设置 TARO_APP_ROLE 时是客户包。
+ * 不要用 typeof process 守卫：H5 里没有 process，守卫会把已经编进包里的值丢掉。
+ */
+export const APP_ROLE: AppRole = readAppRole(process.env.TARO_APP_ROLE)
 
 export const APP_TITLE: Record<AppRole, string> = {
   customer: '酒类分销·客户订货',
