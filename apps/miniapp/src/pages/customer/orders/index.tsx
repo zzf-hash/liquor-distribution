@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import TabsScroll from '../../../components/TabsScroll'
 import { openAppPage } from '../../../services/navigation'
 import { ORDER_STATUS_TONES, fmtDateTime, fmtMoney, getToken, ordersApi } from '../../../services/api'
 import type { CustomerOrderDTO } from '../../../services/api'
@@ -69,19 +70,17 @@ export default function CustomerOrdersPage() {
         </View>
       </View>
 
-      <View className='tabs-scroll'>
-        <View className='tabs'>
-          {FILTERS.map((f) => (
-            <Button
-              key={f.key}
-              className={`tabs__btn ${filter === f.key ? 'tabs__btn--on' : ''}`}
-              onClick={() => setFilter(f.key)}
-            >
-              {f.label}
-            </Button>
-          ))}
-        </View>
-      </View>
+      <TabsScroll>
+        {FILTERS.map((f) => (
+          <Button
+            key={f.key}
+            className={`tabs__btn ${filter === f.key ? 'tabs__btn--on' : ''}`}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label}
+          </Button>
+        ))}
+      </TabsScroll>
 
       {error ? (
         <View className='state'>

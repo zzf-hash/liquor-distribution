@@ -57,7 +57,7 @@ export default function CustomerCartPage() {
   )
   const giftText = gifts.length
     ? `预计赠品：${gifts.map((g) => `${g.name} ${g.qty}${labelOf(UNIT_LABELS, g.unit)}`).join('、')}。赠品由服务端写入，这里不另提交。`
-    : giftNote || '当前没有命中的买赠。'
+    : giftNote
   const pieces = cartQty(cart)
 
   function changeQty(idx: number, delta: number) {
@@ -138,21 +138,26 @@ export default function CustomerCartPage() {
         <>
           {cart.map((it, idx) => (
             <View key={`${it.productId}-${it.unit}`} className='card crow'>
-              <View className='crow__top'>
-                <View className='crow__info'>
-                  <Text className='crow__name'>{it.name}</Text>
-                  <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
-                </View>
-                <Text className='icon-hit' onClick={() => removeAt(idx)}>
-                  <Icon name='trash' color='#6B5F5A' size={40} />
-                </Text>
+              <View className='crow__pic'>
+                <Icon name='bottle' color='#7A1F2B' size={64} />
               </View>
-              <View className='crow__bot'>
-                <Text className='num crow__price'>{fmtMoney(toNum(it.price) * it.qty)}</Text>
-                <View className='stepper'>
-                  <Button className='stepper__btn' onClick={() => changeQty(idx, -1)}>−</Button>
-                  <Text className='stepper__num'>{it.qty}</Text>
-                  <Button className='stepper__btn' onClick={() => changeQty(idx, 1)}>＋</Button>
+              <View className='crow__main'>
+                <View className='crow__top'>
+                  <View className='crow__info'>
+                    <Text className='crow__name'>{it.name}</Text>
+                    <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
+                  </View>
+                  <Text className='icon-hit' onClick={() => removeAt(idx)}>
+                    <Icon name='trash' color='#6B5F5A' size={40} />
+                  </Text>
+                </View>
+                <View className='crow__bot'>
+                  <Text className='num crow__price'>{fmtMoney(toNum(it.price) * it.qty)}</Text>
+                  <View className='stepper'>
+                    <Button className='stepper__btn' onClick={() => changeQty(idx, -1)}>−</Button>
+                    <Text className='stepper__num'>{it.qty}</Text>
+                    <Button className='stepper__btn' onClick={() => changeQty(idx, 1)}>＋</Button>
+                  </View>
                 </View>
               </View>
             </View>
@@ -162,8 +167,11 @@ export default function CustomerCartPage() {
               <Text className='kv__k'>商品合计</Text>
               <Text className='kv__v num'>{fmtMoney(total)}</Text>
             </View>
-            <Text className='tip'>{giftText}</Text>
-            <Text className='tip'>价格以商家确认为准，确认后通知你</Text>
+            {giftText ? <Text className='tip'>{giftText}</Text> : null}
+            <View className='info-bar'>
+              <Icon name='info' color='#3A6EA5' size={36} />
+              <Text className='info-bar__txt'>价格以商家确认为准，确认后通知你</Text>
+            </View>
           </View>
         </>
       )}

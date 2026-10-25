@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Button, ScrollView, Text, View } from '@tarojs/components'
+import { Button, Text, View } from '@tarojs/components'
+import TabsScroll from '../../../components/TabsScroll'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
@@ -106,20 +107,18 @@ export default function ClerkReceivablesPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
       </View>
 
-      <ScrollView scrollX scrollWithAnimation scrollIntoView={`ar-${tab || 'all'}`} className='tabs-scroll' showScrollbar={false}>
-        <View className='tabs'>
-          {tabs.map((t) => (
-            <Button
-              id={`ar-${t.key || 'all'}`}
-              key={t.key || 'all'}
-              className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
-              onClick={() => switchTab(t.key)}
-            >
-              {displayBucket(bucketLabels, t.key)}
-            </Button>
-          ))}
-        </View>
-      </ScrollView>
+      <TabsScroll intoView={`ar-${tab || 'all'}`}>
+        {tabs.map((t) => (
+          <Button
+            id={`ar-${t.key || 'all'}`}
+            key={t.key || 'all'}
+            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
+            onClick={() => switchTab(t.key)}
+          >
+            {displayBucket(bucketLabels, t.key)}
+          </Button>
+        ))}
+      </TabsScroll>
 
       {error ? (
         <View className='state'>

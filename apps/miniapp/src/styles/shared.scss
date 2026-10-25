@@ -450,10 +450,13 @@
 .tabs-scroll {
   position: relative;
   margin-bottom: $space-lg;
+  overflow: hidden;
   white-space: nowrap;
 
+  // 渐隐默认关掉。内容没溢出时，这层会盖住右侧胶囊。
   &::after {
     content: '';
+    display: none;
     position: absolute;
     right: 0;
     top: 0;
@@ -461,6 +464,22 @@
     width: 96px;
     pointer-events: none;
     background: linear-gradient(90deg, rgba(247, 244, 241, 0), $color-neutral-bg);
+  }
+
+  &--over::after {
+    display: block;
+  }
+}
+
+.tabs-scroll__clip {
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: none;
+
+  &::-webkit-scrollbar {
+    display: none;
   }
 }
 
@@ -485,16 +504,55 @@
 
 .tabs-scroll .tabs {
   display: inline-flex;
+  width: max-content;
+  min-width: 100%;
   margin-bottom: 0;
   overflow: visible;
-  padding-right: 48px;
+
+  &::after {
+    content: none;
+    display: none;
+    width: 0;
+    flex: none;
+  }
+}
+
+.tabs-scroll--over .tabs {
+  padding-right: 72px;
+}
+
+// H5 的 taro-button-core 默认 width:100%、相邻按钮 margin-top:15px、overflow:hidden。
+// 类选择器压过元素选择器，胶囊才按文字收缩，宫格图标才不会被裁切或错位。
+taro-button-core.tabs__btn,
+taro-button-core.mini-grid__item,
+taro-button-core.task-card {
+  margin: 0;
+  overflow: visible;
+  line-height: 1.2;
+}
+
+taro-button-core.tabs__btn {
+  width: auto;
+}
+
+taro-button-core.mini-grid__item {
+  width: 100%;
+  max-width: 100%;
+}
+
+taro-button-core.task-card {
+  width: auto;
+  max-width: 100%;
 }
 
 .tabs__btn {
-  flex-shrink: 0;
-  display: flex;
+  flex: 0 0 auto;
+  width: auto;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   min-height: $size-chip;
+  margin: 0;
   padding: 0 $space-md;
   font-size: $font-sub;
   color: $color-text-sub;
@@ -503,6 +561,7 @@
   border-radius: $radius-pill;
   box-sizing: border-box;
   line-height: 1.2;
+  overflow: visible;
 
   &::after {
     border: none;
@@ -743,28 +802,36 @@
 
 .task-row {
   display: flex;
+  align-items: stretch;
   gap: $space-md;
   margin-bottom: $space-lg;
 }
 
 .task-card {
-  flex: 1;
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   gap: $space-sm;
-  min-height: 160px;
+  width: auto;
+  min-width: 0;
+  min-height: 176px;
+  margin: 0;
   padding: $space-md;
   background: $color-card;
   border: none;
   border-radius: $radius-md;
   box-shadow: $shadow-card;
   text-align: left;
+  overflow: visible;
 
   &::after { border: none; }
 
   .tile__icon {
+    width: $size-icon-box;
+    height: $size-icon-box;
+    margin: 0;
+    flex-shrink: 0;
     background: $color-brand-primary-light;
-    margin-bottom: 0;
   }
 }
 
@@ -791,7 +858,8 @@
 
 .mini-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
   gap: $space-xs;
   margin-bottom: $space-lg;
   padding: $space-md $space-xxs;
@@ -804,13 +872,25 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-start;
   gap: $space-xxs;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
   background: transparent;
   border: none;
   line-height: 1.2;
+  overflow: visible;
 
   &::after { border: none; }
+
+  .tile__icon {
+    width: $size-icon-box;
+    height: $size-icon-box;
+    margin: 0;
+    flex-shrink: 0;
+  }
 }
 
 .mini-grid__label {
@@ -950,13 +1030,15 @@
 
 .tile__icon {
   width: $size-icon-box;
-  height: 88px;
-  border-radius: 24px;
+  height: $size-icon-box;
+  border-radius: $radius-md;
   background: $color-neutral-bg;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   margin-bottom: $space-xs;
+  overflow: visible;
 }
 
 .tile__title {

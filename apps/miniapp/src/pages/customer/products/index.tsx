@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
+import TabsScroll from '../../../components/TabsScroll'
 import {
   UNIT_LABELS,
   cartKeyOf,
@@ -115,11 +116,9 @@ export default function CustomerProductsPage() {
         />
       </View>
 
-      <View className='tabs-scroll'>
-        <View className='tabs'>
-          <Button className='tabs__btn tabs__btn--on'>全部</Button>
-        </View>
-      </View>
+      <TabsScroll>
+        <Button className='tabs__btn tabs__btn--on'>全部</Button>
+      </TabsScroll>
 
       {error ? (
         <View className='state'>

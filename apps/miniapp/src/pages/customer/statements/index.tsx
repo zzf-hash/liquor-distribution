@@ -12,6 +12,7 @@ import {
   statementsApi,
 } from '../../../services/api'
 import type { DisputeType, StatementDTO } from '../../../services/api'
+import TabsScroll from '../../../components/TabsScroll'
 import './index.scss'
 
 type TabKey = 'SENT' | 'CONFIRMED' | 'DISPUTED' | 'ALL'
@@ -126,19 +127,17 @@ export default function CustomerStatementsPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateBack()}>返回</Text>
       </View>
 
-      <View className='tabs-scroll'>
-        <View className='tabs'>
-          {TABS.map((t) => (
-            <Button
-              key={t.key}
-              className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
-              onClick={() => switchTab(t.key)}
-            >
-              {t.label}
-            </Button>
-          ))}
-        </View>
-      </View>
+      <TabsScroll>
+        {TABS.map((t) => (
+          <Button
+            key={t.key}
+            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
+            onClick={() => switchTab(t.key)}
+          >
+            {t.label}
+          </Button>
+        ))}
+      </TabsScroll>
 
       {error ? (
         <View className='state'>

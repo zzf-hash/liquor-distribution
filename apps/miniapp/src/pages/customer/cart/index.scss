@@ -4,6 +4,46 @@
   padding-bottom: calc(#{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
 }
 
+.crow {
+  display: flex;
+  align-items: center;
+  gap: $space-md;
+}
+
+.crow__pic {
+  width: 128px;
+  height: 144px;
+  border-radius: $radius-sm;
+  background: $color-neutral-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.crow__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.info-bar {
+  display: flex;
+  align-items: flex-start;
+  gap: $space-sm;
+  margin-top: $space-sm;
+  padding: $space-md;
+  background: $color-functional-info-light;
+  border-radius: $radius-sm;
+  color: $color-functional-info-text;
+  font-size: $font-sub;
+  line-height: $line-height-base;
+}
+
+.info-bar__txt {
+  flex: 1;
+  color: $color-functional-info-text;
+}
+
 .crow__top,
 .crow__bot {
   display: flex;
