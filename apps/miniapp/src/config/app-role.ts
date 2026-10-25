@@ -1,33 +1,33 @@
 /**
- * 四端复用角色开关（task d0974541, 计划书§4.1移动选型）
+ * 编译期包别（task d0974541, 计划书§4.1移动选型）
  *
- * 一套 Taro 工程按 APP_ROLE 编译出各端各自的首页与导航：
- *   customer  客户小程序（订货端，默认）
- *   salesman  业务员端（拜访/语音报单/代下单/收款上报/绩效）
- *   clerk     内勤端（订单池/收款/应收台账）
- *   warehouse 仓配端（拣货/发运/签收）
- *   boss      老板端（四问看板/审批中心）
+ * 一套 Taro 工程，用 TARO_APP_ROLE 决定原生 tabBar 和窗口标题。页面仍全部注册。
+ *   customer   客户包（默认）。原生 tab 是首页 / 订货 / 我的订单 / 待结金额。
+ *   staff      员工包。不生成原生 tabBar，登录后由 RoleTabBar 按 user.role 显示。
+ *   salesman / clerk / warehouse / boss
+ *              按单一角色出包，原生 tab 就是该角色的 tab。
  *
- * P1 全员端起登录统一到 pages/staff/login，按 user.role 分发到各端首页
- * （路由表见 services/api.ts ROLE_HOME_PAGE），本开关保留给"按端单独出包"的编译形态。
- * 切换方式：构建时设置 TARO_APP_ROLE（customer/salesman/clerk/warehouse/boss）。
- * 未设置时默认 customer。一套包内登录后仍按 user.role 隐藏客户 tab。
- * 页面注册集中在 src/app.config.ts。
+ * 未设置或无法识别时是 customer。员工包必须显式设 staff。
+ * 若仍用客户包给员工登录，app.json 里写死了客户 tabBar，非 tab 页上
+ * hideTabBar 盖不住 H5 的 taro-tabbar，底部会露出客户导航再叠一层 RoleTabBar。
  */
-export type AppRole = 'customer' | 'salesman' | 'clerk' | 'warehouse' | 'boss'
+export type AppRole = 'customer' | 'staff' | 'salesman' | 'clerk' | 'warehouse' | 'boss'
 
-const APP_ROLES: readonly AppRole[] = ['customer', 'salesman', 'clerk', 'warehouse', 'boss']
+const APP_ROLES: readonly AppRole[] = ['customer', 'staff', 'salesman', 'clerk', 'warehouse', 'boss']
 
-function readAppRole(): AppRole {
-  const raw = typeof process !== 'undefined' ? String(process.env.TARO_APP_ROLE ?? '').trim() : ''
-  return (APP_ROLES as readonly string[]).includes(raw) ? (raw as AppRole) : 'customer'
+export function readAppRole(raw: string | undefined): AppRole {
+  const value = String(raw ?? '').trim()
+  return (APP_ROLES as readonly string[]).includes(value) ? (value as AppRole) : 'customer'
 }
 
-/** 编译期端别。未设置 TARO_APP_ROLE 时仍是客户包；员工登录后由运行时角色改导航。 */
-export const APP_ROLE: AppRole = readAppRole()
+/** 编译期包别。未设置 TARO_APP_ROLE 时是客户包。 */
+export const APP_ROLE: AppRole = readAppRole(
+  typeof process !== 'undefined' ? process.env.TARO_APP_ROLE : undefined,
+)
 
 export const APP_TITLE: Record<AppRole, string> = {
   customer: '酒类分销·客户订货',
+  staff: '酒类分销·员工',
   salesman: '酒类分销·业务员',
   clerk: '酒类分销·内勤',
   warehouse: '酒类分销·仓配',

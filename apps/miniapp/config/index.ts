@@ -28,8 +28,11 @@ export default defineConfig<'vite'>(async (merge) => {
       828: 1.81 / 2
     },
     sourceRoot: 'src',
-    // h5 与 weapp 分目录产出，互不覆盖（weapp 产物目录=project.config.json 的 miniprogramRoot './dist'）
-    outputRoot: process.env.TARO_ENV === 'h5' ? 'dist-h5' : 'dist',
+    // 客户包：weapp=dist（project.config.json 的 miniprogramRoot），h5=dist-h5。
+    // 员工包：dist-staff / dist-h5-staff，避免两次构建互相覆盖。
+    outputRoot: process.env.TARO_ENV === 'h5'
+      ? (process.env.TARO_APP_ROLE === 'staff' ? 'dist-h5-staff' : 'dist-h5')
+      : (process.env.TARO_APP_ROLE === 'staff' ? 'dist-staff' : 'dist'),
     plugins: [],
     defineConstants: {
     },

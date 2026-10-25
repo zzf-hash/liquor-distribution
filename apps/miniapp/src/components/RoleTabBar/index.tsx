@@ -9,7 +9,8 @@ import './index.scss'
 
 /**
  * 运行时角色与编译期 tab 不一致时的底部导航。
- * 与原生 tab 一致时返回空，避免叠两层。
+ * 客户包里角色一致时返回空，避免和原生 tab 叠两层。
+ * 员工包没有原生 tab，登录后这里就是唯一的底部导航。
  */
 export default function RoleTabBar() {
   const runtime = tabsForRuntimeRole(getRole())

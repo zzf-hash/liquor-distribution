@@ -1,7 +1,7 @@
 import { PropsWithChildren } from 'react'
 import Taro, { useDidShow, useError, useLaunch } from '@tarojs/taro'
 import { APP_ROLE } from './config/app-role'
-import { tabBarAction } from './config/role-tabs'
+import { tabBarAction, tabsForAppRole } from './config/role-tabs'
 import { ROLE_HOME_PAGE, getRole } from './services/api'
 import { reportError } from './services/telemetry'
 
@@ -45,6 +45,8 @@ function syncRoleNavigation(): void {
     relaunchWhenRouterReady(ROLE_HOME_PAGE.CUSTOMER)
     return
   }
+  // 员工包没有原生 tabBar。再调 hide/show 没有监听方，Promise 不会结束。
+  if (tabsForAppRole(APP_ROLE).length < 2) return
   const toggle = action === 'hide-native' ? Taro.hideTabBar : Taro.showTabBar
   try {
     void Promise.resolve(toggle({ animation: false })).catch(() => undefined)
