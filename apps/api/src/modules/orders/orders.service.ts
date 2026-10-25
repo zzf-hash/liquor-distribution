@@ -10,7 +10,7 @@ import { assertOutboundTransition, OutboundState } from '../../statemachine/outb
 import { computeGiftLines } from '../promotions/promotions.controller';
 import { arOpenCents } from '../receivables/aging';
 import { centsToNumber, toCents } from '../../common/money';
-import { giftStackConflict, manualGiftCreditCents, manualGiftPriceVersion } from './gift-policy';
+import { giftStackConflict } from './gift-policy';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
@@ -43,7 +43,7 @@ export interface CreateOrderDto {
 
 interface PrecheckResult {
   customer: { ok: boolean; detail: string };
-  credit: { ok: boolean; available: number; openAr: number; inTransit: number; limit: number; need: number; manualGiftCredit: number };
+  credit: { ok: boolean; available: number; openAr: number; inTransit: number; limit: number; need: number };
   inventory: Array<{ productId: string; productName: string; ok: boolean; onHand: number; occupied: number; need: number }>;
   minOrder: { ok: boolean; amount: number; min: number };
 }
@@ -116,13 +116,14 @@ export class OrdersService {
       include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF', 'FEE_OFFSET', 'REVERSAL'] } } } },
     });
     const openArCents = ars.reduce((sum, r) => sum + arOpenCents(r.total, r.ledger).openCents, 0);
+    // D2: 赠品 0 单价且不占信用。在途只计订单应付额（totalAmount 不含赠品）。
     const inTransitOrders = await db.salesOrder.findMany({
       where: { customerId, status: { in: ['CONFIRMED', 'OUTBOUND', 'DELIVERING'] } }, // D07: 已确认直至签收生成应收
-      select: { totalAmount: true, lines: { select: { isGift: true, qty: true, priceVersion: true } } },
+      select: { totalAmount: true },
     });
     let inTransitCents = 0;
     for (const o of inTransitOrders) {
-      inTransitCents += toCents(o.totalAmount) + manualGiftCreditCents(o.lines);
+      inTransitCents += toCents(o.totalAmount);
     }
     return { openAr: centsToNumber(openArCents), inTransit: centsToNumber(inTransitCents) };
   }
@@ -179,11 +180,9 @@ export class OrdersService {
       let priceVersion: string;
       if (l.isGift) {
         // 2026-10 审查修复: isGift 与 priceOverride 同权(0 元直接改订单金额), 限定内勤/老板
-        // LQ1-004: 应付仍为 0；信用按成交价占用，快照写在 priceVersion（gift-ref）
+        // D2 / LQ1-004: 单价 0、扣库存、不占信用、不要求生效价。与买N送M 的互斥在后面拦截。
         if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可标记赠品行');
-        const resolved = await this.resolvePrice(customerId, l.productId, l.unit);
-        if (!resolved) throw new HttpException({ code: 422, message: `赠品 ${p.name} 无生效价, 无法按成交价占用信用` }, HttpStatus.UNPROCESSABLE_ENTITY);
-        price = new Prisma.Decimal(0); priceType = 'MANUAL'; priceVersion = manualGiftPriceVersion(resolved.price);
+        price = new Prisma.Decimal(0); priceType = 'MANUAL'; priceVersion = 'gift';
       } else if (l.priceOverride !== undefined) {
         if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可手工价');
         if (l.priceOverride < 0) throw new BadRequestException('价格不能为负');
@@ -262,11 +261,9 @@ export class OrdersService {
     const limit = centsToNumber(limitCents);
     // P1-12: 现结客户额度=0 款到发货(D07)——原三元两分支相同是死代码, 款到发货未实现;
     // 现结客户信用需求按全额计且不参与"额度充足"豁免: 额度=0 时必须收款/特批才能过
-    // LQ1-004: 应付额不含赠品；手工赠品另按 gift-ref 成交价计入信用。促销赠品不占信用。
+    // D2 / LQ1-004: 应付额不含赠品，赠品不占信用（手工赠品与促销赠品同一口径）。库存仍按行扣。
     const totalNum = centsToNumber(toCents(totalAmount));
-    const giftCreditCents = manualGiftCreditCents(lineData);
-    const manualGiftCredit = centsToNumber(giftCreditCents);
-    const exposureCents = toCents(totalAmount) + giftCreditCents;
+    const exposureCents = toCents(totalAmount);
     const openArCents = toCents(credit.openAr);
     const inTransitCents = toCents(credit.inTransit);
     const creditNeedCents = customer.settlement === 'CASH' ? exposureCents + openArCents + inTransitCents : exposureCents;
@@ -280,7 +277,7 @@ export class OrdersService {
       return { productId: pid, productName: productMap.get(pid)?.name ?? pid, ok: s.onHand - s.occupied >= need, onHand: s.onHand, occupied: s.occupied, need };
     });
     const minOrder = { ok: totalNum >= Number(customer.minOrderAmount), amount: totalNum, min: Number(customer.minOrderAmount) };
-    const precheck: PrecheckResult = { customer: precheckCustomer, credit: { ok: creditOk, available: centsToNumber(limitCents - openArCents - inTransitCents), ...credit, limit, need: creditNeed, manualGiftCredit }, inventory, minOrder };
+    const precheck: PrecheckResult = { customer: precheckCustomer, credit: { ok: creditOk, available: centsToNumber(limitCents - openArCents - inTransitCents), ...credit, limit, need: creditNeed }, inventory, minOrder };
     const failed = !precheckCustomer.ok || !creditOk || inventory.some((i) => !i.ok) || !minOrder.ok;
 
     // T21: 超额自动拦截留痕; 老板特批可放行(D01/R2, 信用放行须老板本人)
@@ -466,7 +463,7 @@ export class OrdersService {
         if (fresh.status !== 'PENDING_CONFIRM') throw new ConflictException('仅待确认订单可确认');
         const credit = await this.creditProjection(fresh.customerId, tx);
         const customer = await tx.customer.findUnique({ where: { id: fresh.customerId } });
-        const needCents = toCents(fresh.totalAmount) + manualGiftCreditCents(fresh.lines) + toCents(credit.inTransit) + toCents(credit.openAr);
+        const needCents = toCents(fresh.totalAmount) + toCents(credit.inTransit) + toCents(credit.openAr);
         const limitCents = customer ? toCents(customer.creditLimit) : 0;
         if (customer && !fresh.specialApproved && needCents > limitCents) {
           throw new HttpException({

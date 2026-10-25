@@ -229,7 +229,10 @@ export class CapFeesService {
     if (byCustomer.size > 0) {
       await this.prisma.$transaction(async (tx) => {
         const lockKey = `cap-accrual:${actor.tenantId}:${period}`;
-        await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+        // pg_advisory_xact_lock 返回 void。$queryRaw 会按列反序列化，Prisma 报
+        // Failed to deserialize column of type 'void'，计提整段 500（LQ1-050）。
+        // $executeRaw 只取影响行数，不读 void 列。
+        await tx.$executeRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
         for (const [customerId, lines] of byCustomer) {
           const source = `CAP_ACCRUAL:${period}:${customerId}`;
           const dup = await tx.expense.findFirst({ where: { tenantId: actor.tenantId, source } });

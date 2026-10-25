@@ -1,26 +1,47 @@
 import { Prisma } from '@prisma/client';
+import dayjs from 'dayjs';
 
 /**
- * LQ1-021 毛利（促销侵蚀后）
+ * LQ1-021 / LQ1-051 毛利与净贡献（C组清单 3.3）
  *
- * 毛利 = 签收实收收入 − 销售成本 − 返利侵蚀 − 费用冲抵侵蚀
+ * 毛利 = 签收实收收入 − 销售成本
+ * 净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵
  * 收入 = 期间签收实收（拒收剔除，赠品行金额为 0）
  * 销售成本 = 出库批次成本；无出库时回退 COST 价（见 fallbackCostCents，LQ1-006）
- * 返利侵蚀 = 期间 REBATE_OFFSET + 期间已批/已付现金返利费用(REBATE)
- *           货补不再扣：随单赠品成本已在销售成本里，收入为 0
- * 费用冲抵侵蚀 = 期间 FEE_OFFSET（陈列 / 进店 / 开瓶费冲货款）
+ * 冲抵不按流水 createdAt：订单应收取原单签收月，期初及其他单据取应收 generatedAt；
+ * 现金返利费用 source=REBATE_SETTLE:YYYY-MM:客户 时取核算期间，否则取 occurredAt。
+ * 货补不再扣：随单赠品成本已在销售成本里，收入为 0
  * 毛利率 = 毛利 / 收入；任一计入行缺少成本时毛利率为空，不显示 100%
- * 客户维度按客户归集；其他维度按该行收入占期间收入的比例分摊（最大余数）
+ * 客户维度按客户归集冲抵；其他维度按该行收入占期间收入的比例分摊到净贡献（最大余数）
  */
 export const GROSS_PROFIT_CALIBER = [
-  '毛利 = 签收实收收入 − 销售成本 − 返利侵蚀 − 费用冲抵侵蚀。',
+  '毛利 = 签收实收收入 − 销售成本。',
+  '净贡献 = 毛利 − 归入本月的返利冲抵 − 归入本月的费用冲抵。',
   '收入 = 期间签收实收(拒收剔除, 赠品行金额为 0)。',
   '销售成本 = 出库批次成本; 无出库时回退 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱(BASE)成本而行为瓶(MIN)时按箱价÷换算率; 仅有瓶(MIN)成本而行为箱(BASE)时按瓶价×换算率。',
-  '返利侵蚀 = 期间 REBATE_OFFSET + 期间已批/已付现金返利费用(REBATE)。货补不重复扣(赠品成本已在销售成本, 收入为 0)。',
-  '费用冲抵侵蚀 = 期间 FEE_OFFSET(陈列/进店/开瓶费冲货款)。',
+  '返利冲抵 = 业务月属于本月的 REBATE_OFFSET + 业务月属于本月的已批/已付现金返利费用(REBATE)。货补不重复扣(赠品成本已在销售成本, 收入为 0)。',
+  '费用冲抵 = 业务月属于本月的 FEE_OFFSET(陈列/进店/开瓶费冲货款)。',
+  '冲抵归属不看流水 createdAt: 冲订单应收时业务月取原订单签收月(signedAt); 冲期初应收或其他非订单单据时业务月取应收 generatedAt。',
+  '现金返利费用 source 为 REBATE_SETTLE:YYYY-MM:客户 时业务月取该核算期间, 否则取 occurredAt。',
   '毛利率 = 毛利 / 收入; 任一计入行缺少成本时毛利率为空, 不按 100% 显示。',
-  '客户维度按客户归集侵蚀; 其他维度按该行收入占期间收入的比例分摊。',
+  '客户维度按客户归集冲抵; 其他维度按该行收入占期间收入的比例把冲抵分摊进净贡献。',
 ].join('');
+
+export function offsetBusinessMonth(doc: {
+  sourceType: string;
+  signedAt?: Date | null;
+  generatedAt: Date;
+}): string {
+  if (doc.sourceType === 'ORDER' && doc.signedAt) return dayjs(doc.signedAt).format('YYYY-MM');
+  return dayjs(doc.generatedAt).format('YYYY-MM');
+}
+
+/** 现金返利费用的业务月。REBATE_SETTLE 期间优先于费用行 occurredAt。 */
+export function cashRebateBusinessMonth(source: string | null | undefined, occurredAt: Date): string {
+  const matched = source?.match(/^REBATE_SETTLE:(\d{4}-\d{2}):/);
+  if (matched) return matched[1];
+  return dayjs(occurredAt).format('YYYY-MM');
+}
 
 export interface CostQuote {
   baseCents: number | null;
@@ -76,8 +97,10 @@ export interface CustomerErosion {
 export interface GrossRowOut extends GrossRowIn {
   rebateCents: number;
   feeCents: number;
-  profitBeforeCents: number;
+  /** 毛利 = 收入 − 成本 */
   profitCents: number;
+  /** 净贡献 = 毛利 − 本月冲抵 */
+  netContributionCents: number;
   margin: number | null;
 }
 
@@ -103,7 +126,7 @@ export function assembleGrossProfit(args: {
   rows: GrossRowIn[];
   erosions: CustomerErosion[];
   customerNames?: ReadonlyMap<string, string>;
-}): { rows: GrossRowOut[]; totals: { revenueCents: number; costCents: number; profitBeforeCents: number; rebateCents: number; feeCents: number; profitCents: number; costKnown: boolean } } {
+}): { rows: GrossRowOut[]; totals: { revenueCents: number; costCents: number; rebateCents: number; feeCents: number; profitCents: number; netContributionCents: number; costKnown: boolean } } {
   const rebateTotal = args.erosions.reduce((s, e) => s + e.rebateCents, 0);
   const feeTotal = args.erosions.reduce((s, e) => s + e.feeCents, 0);
   const rows = args.rows.map((r) => ({ ...r }));
@@ -138,14 +161,14 @@ export function assembleGrossProfit(args: {
 }
 
 function finishRow(r: GrossRowIn, rebateCents: number, feeCents: number): GrossRowOut {
-  const profitBeforeCents = r.revenueCents - r.costCents;
-  const profitCents = profitBeforeCents - rebateCents - feeCents;
+  const profitCents = r.revenueCents - r.costCents;
+  const netContributionCents = profitCents - rebateCents - feeCents;
   return {
     ...r,
     rebateCents,
     feeCents,
-    profitBeforeCents,
     profitCents,
+    netContributionCents,
     margin: marginPercent(profitCents, r.revenueCents, r.costKnown),
   };
 }
@@ -153,15 +176,15 @@ function finishRow(r: GrossRowIn, rebateCents: number, feeCents: number): GrossR
 function finishTotals(rows: GrossRowOut[], rebateCents: number, feeCents: number) {
   const revenueCents = rows.reduce((s, r) => s + r.revenueCents, 0);
   const costCents = rows.reduce((s, r) => s + r.costCents, 0);
-  const profitBeforeCents = revenueCents - costCents;
+  const profitCents = revenueCents - costCents;
   const costKnown = rows.every((r) => r.costKnown);
   return {
     revenueCents,
     costCents,
-    profitBeforeCents,
     rebateCents,
     feeCents,
-    profitCents: profitBeforeCents - rebateCents - feeCents,
+    profitCents,
+    netContributionCents: profitCents - rebateCents - feeCents,
     costKnown,
   };
 }

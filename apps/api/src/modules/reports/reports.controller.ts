@@ -7,7 +7,7 @@ import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { centsToNumber, toCents } from '../../common/money';
-import { assembleGrossProfit, fallbackCostCents, GROSS_PROFIT_CALIBER, marginPercent, type CustomerErosion, type GrossRowIn } from './gross-profit';
+import { assembleGrossProfit, cashRebateBusinessMonth, fallbackCostCents, GROSS_PROFIT_CALIBER, marginPercent, offsetBusinessMonth, type CustomerErosion, type GrossRowIn } from './gross-profit';
 
 // ═══════════════ P1-T11 一键报表 (口径与台账一致: 流水投影, 不另立账) ═══════════════
 // 月报表: 销售(签收口径)/回款/退货/采购 + 品类/业务员/Top商品 维度
@@ -97,7 +97,8 @@ export class ReportsController {
   }
 
   /** C组 M10-2 毛利分析: 期间签收订单(实收口径) × 行成本(出库批次成本; 无出库记录回退最新成本价)
-   *  dimension: category | customer | rep | product; 赠品行收入 0 但成本计入(促销侵蚀毛利如实反映) */
+   *  毛利 = 收入 − 成本（清单 3.3）。返利/费用冲抵单列净贡献，按原单业务月归集（LQ1-021 / LQ1-051）。
+   *  dimension: category | customer | rep | product; 赠品行收入 0 但成本计入。 */
   @Get('gross-profit')
   async grossProfit(@CurrentUser() user: AuthUser, @Query('month') month: string, @Query('dimension') dimension?: string): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new ConflictException('月份格式 YYYY-MM');
@@ -179,16 +180,45 @@ export class ReportsController {
         else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenueCents, costCents, costKnown);
       }
     }
-    const [ledgers, cashRebates] = await this.prisma.$transaction([
-      this.prisma.receivableLedger.findMany({
-        where: { tenantId: user.tenantId, direction: { in: ['REBATE_OFFSET', 'FEE_OFFSET'] }, createdAt: { gte: start, lte: end } },
-        select: { direction: true, amount: true, receivable: { select: { customerId: true } } },
+    // 冲抵按原单业务月，不按流水 createdAt（LQ1-051：期初单的 FEE_OFFSET 不能压到入账月的毛利）。
+    const orderNos = orders.map((o) => o.orderNo);
+    const signedAtByOrderNo = new Map(orders.map((o) => [o.orderNo, o.signedAt]));
+    const [orderDocs, otherDocs, cashRebates] = await this.prisma.$transaction([
+      this.prisma.receivable.findMany({
+        where: { tenantId: user.tenantId, sourceType: 'ORDER', sourceDocNo: { in: orderNos.length ? orderNos : ['__none__'] } },
+        select: { id: true, customerId: true, sourceType: true, sourceDocNo: true, generatedAt: true },
+      }),
+      this.prisma.receivable.findMany({
+        where: { tenantId: user.tenantId, NOT: { sourceType: 'ORDER' }, generatedAt: { gte: start, lte: end } },
+        select: { id: true, customerId: true, sourceType: true, sourceDocNo: true, generatedAt: true },
       }),
       this.prisma.expense.findMany({
-        where: { tenantId: user.tenantId, category: 'REBATE', status: { in: ['APPROVED', 'PAID'] }, occurredAt: { gte: start, lte: end } },
-        select: { amount: true, customerId: true },
+        where: {
+          tenantId: user.tenantId,
+          category: 'REBATE',
+          status: { in: ['APPROVED', 'PAID'] },
+          OR: [
+            { source: { startsWith: `REBATE_SETTLE:${month}:` } },
+            { occurredAt: { gte: start, lte: end } },
+          ],
+        },
+        select: { amount: true, customerId: true, source: true, occurredAt: true },
       }),
     ]);
+    const docs = [...orderDocs, ...otherDocs].filter((d) => offsetBusinessMonth({
+      sourceType: d.sourceType,
+      signedAt: d.sourceType === 'ORDER' ? signedAtByOrderNo.get(d.sourceDocNo) ?? null : null,
+      generatedAt: d.generatedAt,
+    }) === month);
+    const ledgers = docs.length === 0 ? [] : await this.prisma.receivableLedger.findMany({
+      where: {
+        tenantId: user.tenantId,
+        receivableId: { in: docs.map((d) => d.id) },
+        direction: { in: ['REBATE_OFFSET', 'FEE_OFFSET'] },
+      },
+      select: { direction: true, amount: true, receivableId: true },
+    });
+    const docById = new Map(docs.map((d) => [d.id, d]));
     const erosionMap = new Map<string, CustomerErosion>();
     const touch = (customerId: string): CustomerErosion => {
       const cur = erosionMap.get(customerId) ?? { customerId, rebateCents: 0, feeCents: 0 };
@@ -196,12 +226,15 @@ export class ReportsController {
       return cur;
     };
     for (const l of ledgers) {
-      const row = touch(l.receivable.customerId);
+      const doc = docById.get(l.receivableId);
+      if (!doc) continue;
+      const row = touch(doc.customerId);
       if (l.direction === 'REBATE_OFFSET') row.rebateCents += toCents(l.amount);
       else row.feeCents += toCents(l.amount);
     }
     for (const e of cashRebates) {
       if (!e.customerId) continue;
+      if (cashRebateBusinessMonth(e.source, e.occurredAt) !== month) continue;
       touch(e.customerId).rebateCents += toCents(e.amount);
     }
     const reps = repIds.size ? await this.prisma.user.findMany({ where: { id: { in: [...repIds] } }, select: { id: true, name: true } }) : [];
@@ -227,10 +260,11 @@ export class ReportsController {
       name: r.name,
       revenue: centsToNumber(r.revenueCents),
       cost: centsToNumber(r.costCents),
-      profitBeforeErosion: centsToNumber(r.profitBeforeCents),
+      profitBeforeErosion: centsToNumber(r.profitCents),
       rebateErosion: centsToNumber(r.rebateCents),
       feeErosion: centsToNumber(r.feeCents),
       profit: centsToNumber(r.profitCents),
+      netContribution: centsToNumber(r.netContributionCents),
       margin: r.margin,
     });
     const rows = assembled.rows.map(yuanRow).sort((a, b) => b.profit - a.profit);
@@ -240,10 +274,11 @@ export class ReportsController {
       totals: {
         revenue: centsToNumber(t.revenueCents),
         cost: centsToNumber(t.costCents),
-        profitBeforeErosion: centsToNumber(t.profitBeforeCents),
+        profitBeforeErosion: centsToNumber(t.profitCents),
         rebateErosion: centsToNumber(t.rebateCents),
         feeErosion: centsToNumber(t.feeCents),
         profit: centsToNumber(t.profitCents),
+        netContribution: centsToNumber(t.netContributionCents),
         margin: marginPercent(t.profitCents, t.revenueCents, t.costKnown),
         orderCount: orders.length,
       },

@@ -8,8 +8,9 @@ import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
 import { ExpensesService } from '../src/modules/expenses/expenses.service';
 import { PriceChangesService } from '../src/modules/price-changes/price-changes.service';
 import { ReportsController } from '../src/modules/reports/reports.controller';
-import { fallbackCostCents, assembleGrossProfit, GROSS_PROFIT_CALIBER, marginPercent } from '../src/modules/reports/gross-profit';
-import { manualGiftCreditCents, manualGiftPriceVersion, giftStackConflict, GIFT_STACK_CONFLICT } from '../src/modules/orders/gift-policy';
+import { OrdersController } from '../src/modules/orders/orders.controller';
+import { fallbackCostCents, assembleGrossProfit, cashRebateBusinessMonth, GROSS_PROFIT_CALIBER, marginPercent, offsetBusinessMonth } from '../src/modules/reports/gross-profit';
+import { giftStackConflict, GIFT_STACK_CONFLICT } from '../src/modules/orders/gift-policy';
 import { returnLinesCents } from '../src/modules/returns/return-amount';
 import { centsToDecimal, toCents } from '../src/common/money';
 
@@ -146,16 +147,6 @@ describe('LQ1-003 confirm credit check is serialized on the customer row', () =>
 });
 
 describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
-  it('prices manual gifts at zero for billing but keeps the reference price for credit', () => {
-    const version = manualGiftPriceVersion(new Prisma.Decimal('175.00'));
-    expect(version).toBe('gift-ref:175.00');
-    expect(manualGiftCreditCents([
-      { isGift: true, qty: 2, priceVersion: version },
-      { isGift: true, qty: -1, priceVersion: version },
-      { isGift: true, qty: 9, priceVersion: 'gift' },
-    ])).toBe(17500);
-  });
-
   it('rejects a manual gift that overlaps the promo gift for the same product', () => {
     expect(giftStackConflict(['p1'], [{ productId: 'p1', giftProductId: 'p1' }])).toBe(GIFT_STACK_CONFLICT);
     expect(giftStackConflict(['gift-sku'], [{ productId: 'p1', giftProductId: 'gift-sku' }])).toBe(GIFT_STACK_CONFLICT);
@@ -174,6 +165,7 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
       salesOrder: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0), create: jest.fn(async () => ({ id: 'o1', orderNo: 'SO1', status: 'PENDING_CONFIRM' })) },
       inventoryLedger: { groupBy: jest.fn().mockResolvedValue([{ productId: 'p1', direction: 'IN', _sum: { qty: new Prisma.Decimal(1000) } }]) },
       orderLine: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { created.push(...data); return { count: data.length }; }) },
+      idempotencyRecord: { create: jest.fn(async () => ({ id: 'idem1' })) },
       $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma),
     };
     return { prisma, created };
@@ -182,46 +174,68 @@ describe('LQ1-004 manual gifts and buy-N-get-M are mutually exclusive', () => {
   it('refuses to stack a manual gift on top of a hit buy-N-get-M rule', async () => {
     const { prisma } = orderPrisma(true);
     const svc = new OrdersService(prisma as never, audit as never, idem as never);
+    const idemKey = 'idem-lq1-004-stack';
     await expect(svc.create({
       customerId: 'c1', source: 'CLERK',
       lines: [
         { productId: 'p1', qty: 2, unit: 'BASE' },
         { productId: 'p1', qty: 10, unit: 'BASE', isGift: true },
       ],
-    }, clerk)).rejects.toBeInstanceOf(ConflictException);
+    }, clerk, idemKey)).rejects.toBeInstanceOf(ConflictException);
+    expect(idem.check).toHaveBeenCalledWith(clerk, 'orders.create', idemKey, expect.anything());
     expect(prisma.salesOrder.create).not.toHaveBeenCalled();
   });
 
-  it('occupies credit with the reference price of a manual gift and leaves promo gifts out of credit', async () => {
+  it('bills a manual gift at zero, deducts inventory, and does not occupy credit', async () => {
     const manual = orderPrisma(false);
     const svc = new OrdersService(manual.prisma as never, audit as never, idem as never);
-    const created = await svc.create({ customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] }, clerk);
+    const created = await svc.create({ customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] }, clerk, 'idem-lq1-004-manual');
     expect(created.totalAmount).toBe(0);
-    expect(created.precheck.credit.need).toBe(175);
-    expect(created.precheck.credit.manualGiftCredit).toBe(175);
-    expect(manual.created[0]).toMatchObject({ isGift: true, priceVersion: 'gift-ref:175.00' });
+    expect(created.precheck.credit.need).toBe(0);
+    expect(created.precheck.credit).not.toHaveProperty('manualGiftCredit');
+    expect(manual.created[0]).toMatchObject({ isGift: true, priceVersion: 'gift' });
     expect(toCents(manual.created[0].unitPrice as Prisma.Decimal)).toBe(0);
+    expect(created.precheck.inventory[0].need).toBe(6);
+    expect(manual.prisma.idempotencyRecord.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ key: 'idem-lq1-004-manual', endpoint: 'orders.create' }),
+    }));
 
     const promo = orderPrisma(true);
     const promoSvc = new OrdersService(promo.prisma as never, audit as never, idem as never);
-    const promoOrder = await promoSvc.create({ customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 2, unit: 'BASE' }] }, clerk);
+    const promoOrder = await promoSvc.create({ customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 2, unit: 'BASE' }] }, clerk, 'idem-lq1-004-promo');
     expect(promoOrder.totalAmount).toBe(350);
-    expect(promoOrder.precheck.credit.manualGiftCredit).toBe(0);
     expect(promoOrder.precheck.credit.need).toBe(350);
     const gift = promo.created.find((l) => l.isGift);
     expect(gift).toMatchObject({ priceVersion: 'gift', promoNote: '买2送1' });
+    expect(promoOrder.precheck.inventory[0].need).toBe(18);
   });
 
-  it('counts an in-transit manual gift toward the next credit check', async () => {
+  it('sends Idempotency-Key from the header into order create', async () => {
+    const { prisma } = orderPrisma(false);
+    const svc = new OrdersService(prisma as never, audit as never, idem as never);
+    const ctrl = new OrdersController(svc);
+    const idemKey = 'idem-lq1-004-header';
+    await ctrl.create(
+      { customerId: 'c1', source: 'CLERK', lines: [{ productId: 'p1', qty: 1, unit: 'BASE', isGift: true }] },
+      clerk,
+      idemKey,
+      '127.0.0.1',
+    );
+    expect(prisma.idempotencyRecord.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ key: idemKey, endpoint: 'orders.create' }),
+    }));
+  });
+
+  it('does not count an in-transit manual gift toward the next credit check', async () => {
     const prisma = {
       receivable: { findMany: jest.fn().mockResolvedValue([]) },
       salesOrder: { findMany: jest.fn().mockResolvedValue([{
         totalAmount: new Prisma.Decimal(0),
-        lines: [{ isGift: true, qty: new Prisma.Decimal(2), priceVersion: 'gift-ref:175.00' }],
+        lines: [{ isGift: true, qty: new Prisma.Decimal(2), priceVersion: 'gift' }],
       }]) },
     };
     const svc = new OrdersService(prisma as never, audit as never, idem as never);
-    await expect(svc.creditProjection('c1')).resolves.toMatchObject({ openAr: 0, inTransit: 350 });
+    await expect(svc.creditProjection('c1')).resolves.toMatchObject({ openAr: 0, inTransit: 0 });
   });
 });
 
@@ -302,7 +316,7 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
     expect(marginPercent(10000, 35000, true)).toBe(28.6);
   });
 
-  it('subtracts rebates and fee offsets, allocating them by customer or by revenue', () => {
+  it('keeps gross profit as revenue minus cost and puts offsets in net contribution', () => {
     const customer = assembleGrossProfit({
       dimension: 'customer',
       rows: [
@@ -316,9 +330,12 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
       customerNames: new Map([['c3', '丙']]),
     });
     const c1 = customer.rows.find((r) => r.key === 'c1')!;
-    expect(c1.profitCents).toBe(35000 - 20000 - 3000 - 2000);
-    expect(customer.rows.find((r) => r.key === 'c3')!.profitCents).toBe(-500);
-    expect(customer.totals.profitCents).toBe((35000 + 10000) - (20000 + 4000) - 3000 - 2500);
+    expect(c1.profitCents).toBe(35000 - 20000);
+    expect(c1.netContributionCents).toBe(35000 - 20000 - 3000 - 2000);
+    expect(customer.rows.find((r) => r.key === 'c3')!.profitCents).toBe(0);
+    expect(customer.rows.find((r) => r.key === 'c3')!.netContributionCents).toBe(-500);
+    expect(customer.totals.profitCents).toBe((35000 + 10000) - (20000 + 4000));
+    expect(customer.totals.netContributionCents).toBe((35000 + 10000) - (20000 + 4000) - 3000 - 2500);
 
     const product = assembleGrossProfit({
       dimension: 'product',
@@ -329,39 +346,86 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
       erosions: [{ customerId: 'c1', rebateCents: 4, feeCents: 0 }],
     });
     expect(product.rows.map((r) => r.rebateCents).sort()).toEqual([1, 3]);
-    expect(product.totals.profitCents).toBe(400 - 4);
-    expect(GROSS_PROFIT_CALIBER).toContain('毛利 = 签收实收收入 − 销售成本 − 返利侵蚀 − 费用冲抵侵蚀');
+    expect(product.totals.profitCents).toBe(400);
+    expect(product.totals.netContributionCents).toBe(400 - 4);
+    expect(GROSS_PROFIT_CALIBER).toContain('毛利 = 签收实收收入 − 销售成本');
+    expect(GROSS_PROFIT_CALIBER).toContain('净贡献');
     expect(GROSS_PROFIT_CALIBER).toContain('FEE_OFFSET');
     expect(GROSS_PROFIT_CALIBER).toContain('REBATE_OFFSET');
+    expect(GROSS_PROFIT_CALIBER).toContain('不看流水 createdAt');
   });
 
-  it('uses a BASE cost price for a case line and folds erosion into profit', async () => {
+  it('attributes offsets by the source document month, not the ledger createdAt', () => {
+    expect(offsetBusinessMonth({
+      sourceType: 'INITIAL',
+      generatedAt: new Date('2026-06-15T12:00:00Z'),
+    })).toBe('2026-06');
+    expect(offsetBusinessMonth({
+      sourceType: 'ORDER',
+      signedAt: new Date('2026-10-02T12:00:00Z'),
+      generatedAt: new Date('2026-11-01T12:00:00Z'),
+    })).toBe('2026-10');
+    expect(cashRebateBusinessMonth('REBATE_SETTLE:2026-09:c1', new Date('2026-10-05T12:00:00Z'))).toBe('2026-09');
+    expect(cashRebateBusinessMonth(null, new Date('2026-10-05T12:00:00Z'))).toBe('2026-10');
+  });
+
+  it('uses a BASE cost price for a case line and keeps offsets out of gross profit', async () => {
+    const ledgerWhere: unknown[] = [];
+    const receivableWhere: unknown[] = [];
+    const octoberReceivable = {
+      id: 'ar-oct', customerId: 'c1', sourceType: 'ORDER', sourceDocNo: 'SO-OCT', generatedAt: new Date('2026-10-03T12:00:00Z'),
+    };
+    const juneInitial = {
+      id: 'ar-june', customerId: 'c2', sourceType: 'INITIAL', sourceDocNo: '初0003', generatedAt: new Date('2026-06-15T12:00:00Z'),
+    };
     const prisma = {
       salesOrder: { findMany: jest.fn().mockResolvedValue([{
+        orderNo: 'SO-OCT', signedAt: new Date('2026-10-02T12:00:00Z'),
         customerId: 'c1', customerName: '店', salespersonId: null,
         lines: [{ id: 'l1', productId: 'p1', productName: '酒', reversalOfId: null, qty: new Prisma.Decimal(2), unit: 'BASE', conversionRate: 6, amount: new Prisma.Decimal('350.00'), product: { category: 'BAIJIU', skuCode: 'S' } }],
         signature: null,
         outbounds: [],
       }]) },
       price: { findMany: jest.fn().mockResolvedValue([{ productId: 'p1', unit: 'BASE', price: new Prisma.Decimal('100.00'), validFrom: new Date('2026-01-01') }]) },
-      receivableLedger: { findMany: jest.fn().mockResolvedValue([{ direction: 'FEE_OFFSET', amount: new Prisma.Decimal('30.00'), receivable: { customerId: 'c1' } }]) },
-      expense: { findMany: jest.fn().mockResolvedValue([{ amount: new Prisma.Decimal('20.00'), customerId: 'c1' }]) },
+      receivable: { findMany: jest.fn(async ({ where }: { where: { sourceType?: string; NOT?: { sourceType?: string } } }) => {
+        receivableWhere.push(where);
+        if (where.sourceType === 'ORDER') return [octoberReceivable];
+        return [juneInitial];
+      }) },
+      receivableLedger: { findMany: jest.fn(async ({ where }: { where: { receivableId?: { in: string[] }; createdAt?: unknown } }) => {
+        ledgerWhere.push(where);
+        expect(where.createdAt).toBeUndefined();
+        const ids = where.receivableId?.in ?? [];
+        const rows = [];
+        if (ids.includes('ar-oct')) rows.push({ direction: 'FEE_OFFSET', amount: new Prisma.Decimal('30.00'), receivableId: 'ar-oct' });
+        if (ids.includes('ar-june')) rows.push({ direction: 'FEE_OFFSET', amount: new Prisma.Decimal('500.00'), receivableId: 'ar-june' });
+        return rows;
+      }) },
+      expense: { findMany: jest.fn().mockResolvedValue([
+        { amount: new Prisma.Decimal('20.00'), customerId: 'c1', source: 'REBATE_SETTLE:2026-10:c1', occurredAt: new Date('2026-11-02T12:00:00Z') },
+        { amount: new Prisma.Decimal('99.00'), customerId: 'c1', source: 'REBATE_SETTLE:2026-06:c1', occurredAt: new Date('2026-10-20T12:00:00Z') },
+      ]) },
       $transaction: async (arg: Promise<unknown>[]) => Promise.all(arg),
     };
     const ctrl = new ReportsController(prisma as never);
     const report = await ctrl.grossProfit({ tenantId: 't1' } as never, '2026-10', 'product') as {
-      rows: Array<{ cost: number; profit: number; margin: number | null }>;
-      totals: { revenue: number; cost: number; rebateErosion: number; feeErosion: number; profit: number; margin: number | null };
+      rows: Array<{ cost: number; profit: number; netContribution: number; margin: number | null }>;
+      totals: { revenue: number; cost: number; rebateErosion: number; feeErosion: number; profit: number; netContribution: number; margin: number | null };
       caliber: string;
     };
     expect(report.totals.revenue).toBe(350);
     expect(report.totals.cost).toBe(200);
     expect(report.totals.rebateErosion).toBe(20);
     expect(report.totals.feeErosion).toBe(30);
-    expect(report.totals.profit).toBe(100);
-    expect(report.totals.margin).toBe(28.6);
+    expect(report.totals.profit).toBe(150);
+    expect(report.totals.netContribution).toBe(100);
+    expect(report.totals.margin).toBe(42.9);
     expect(report.rows[0].margin).not.toBe(100);
+    expect(report.rows[0].profit).toBe(150);
+    expect(report.rows[0].netContribution).toBe(100);
     expect(report.caliber).toBe(GROSS_PROFIT_CALIBER);
+    expect(receivableWhere.some((w) => JSON.stringify(w).includes('generatedAt'))).toBe(true);
+    expect(JSON.stringify(ledgerWhere)).not.toContain('createdAt');
   });
 
   it('does not report a 100% margin when no cost price exists', async () => {
@@ -372,6 +436,7 @@ describe('LQ1-006 / LQ1-021 gross margin cost units and erosion', () => {
         signature: null, outbounds: [],
       }]) },
       price: { findMany: jest.fn().mockResolvedValue([]) },
+      receivable: { findMany: jest.fn().mockResolvedValue([]) },
       receivableLedger: { findMany: jest.fn().mockResolvedValue([]) },
       expense: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: async (arg: Promise<unknown>[]) => Promise.all(arg),
@@ -438,7 +503,7 @@ describe('LQ1-020 monthly corkage accrual is idempotent under concurrency', () =
     const sources = new Set<string>();
     const sql: string[] = [];
     const tx = {
-      $queryRaw: async (q: { strings?: string[] }) => { sql.push(sqlText(q)); return []; },
+      $executeRaw: async (q: { strings?: string[] }) => { sql.push(sqlText(q)); return 0; },
       expense: {
         findFirst: async ({ where }: { where: { source: string } }) => (sources.has(where.source) ? { id: 'dup' } : null),
         count: async () => sources.size,

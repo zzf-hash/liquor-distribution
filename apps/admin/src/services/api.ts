@@ -1255,6 +1255,10 @@ export interface GrossProfitRowDTO {
   revenue: number;
   cost: number;
   profit: number;
+  /** 净贡献 = 毛利 − 归入本月的返利/费用冲抵 */
+  netContribution?: number;
+  rebateErosion?: number;
+  feeErosion?: number;
   margin: number | null;
 }
 
@@ -1262,7 +1266,7 @@ export interface GrossProfitDTO {
   month: string;
   dimension: 'category' | 'customer' | 'rep' | 'product';
   rows: GrossProfitRowDTO[];
-  totals: { revenue: number; cost: number; profit: number; margin: number | null; orderCount: number };
+  totals: { revenue: number; cost: number; profit: number; netContribution?: number; margin: number | null; orderCount: number };
   caliber: string;
 }
 
