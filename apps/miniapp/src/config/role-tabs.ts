@@ -43,6 +43,8 @@ export const BOSS_TABS: RoleTab[] = [
 
 const BY_APP_ROLE: Record<AppRole, RoleTab[]> = {
   customer: CUSTOMER_TABS,
+  // 员工包不声明原生 tab。微信 tabBar.list 至少 2 项，空列表不能写进 app.json。
+  staff: [],
   salesman: SALESMAN_TABS,
   clerk: CLERK_TABS,
   warehouse: WAREHOUSE_TABS,
@@ -51,6 +53,12 @@ const BY_APP_ROLE: Record<AppRole, RoleTab[]> = {
 
 export function tabsForAppRole(role: AppRole): RoleTab[] {
   return BY_APP_ROLE[role] ?? CUSTOMER_TABS
+}
+
+/** 能写进 app.json / H5 壳的原生 tab。员工包返回 null，调用方不要输出 tabBar 字段。 */
+export function nativeTabBarFor(role: AppRole): RoleTab[] | null {
+  const tabs = tabsForAppRole(role)
+  return tabs.length >= 2 ? tabs : null
 }
 
 /** 登录后的后端角色（OWNER/CLERK/REP/WAREHOUSE/CUSTOMER）。未登录返回 null。 */

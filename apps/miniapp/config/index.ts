@@ -28,10 +28,18 @@ export default defineConfig<'vite'>(async (merge) => {
       828: 1.81 / 2
     },
     sourceRoot: 'src',
-    // h5 与 weapp 分目录产出，互不覆盖（weapp 产物目录=project.config.json 的 miniprogramRoot './dist'）
-    outputRoot: process.env.TARO_ENV === 'h5' ? 'dist-h5' : 'dist',
+    // 客户包：weapp=dist（project.config.json 的 miniprogramRoot），h5=dist-h5。
+    // 员工包：dist-staff / dist-h5-staff，避免两次构建互相覆盖。
+    outputRoot: process.env.TARO_ENV === 'h5'
+      ? (process.env.TARO_APP_ROLE === 'staff' ? 'dist-h5-staff' : 'dist-h5')
+      : (process.env.TARO_APP_ROLE === 'staff' ? 'dist-staff' : 'dist'),
     plugins: [],
+    // 无论环境变量是否为空都写入。空值默认 customer。
+    // 漏写时 weapp 的 common.js 会留下 process.env，小程序没有 process，加载即 ReferenceError。
+    // 接口地址同样写成字面量，避免 common.js 里再剩一处 process.env。
     defineConstants: {
+      'process.env.TARO_APP_ROLE': JSON.stringify((process.env.TARO_APP_ROLE || 'customer').trim() || 'customer'),
+      'process.env.TARO_APP_API_BASE': JSON.stringify((process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api').trim() || 'http://127.0.0.1:3000/api'),
     },
     copy: {
       patterns: [

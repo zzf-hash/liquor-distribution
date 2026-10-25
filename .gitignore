@@ -5,6 +5,8 @@ dist/
 *.log
 
 dist-h5/
+dist-staff/
+dist-h5-staff/
 .swc/
 project.private.config.json
 apps/api/.env

@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
-import { ROLE_HOME_PAGE, authApi, saveSession } from '../../../services/api'
+import { APP_ROLE } from '../../../config/app-role'
+import { ROLE_HOME_PAGE, authApi, clearSession, saveSession } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
+import { loginBlock } from '../../../services/package-login-gate'
 import './index.scss'
 
 /**
@@ -39,6 +41,14 @@ export default function StaffLoginPage() {
     try {
       const res = await authApi.login(username.trim(), password, tenantCode)
       const role = res.user?.role ?? ''
+      // 员工包没有客户原生 tab。客户账号停在本页，不写会话；和客户登录页拒绝员工账号同一套门闩。
+      const block = loginBlock(APP_ROLE, role, 'staff')
+      if (block) {
+        if (block.clearSession) clearSession()
+        setError(block.toast)
+        Taro.showToast({ title: block.toast, icon: 'none' })
+        return
+      }
       const home = ROLE_HOME_PAGE[role]
       if (!home) {
         Taro.showToast({ title: `未知角色 ${role}，请联系管理员`, icon: 'none' })

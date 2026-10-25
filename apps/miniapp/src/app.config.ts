@@ -1,8 +1,8 @@
 import { APP_ROLE, APP_TITLE, type AppRole } from './config/app-role'
-import { tabsForAppRole } from './config/role-tabs'
+import { nativeTabBarFor } from './config/role-tabs'
 
-// 四端复用：页面按端分组注册，编译时按 APP_ROLE 决定首页与页面集合
-// （task d0974541；P1 全员端起各员工端页面全部挂入，登录统一按 role 分发）
+// 页面全部注册，登录后按 user.role 分发。
+// TARO_APP_ROLE 只决定窗口标题，以及要不要写出原生 tabBar。
 
 export const CUSTOMER_PAGES = [
   'pages/index/index',
@@ -52,14 +52,14 @@ export const BOSS_PAGES = [
   'pages/boss/approvals/index',
 ] as const
 
-export const RESERVED_PAGES: Record<Exclude<AppRole, 'customer'>, string[]> = {
+export const RESERVED_PAGES: Record<Exclude<AppRole, 'customer' | 'staff'>, string[]> = {
   salesman: [...SALESMAN_PAGES],
   clerk: [...CLERK_PAGES],
   warehouse: [...WAREHOUSE_PAGES],
   boss: [...BOSS_PAGES],
 }
 
-const roleTabs = tabsForAppRole(APP_ROLE)
+const nativeTabs = nativeTabBarFor(APP_ROLE)
 
 const pageConfig = {
   pages: [...CUSTOMER_PAGES, ...SALESMAN_PAGES, ...CLERK_PAGES, ...WAREHOUSE_PAGES, ...BOSS_PAGES],
@@ -76,15 +76,19 @@ const pageConfig = {
     },
   },
   requiredPrivateInfos: ['getLocation' as const],
-  // 底部导航按编译期 APP_ROLE 生成。运行时角色不一致时由 app.ts 隐藏原生 tab，
-  // 员工页改用 RoleTabBar，避免仓配/内勤看到客户订货页。
-  tabBar: {
-    color: '#6B5F5A',
-    selectedColor: '#7A1F2B',
-    backgroundColor: '#FFFFFF',
-    borderStyle: 'white' as const,
-    list: roleTabs,
-  },
+  // 客户包和按角色出的包才写 tabBar。员工包（TARO_APP_ROLE=staff）没有这一段，
+  // 避免 app.json / H5 壳带上客户的首页、订货、我的订单、待结金额。
+  ...(nativeTabs
+    ? {
+        tabBar: {
+          color: '#6B5F5A',
+          selectedColor: '#7A1F2B',
+          backgroundColor: '#FFFFFF',
+          borderStyle: 'white' as const,
+          list: nativeTabs,
+        },
+      }
+    : {}),
 }
 
 export default defineAppConfig(pageConfig)

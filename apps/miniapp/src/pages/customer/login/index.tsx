@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro from '@tarojs/taro'
+import { APP_ROLE } from '../../../config/app-role'
 import { openAppPage } from '../../../services/navigation'
-import { authApi, saveSession } from '../../../services/api'
+import { authApi, clearSession, saveSession } from '../../../services/api'
+import { loginBlock } from '../../../services/package-login-gate'
 import './index.scss'
 
 /**
@@ -28,8 +30,10 @@ export default function CustomerLoginPage() {
     setSubmitting(true)
     try {
       const res = await authApi.login(username.trim(), password, tenantCode)
-      if (res.user?.role !== 'CUSTOMER') {
-        Taro.showToast({ title: '该账号不是客户账号，请联系商家开通', icon: 'none' })
+      const block = loginBlock(APP_ROLE, res.user?.role, 'customer')
+      if (block) {
+        if (block.clearSession) clearSession()
+        Taro.showToast({ title: block.toast, icon: 'none' })
         return
       }
       saveSession(res)
