@@ -4,12 +4,15 @@
  */
 import {
   ApiCodes,
+  PRICE_UNIT_INPUTS,
   isApiOk,
   isNonEmpty,
   isPhone,
   isPositiveAmount,
   isRole,
+  priceUnitErrorMessage,
   ROLES,
+  toPriceUnit,
 } from '@liquor/shared';
 
 describe('@liquor/shared 契约', () => {
@@ -52,5 +55,20 @@ describe('@liquor/shared 契约', () => {
     expect(isRole('OWNER')).toBe(true);
     expect(isRole('CUSTOMER')).toBe(true);
     expect(isRole('BOSS')).toBe(false);
+  });
+
+  it('toPriceUnit 把箱/件/主单位收成 BASE，瓶/个/最小单位收成 MIN', () => {
+    expect(toPriceUnit('箱')).toBe('BASE');
+    expect(toPriceUnit(' 件 ')).toBe('BASE');
+    expect(toPriceUnit('主单位')).toBe('BASE');
+    expect(toPriceUnit('BASE')).toBe('BASE');
+    expect(toPriceUnit('瓶')).toBe('MIN');
+    expect(toPriceUnit('个')).toBe('MIN');
+    expect(toPriceUnit('最小单位')).toBe('MIN');
+    expect(toPriceUnit('MIN')).toBe('MIN');
+    expect(toPriceUnit('打')).toBeNull();
+    expect(toPriceUnit('')).toBeNull();
+    const message = priceUnitErrorMessage('打');
+    for (const allowed of PRICE_UNIT_INPUTS) expect(message).toContain(allowed);
   });
 });

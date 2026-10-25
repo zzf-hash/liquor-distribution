@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { NotifyService } from '../../common/notify.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P1-T01 审批中心: 五条线统一 ═══════════════
 // D01 冻结口径: 单笔 ≤ 阈值(默认2000, cfg special_approve_threshold)内勤可批;
@@ -139,8 +140,9 @@ export class ApprovalsService {
       const special = await this.prisma.specialOrder.findUnique({ where: { id: record.entityId }, include: { lines: true } });
       for (const line of special?.lines ?? []) {
         if (!line.productId) continue;
+        const unit = requirePriceUnit(line.unit);
         const cost = await this.prisma.price.findFirst({
-          where: { productId: line.productId, unit: line.unit as 'BASE' | 'MIN', levelType: 'COST', validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
+          where: { productId: line.productId, unit, levelType: 'COST', validFrom: { lte: new Date() }, OR: [{ validTo: null }, { validTo: { gte: new Date() } }] },
           orderBy: { validFrom: 'desc' },
         });
         if (cost && Number(line.price) < Number(cost.price)) { belowCost = true; break; }

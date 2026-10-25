@@ -9,6 +9,7 @@ import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import { computeGiftLines } from '../promotions/promotions.controller';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
 // 设计依据: docs/baseline/开发任务书_MVP分期_v1.md WS-2 + docs/M0/业务适配清单.md
@@ -134,6 +135,8 @@ export class OrdersService {
   // ─────────────── P0-T20 三入口下单 + P0-T21 审单预检 ───────────────
   async create(dto: CreateOrderDto, user: AuthUser, idemKey?: string, ip?: string): Promise<{ id: string; orderNo: string; status: string; totalAmount: number; precheck: PrecheckResult; replay?: boolean }> {
     if (!dto.lines?.length) throw new BadRequestException('订单至少一行商品');
+    // 箱/件/瓶先收成 PriceUnit。非法单位在查库之前 422，避免 Prisma 枚举校验变成 500。
+    for (const line of dto.lines) line.unit = requirePriceUnit(line.unit);
     // 下单接入幂等基座(2026-10 审查修复: 此前后端不消费 Idempotency-Key, 防重复下单只剩前端布尔位;
     // 客户端 miniapp api.ts orders.create 与 admin 均已随请求携带)。快照在 CUSTOMER source 改写前,
     // 保证 check 与落库两侧指纹一致。
@@ -223,7 +226,7 @@ export class OrdersService {
     if (promoRules.length > 0) {
       const gifts = computeGiftLines(
         dto.lines.map((l) => ({ productId: l.productId, unit: l.unit, qty: l.qty, isGift: l.isGift })),
-        promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: r.unit as 'BASE' | 'MIN' })),
+        promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: requirePriceUnit(r.unit) })),
       );
       const giftProductIds = [...new Set(gifts.map((g) => g.giftProductId).filter((id) => !productMap.has(id)))];
       if (giftProductIds.length > 0) {

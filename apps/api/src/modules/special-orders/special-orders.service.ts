@@ -6,6 +6,7 @@ import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { OrdersService } from '../orders/orders.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P1-T02 特单 (F8 全员下单 + 婚宴宴席单) ═══════════════
 // 红线: 未经定价审批不可出货 → convert 仅 APPROVED 可转正式订单(D01/任务书验收)
@@ -28,6 +29,8 @@ export class SpecialOrdersService {
   }): Promise<unknown> {
     if (!dto.lines?.length) throw new BadRequestException('特单至少一行');
     if (dto.lines.some((l) => l.qty <= 0 || l.price < 0)) throw new BadRequestException('数量须>0, 价格须≥0');
+    // 引用了商品的行以后要写入 PriceUnit。这里先拦住非法单位；原文（箱/件）仍落在特单行上。
+    for (const l of dto.lines) if (l.productId) requirePriceUnit(l.unit);
     const seq = (await this.prisma.specialOrder.count({ where: { specialNo: { startsWith: `SP${dayjs().format('YYYYMMDD')}` } } })) + 1;
     const created = await this.prisma.specialOrder.create({
       data: {
@@ -86,7 +89,7 @@ export class SpecialOrdersService {
     if (so.deliveryDate) signals.push('指定配送时段');
     if (so.customerId) {
       for (const l of so.lines.filter((x) => x.productId)) {
-        const resolved = await this.resolveAvailablePrice(so.customerId, l.productId!);
+        const resolved = await this.resolveAvailablePrice(so.customerId, l.productId!, requirePriceUnit(l.unit));
         if (resolved !== null && Number(l.price) < resolved) { signals.push(`行「${l.productName}」低于可用价 ${resolved}`); break; }
       }
     }
@@ -100,14 +103,14 @@ export class SpecialOrdersService {
     return { id, status: 'PENDING_PRICE', approvalId: approval.id, amount, signals };
   }
 
-  private async resolveAvailablePrice(customerId: string, productId: string): Promise<number | null> {
+  private async resolveAvailablePrice(customerId: string, productId: string, unit: 'BASE' | 'MIN'): Promise<number | null> {
     const now = new Date();
     const valid = { validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] };
-    const exclusive = await this.prisma.customerPrice.findFirst({ where: { customerId, productId, ...valid }, orderBy: { validFrom: 'desc' } });
+    const exclusive = await this.prisma.customerPrice.findFirst({ where: { customerId, productId, unit, ...valid }, orderBy: { validFrom: 'desc' } });
     if (exclusive) return Number(exclusive.price);
     const order: Array<'TERMINAL' | 'TIER2' | 'TIER1' | 'RETAIL'> = ['TERMINAL', 'TIER2', 'TIER1', 'RETAIL'];
     for (const level of order) {
-      const row = await this.prisma.price.findFirst({ where: { productId, levelType: level, ...valid }, orderBy: { validFrom: 'desc' } });
+      const row = await this.prisma.price.findFirst({ where: { productId, unit, levelType: level, ...valid }, orderBy: { validFrom: 'desc' } });
       if (row) return Number(row.price);
     }
     return null;
@@ -127,7 +130,7 @@ export class SpecialOrdersService {
       {
         customerId: so.customerId,
         source: user.role === 'REP' ? 'REP' : 'CLERK',
-        lines: productLines.map((l) => ({ productId: l.productId!, qty: Number(l.qty), unit: l.unit as 'BASE' | 'MIN', priceOverride: Number(l.price) })),
+        lines: productLines.map((l) => ({ productId: l.productId!, qty: Number(l.qty), unit: requirePriceUnit(l.unit), priceOverride: Number(l.price) })),
         addressOverride: so.address,
         deliveryDate: so.deliveryDate ? dayjs(so.deliveryDate).format('YYYY-MM-DD') : undefined,
         note: `特单 ${so.specialNo} 转单${so.isBanquet ? '(宴席)' : ''}`,

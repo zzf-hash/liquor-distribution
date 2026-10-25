@@ -7,6 +7,7 @@ import { OrdersService } from '../orders/orders.service';
 import { QwenEngineService } from './qwen-engine.service';
 import { AsrService } from '../../common/asr.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ P1-T12 语音/照片/文字 → 可编辑草稿 → 确认转单 ═══════════════
 // 红线(D16/Q13): 草稿永远是可编辑的; confirm 只创建 PENDING_CONFIRM 订单(状态机
@@ -162,9 +163,10 @@ export class DraftsService {
     const draftItems = (d.items as unknown as DraftItem[]) ?? [];
     const customerId = dto.customerId ?? d.customerId;
     if (!customerId) throw new BadRequestException('请先选定客户');
-    const lines = (dto.lines?.length
+    const rawLines = dto.lines?.length
       ? dto.lines
-      : draftItems.filter((i) => i.productId).map((i) => ({ productId: i.productId!, qty: Number(i.qty), unit: (i.unit === '瓶' || i.unit === '个' ? 'MIN' : 'BASE') as 'BASE' | 'MIN', priceOverride: i.unitPrice ?? undefined })));
+      : draftItems.filter((i) => i.productId).map((i) => ({ productId: i.productId!, qty: Number(i.qty), unit: i.unit, priceOverride: i.unitPrice ?? undefined }));
+    const lines = rawLines.map((l) => ({ productId: l.productId, qty: Number(l.qty), unit: requirePriceUnit(l.unit), priceOverride: l.priceOverride }));
     if (!lines.length) throw new BadRequestException('无可转单行(请先为商品行匹配商品)');
     const order = await this.orders.create(
       { customerId, source: user.role === 'REP' ? 'REP' : 'CLERK', lines, note: `草稿转单 ${d.draftNo}${d.source === 'VOICE' ? '(语音)' : d.source === 'PHOTO' ? '(拍照)' : ''}` },
