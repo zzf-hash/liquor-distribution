@@ -4,6 +4,7 @@ import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Canvas, Image, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
+import { rejectConfirmText } from '../../../services/sign-reject'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -245,12 +246,24 @@ export default function WarehouseSignPage() {
       .map((p) => ({ category: p.category, qty: Math.trunc(Number(p.qty)) }))
       .filter((p) => Number.isFinite(p.qty) && p.qty > 0)
     const type = SIGN_TYPES[typeIdx]?.key ?? 'E_SIGN'
-    const rejectedTotal = signLines.reduce((s2, s) => s2 + (s.net - Number(s.actual || 0)), 0)
-    if (rejectedTotal > 0) {
+    if (type === 'E_SIGN' && !exportSignature()) {
+      Taro.showToast({ title: '电子签请先手写签名', icon: 'none' })
+      return
+    }
+    if ((type === 'PHOTO' || type === 'PAPER') && !photoPath) {
+      Taro.showToast({ title: '请先拍摄签收凭证', icon: 'none' })
+      return
+    }
+    const rejectText = rejectConfirmText(signLines.map((s) => ({
+      name: s.line.productName,
+      unitLabel: UNIT_LABELS[s.line.unit] ?? s.line.unit,
+      rejected: s.net - Number(s.actual || 0),
+    })))
+    if (rejectText) {
       const ok = await new Promise<boolean>((resolve) => {
         Taro.showModal({
           title: '存在拒收数量',
-          content: `共拒收 ${rejectedTotal} 件，确认提交？拒收部分将自动回冲库存。`,
+          content: rejectText,
           confirmText: '确认提交',
           confirmColor: '#8b1e24',
           success: (r) => resolve(Boolean(r.confirm)),
@@ -259,15 +272,10 @@ export default function WarehouseSignPage() {
       })
       if (!ok) return
     }
-    if (type === 'PHOTO' && !photoPath) {
-      Taro.showToast({ title: '拍照签收请先拍一张凭证', icon: 'none' })
-      return
-    }
     setSubmitting(true)
     try {
-      // E_SIGN: canvas 导出签名 base64; PHOTO: 凭证图转 base64(对象存储未接前的内联过渡)
       const signatureData = type === 'E_SIGN' ? exportSignature() : undefined
-      const photoUrl = type === 'PHOTO' && photoPath ? await fileToDataUrl(photoPath) : undefined
+      const photoUrl = (type === 'PHOTO' || type === 'PAPER') && photoPath ? await fileToDataUrl(photoPath) : undefined
       const body = {
         type,
         signerName: signerName.trim() || undefined,
@@ -399,14 +407,15 @@ export default function WarehouseSignPage() {
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
             />
-            <Text className='signpad__tip'>签名将随签收单存证；不签名也可提交（仅记录签收人姓名）</Text>
+            <Text className='signpad__tip'>签名将随签收单存证。未手写签名不能提交。</Text>
           </View>
         )}
 
-        {/* M8-3 拍照签收: 现场凭证 */}
-        {SIGN_TYPES[typeIdx]?.key === 'PHOTO' && (
+        {(SIGN_TYPES[typeIdx]?.key === 'PHOTO' || SIGN_TYPES[typeIdx]?.key === 'PAPER') && (
           <View className='signpad'>
-            <Text className='signpad__label'>拍一张签收凭证（签收单/卸货现场）</Text>
+            <Text className='signpad__label'>
+              {SIGN_TYPES[typeIdx]?.key === 'PAPER' ? '拍一张纸质签收单，没有照片不能提交' : '拍一张签收凭证（签收单/卸货现场），没有照片不能提交'}
+            </Text>
             {photoPath ? (
               <View className='signpad__preview' onClick={() => { void takePhoto() }}>
                 <Image src={photoPath} mode='aspectFill' className='signpad__photo' />

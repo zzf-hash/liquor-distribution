@@ -4,6 +4,7 @@ import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Image, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, fmtDateTime, getToken, visitsApi } from '../../../services/api'
+import { VISIT_PHOTO_UNSAVED, visitCreateBody } from '../../../services/visit-photo'
 import type { VisitCustomerDTO, VisitDTO, VisitSteps } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
@@ -37,7 +38,7 @@ function stepDone(v: VisitDTO): number {
 
 /**
  * 业务员拜访打卡（P1-T13）：选客户（rep token 只见名下客户）→ 定位（失败可跳过）
- * → 水印照片（本地预览占位，对象存储上传后续接入）→ 八步骤勾选 → 提交；
+ * → 水印照片（只在本机预览，不上传）→ 八步骤勾选 → 提交；
  * 下方「我的拜访」时间线 + 月度统计（本月 X 次）。触控元素均 ≥88px 计量红线。
  */
 export default function SalesmanVisitPage() {
@@ -47,6 +48,7 @@ export default function SalesmanVisitPage() {
   const [located, setLocated] = useState('')
   const [locating, setLocating] = useState(false)
   const [photo, setPhoto] = useState('')
+  const [photoAt, setPhotoAt] = useState('')
   const [steps, setSteps] = useState<VisitSteps>({ ...EMPTY_STEPS })
   const [notes, setNotes] = useState('')
   const [visits, setVisits] = useState<VisitDTO[]>([])
@@ -96,14 +98,17 @@ export default function SalesmanVisitPage() {
     }
   }
 
-  /** 水印相机拍照（本地预览；对象存储上传后续接入，提交用 pending: 占位路径） */
+  /** 拍照只做本机预览。没有上传接口，提交时不带 photoUrl。 */
   function choosePhoto() {
     void Taro.chooseImage({ count: 1, sizeType: ['compressed'] })
       .then((res) => {
         const p = res.tempFilePaths?.[0]
-        if (p) setPhoto(p)
+        if (p) {
+          setPhoto(p)
+          setPhotoAt(fmtDateTime(new Date().toISOString()))
+        }
       })
-      .catch(() => undefined) // 用户取消
+      .catch(() => undefined)
   }
 
   function toggleStep(key: string) {
@@ -122,20 +127,25 @@ export default function SalesmanVisitPage() {
       return
     }
     setSubmitting(true)
+    const hadPhoto = Boolean(photo)
     try {
-      const payload = {
+      const payload = visitCreateBody({
         customerId,
         location: located || undefined,
-        photoUrl: photo ? `pending:${photo}` : undefined,
         steps,
         notes: notes.trim() || undefined,
-      }
+      })
       await visitsApi.create(payload, rememberIdemKey(idemRef, payload))
       idemRef.current = null
-      Taro.showToast({ title: '打卡成功', icon: 'success' })
+      if (hadPhoto) {
+        await Taro.showModal({ title: '打卡已提交', content: VISIT_PHOTO_UNSAVED, showCancel: false })
+      } else {
+        Taro.showToast({ title: '打卡成功', icon: 'success' })
+      }
       setCustomerId('')
       setLocated('')
       setPhoto('')
+      setPhotoAt('')
       setSteps({ ...EMPTY_STEPS })
       setNotes('')
       void load()
@@ -191,13 +201,16 @@ export default function SalesmanVisitPage() {
               <Text className='fcard__arrow'>{locating ? '…' : '›'}</Text>
             </View>
 
-            <Text className='fcard__label'>水印照片（选填）</Text>
+            <Text className='fcard__label'>水印照片（选填，仅本机预览）</Text>
             {photo ? (
               <View className='photo'>
-                <Image className='photo__img' src={photo} mode='aspectFill' onClick={() => Taro.previewImage({ urls: [photo] })} />
+                <View className='photo__frame'>
+                  <Image className='photo__img' src={photo} mode='aspectFill' onClick={() => Taro.previewImage({ urls: [photo] })} />
+                  <Text className='photo__mark'>{photoAt}{located ? ` ${located}` : ''} 本机水印</Text>
+                </View>
                 <View className='photo__ops'>
                   <Text className='photo__op' onClick={choosePhoto}>重拍</Text>
-                  <Text className='photo__op' onClick={() => setPhoto('')}>删除</Text>
+                  <Text className='photo__op' onClick={() => { setPhoto(''); setPhotoAt('') }}>删除</Text>
                 </View>
               </View>
             ) : (

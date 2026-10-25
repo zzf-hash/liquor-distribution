@@ -27,6 +27,7 @@ export default function CustomerProductsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
+  const [capped, setCapped] = useState(false)
 
   useDidShow(() => {
     // 登录守卫；从购物车/订单页返回时同步购物车数量
@@ -38,15 +39,17 @@ export default function CustomerProductsPage() {
   })
 
   useEffect(() => {
-    void load()
+    void load('')
   }, [])
 
-  async function load() {
+  async function load(q: string) {
     setLoading(true)
     setError('')
     try {
-      const res = await shopApi.products()
-      setItems(res.items ?? [])
+      const res = await shopApi.products(q)
+      const next = res.items ?? []
+      setItems(next)
+      setCapped(next.length >= 100)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载商品失败')
     } finally {
@@ -82,10 +85,10 @@ export default function CustomerProductsPage() {
     saveCart(next)
   }
 
-  const kw = keyword.trim().toLowerCase()
-  const shown = kw
-    ? items.filter((p) => `${p.name}${p.specText ?? ''}`.toLowerCase().includes(kw))
-    : items
+  function unitName(p: ShopProductDTO): string {
+    if (p.unit === 'MIN') return p.minUnit || labelOf(UNIT_LABELS, 'MIN')
+    return p.baseUnit || labelOf(UNIT_LABELS, p.unit)
+  }
 
   return (
     <View className='plist'>
@@ -93,9 +96,12 @@ export default function CustomerProductsPage() {
         <Input
           className='plist__search'
           placeholder='搜品名，如：白酒'
+          confirmType='search'
           value={keyword}
           onInput={(e) => setKeyword(e.detail.value)}
+          onConfirm={() => { void load(keyword) }}
         />
+        <Button className='bar-btn' onClick={() => { void load(keyword) }}>搜索</Button>
         <Button className='bar-btn' onClick={() => Taro.navigateTo({ url: '/pages/customer/cart/index' })}>
           购物车{cart.length > 0 ? `(${cartQty(cart)})` : ''}
         </Button>
@@ -104,22 +110,23 @@ export default function CustomerProductsPage() {
       {error ? (
         <View className='state'>
           <Text className='state__txt'>{error}</Text>
-          <Button className='btn-primary' onClick={() => { void load() }}>重新加载</Button>
+          <Button className='btn-primary' onClick={() => { void load(keyword) }}>重新加载</Button>
         </View>
       ) : loading ? (
         <Text className='plist__tip'>正在加载商品…</Text>
-      ) : shown.length === 0 ? (
-        <Text className='plist__tip'>{kw ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
+      ) : items.length === 0 ? (
+        <Text className='plist__tip'>{keyword.trim() ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
       ) : (
         <View className='plist__body'>
-          {shown.map((p) => (
+          {capped ? <Text className='plist__tip'>只返回前 100 条，请用品名继续搜索。搜索只匹配品名。</Text> : null}
+          {items.map((p) => (
             <View key={cartKeyOf(p.productId, p.unit)} className='pcard'>
               <View className='pcard__info'>
                 <Text className='pcard__name'>{p.name}</Text>
-                <Text className='pcard__spec'>{p.specText || '—'} · 按{labelOf(UNIT_LABELS, p.unit)}订</Text>
+                <Text className='pcard__spec'>{p.specText || '—'} · 按{unitName(p)}订</Text>
                 <Text className='pcard__price'>
                   {fmtMoney(p.price)}
-                  <Text className='pcard__ptype'>／{labelOf(UNIT_LABELS, p.unit)} · {labelOf(PRICE_TYPE_LABELS, p.priceType)}</Text>
+                  <Text className='pcard__ptype'>／{unitName(p)} · {labelOf(PRICE_TYPE_LABELS, p.priceType)}</Text>
                 </Text>
               </View>
               <View className='stepper'>
@@ -135,7 +142,7 @@ export default function CustomerProductsPage() {
               </View>
             </View>
           ))}
-          <Text className='plist__tip'>选好后点右上角「购物车」去结算；成交价以商家核算为准</Text>
+          <Text className='plist__tip'>按接口返回的单位下单。没有瓶价的商品只能按箱。成交价以商家核算为准。</Text>
         </View>
       )}
     </View>

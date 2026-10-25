@@ -246,13 +246,35 @@ export interface ShopProductDTO {
   productId: string
   name: string
   specText?: string | null
+  baseUnit?: string | null
+  minUnit?: string | null
+  packSize?: number | null
   price: Decimalish
+  /** 接口返回的可订单位。专属价可能是瓶，否则为箱。页面不另造瓶价。 */
   unit: ShopUnit
   priceType: string
 }
 
 export const shopApi = {
-  products: () => request<{ items: ShopProductDTO[] }>('/shop/products'),
+  /** q 只匹配品名。接口固定最多 100 条，没有 page 参数。 */
+  products: (q?: string) => {
+    const query = q?.trim()
+    return request<{ items: ShopProductDTO[] }>(`/shop/products${query ? `?q=${encodeURIComponent(query)}` : ''}`)
+  },
+}
+
+export interface PromotionRuleDTO {
+  productId: string
+  giftProductId: string | null
+  giftProductName: string
+  buyQty: number
+  giftQty: number
+  unit: ShopUnit
+  active?: boolean
+}
+
+export const promotionsApi = {
+  active: () => request<PromotionRuleDTO[]>('/promotions?active=1'),
 }
 
 // ───────────────────────── 订单（客户 token 自动过滤自己） ─────────────────────────
@@ -398,9 +420,12 @@ export interface CustomerReceivableDTO {
 export const receivablesApi = {
   /** 客户 token 只返回自己的未归档单据；"已结"（open<=0）由后端支持后自动出现在 items 里 */
   mine: () => request<PageResult<CustomerReceivableDTO>>('/receivables?pageSize=200'),
-  /** 内勤应收台账（owner/clerk token 全量）：bucket 分档 过滤，行形状与 mine 相同 */
-  list: (bucket?: string) =>
-    request<PageResult<CustomerReceivableDTO>>(`/receivables${bucket ? `?bucket=${bucket}&pageSize=200` : '?pageSize=200'}`),
+  /** 内勤应收台账。openTotal 是筛选后的全量未结合计，不是当前页合计。 */
+  list: (params?: { bucket?: string; page?: number; pageSize?: number }) => {
+    const qs = [`page=${params?.page ?? 1}`, `pageSize=${params?.pageSize ?? 50}`]
+    if (params?.bucket) qs.push(`bucket=${encodeURIComponent(params.bucket)}`)
+    return request<PageResult<CustomerReceivableDTO>>(`/receivables?${qs.join('&')}`)
+  },
 }
 
 // ───────────────────────── 月结对账单（M9-5 客户侧：列表/确认/异议） ─────────────────────────
@@ -531,7 +556,7 @@ export interface VisitDTO {
 
 export const visitsApi = {
   customers: () => request<PageResult<VisitCustomerDTO>>('/customers?page=1&pageSize=200'),
-  /** 打卡提交；photoUrl 对象存储上传后续接入，当前以本地临时路径占位（pending: 前缀标识） */
+  /** 打卡提交。没有上传接口，调用方不要传 photoUrl。幂等键由页面传入。 */
   create: (
     input: { customerId: string; location?: string; photoUrl?: string; steps: VisitSteps; notes?: string },
     idemKey: string,

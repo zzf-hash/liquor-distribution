@@ -65,6 +65,7 @@ function PromotionsTab(): JSX.Element {
   const [giftProductId, setGiftProductId] = useState<string>();
   const [buyQty, setBuyQty] = useState(10);
   const [giftQty, setGiftQty] = useState(1);
+  const [unit, setUnit] = useState<'BASE' | 'MIN'>('BASE');
   const [validTo, setValidTo] = useState<string>();
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -84,7 +85,7 @@ function PromotionsTab(): JSX.Element {
   useEffect(() => {
     if (createOpen) {
       productsApi.list({ page: 1, pageSize: 200 }).then((r) => setProducts(r.items)).catch(() => setProducts([]));
-      setProductId(undefined); setGiftProductId(undefined); setBuyQty(10); setGiftQty(1); setValidTo(undefined); setNote('');
+      setProductId(undefined); setGiftProductId(undefined); setBuyQty(10); setGiftQty(1); setUnit('BASE'); setValidTo(undefined); setNote('');
     }
   }, [createOpen]);
 
@@ -93,7 +94,7 @@ function PromotionsTab(): JSX.Element {
     if (!(buyQty >= 1 && giftQty >= 1)) { message.warning('买/送数量须 ≥ 1'); return; }
     setSubmitting(true);
     try {
-      await promotionsApi.create({ productId, giftProductId: giftProductId || undefined, buyQty, giftQty, validTo: validTo || undefined, note: note.trim() || undefined });
+      await promotionsApi.create({ productId, giftProductId: giftProductId || undefined, buyQty, giftQty, unit, validTo: validTo || undefined, note: note.trim() || undefined });
       message.success('规则已创建并即时生效（下单自动挂赠品行）');
       setCreateOpen(false);
       void load();
@@ -167,7 +168,7 @@ function PromotionsTab(): JSX.Element {
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
           <Select
             style={{ width: '100%' }} showSearch optionFilterProp="label"
-            placeholder="商品（买了它才计数，按箱）"
+            placeholder="商品（买了它才计数）"
             value={productId}
             onChange={setProductId}
             options={productOptions}
@@ -182,7 +183,13 @@ function PromotionsTab(): JSX.Element {
           <Space wrap>
             <Typography.Text>买</Typography.Text>
             <InputNumber min={1} precision={0} style={{ width: 90 }} value={buyQty} onChange={(v) => setBuyQty(v ?? 1)} />
-            <Typography.Text>箱 送</Typography.Text>
+            <Select
+              style={{ width: 88 }}
+              value={unit}
+              onChange={setUnit}
+              options={[{ value: 'BASE', label: '箱' }, { value: 'MIN', label: '瓶' }]}
+            />
+            <Typography.Text>送</Typography.Text>
             <InputNumber min={1} precision={0} style={{ width: 90 }} value={giftQty} onChange={(v) => setGiftQty(v ?? 1)} />
           </Space>
           <Space wrap>

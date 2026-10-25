@@ -515,6 +515,7 @@ function CustomerFormModal({
           <Form.Item name="phone" label="手机" rules={[{ required: true, message: '请输入手机' }]}>
             <Input style={{ width: 140 }} />
           </Form.Item>
+          <Form.Item name="licenseNo" label="证照号"><Input style={{ width: 180 }} placeholder="选填" /></Form.Item>
           <Form.Item name="contact" label="联系人"><Input style={{ width: 120 }} /></Form.Item>
           <Form.Item name="region" label="区域"><Input style={{ width: 120 }} /></Form.Item>
           <Form.Item name="address" label="地址" rules={[{ required: true, message: '请输入地址' }]}>

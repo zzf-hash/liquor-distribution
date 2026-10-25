@@ -10,6 +10,7 @@
 // 顶部：搜索框 + 购物车入口（都守 $touch-min 触控红线）
 .plist__bar {
   display: flex;
+  flex-wrap: wrap;
   gap: $gap-base;
   margin-bottom: $gap-base;
 }
