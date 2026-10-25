@@ -4,7 +4,8 @@
  * Set FUND_PG_URL to a Postgres URL whose database name ends with `_test`.
  * The user and password come only from that variable. Example:
  *   postgresql://USER:PASSWORD@127.0.0.1:5432/liquor_fund_test
- * The suite applies migrations (including Expense_cap_source_uidx) and then
+ * The suite applies migrations (including Expense_cap_source_uidx and
+ * CapFeePolicy_tenantId_productId_key) and then
  * wipes that database. It does not run when FUND_PG_URL is unset or the
  * database name does not end with `_test`.
  */
@@ -249,6 +250,42 @@ describe('fund/inventory rules on PostgreSQL', () => {
     const policies = await svc.listPolicies(intruder) as unknown[];
     expect(policies).toHaveLength(0);
     expect(await prisma.capFeePolicy.count({ where: { tenantId, productId: product.id } })).toBe(1);
+  });
+
+  pgIt('savePolicy does not let tenant B overwrite or reference tenant A product policy', async () => {
+    const tenantB = await prisma.tenant.create({ data: { name: '租户B政策', code: `pg-b-pol-${Date.now()}` } });
+    const userB = await prisma.user.create({
+      data: { tenantId: tenantB.id, username: 'owner-b-pol', name: '他店老板', role: 'OWNER', dataScope: 'ALL' },
+    });
+    const product = await prisma.product.create({
+      data: { tenantId, skuCode: 'PG-BEER-POL', name: '啤酒丙', category: 'PIJIU', baseUnit: '箱', packSize: 12 },
+    });
+    await prisma.capFeePolicy.create({
+      data: {
+        tenantId, productId: product.id, perBottleFee: new Prisma.Decimal('3.5'), requireCap: true,
+        noCapRate: new Prisma.Decimal('1'), createdById: userId,
+      },
+    });
+    const expenses = new ExpensesService(prisma as never, audit as never, approvals as never);
+    const svc = new CapFeesService(prisma as never, audit as never, expenses);
+    const intruder = { id: userB.id, tenantId: tenantB.id, role: 'OWNER', username: 'owner-b-pol', name: '他店老板', aud: 'staff' } as never;
+    await expect(svc.savePolicy(intruder, { productId: product.id, perBottleFee: 99 })).rejects.toBeInstanceOf(NotFoundException);
+    const kept = await prisma.capFeePolicy.findUnique({
+      where: { tenantId_productId: { tenantId, productId: product.id } },
+    });
+    expect(kept?.perBottleFee.toNumber()).toBe(3.5);
+    expect(await prisma.capFeePolicy.count({ where: { productId: product.id } })).toBe(1);
+    expect(await prisma.capFeePolicy.count({ where: { tenantId: tenantB.id } })).toBe(0);
+    const own = await svc.savePolicy(actor('OWNER'), { productId: product.id, perBottleFee: 4 }) as { perBottleFee: Prisma.Decimal };
+    expect(own.perBottleFee.toNumber()).toBe(4);
+    expect(await prisma.capFeePolicy.count({ where: { productId: product.id } })).toBe(1);
+    await expect(prisma.capFeePolicy.create({
+      data: {
+        tenantId: tenantB.id, productId: product.id, perBottleFee: new Prisma.Decimal('9'),
+        requireCap: true, noCapRate: new Prisma.Decimal('1'), createdById: userB.id,
+      },
+    })).rejects.toThrow(/does not match product tenant/);
+    expect(await prisma.capFeePolicy.count({ where: { productId: product.id } })).toBe(1);
   });
 });
 

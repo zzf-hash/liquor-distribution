@@ -46,11 +46,11 @@ export class CapFeesService {
     if (!(dto.perBottleFee > 0)) throw new BadRequestException('每瓶开瓶费必须大于 0');
     const rate = dto.noCapRate ?? 1;
     if (!(rate > 0 && rate <= 1)) throw new BadRequestException('不回盖兑付比例须在 (0,1] 之间(Q3 可配)');
-    const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
+    const product = await this.prisma.product.findFirst({ where: { id: dto.productId, tenantId: user.tenantId } });
     if (!product) throw new NotFoundException('商品不存在');
-    const before = await this.prisma.capFeePolicy.findFirst({ where: { productId: dto.productId, closedAt: null } });
+    const before = await this.prisma.capFeePolicy.findFirst({ where: { tenantId: user.tenantId, productId: dto.productId, closedAt: null } });
     const saved = await this.prisma.capFeePolicy.upsert({
-      where: { productId: dto.productId },
+      where: { tenantId_productId: { tenantId: user.tenantId, productId: dto.productId } },
       update: { perBottleFee: new Prisma.Decimal(dto.perBottleFee), requireCap: dto.requireCap ?? before?.requireCap ?? true, noCapRate: new Prisma.Decimal(rate), closedAt: null, updatedAt: new Date() },
       create: {
         tenantId: user.tenantId, productId: dto.productId,
@@ -81,7 +81,7 @@ export class CapFeesService {
     const lines: Array<{ productId: string; productName: string; qty: number; perBottleFee: number; amount: number }> = [];
     for (const l of dto.lines) {
       if (!(l.qty > 0)) throw new BadRequestException('回收数量必须大于 0');
-      const policy = await this.prisma.capFeePolicy.findFirst({ where: { productId: l.productId, closedAt: null }, include: { product: true } });
+      const policy = await this.prisma.capFeePolicy.findFirst({ where: { tenantId: user.tenantId, productId: l.productId, closedAt: null }, include: { product: true } });
       if (!policy) throw new BadRequestException('商品未配置开瓶费政策');
       if (!policy.requireCap) throw new BadRequestException(`${policy.product.name} 是不回瓶盖模式, 无需登记回收(系统自动计提)`);
       lines.push({
