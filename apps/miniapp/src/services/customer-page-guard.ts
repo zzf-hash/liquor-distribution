@@ -1,5 +1,5 @@
+import { ROLE_HOME_PAGE } from '../config/role-home'
 import { normalizeRoute } from '../config/role-tabs'
-import { ROLE_HOME_PAGE } from './api'
 
 /**
  * 员工落在客户业务页时，回到该角色已有首页。

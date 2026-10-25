@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ROLE_HOME_PAGE } from '../src/services/api'
+import { ROLE_HOME_PAGE } from '../src/config/role-home'
 import { staffHomeOffCustomerPage } from '../src/services/customer-page-guard'
 import { productSearchOnConfirm, productSearchOnInput } from '../src/services/product-search'
 import { bumpReceivedQty, receivedQtyForSubmit } from '../src/services/sign-qty'
