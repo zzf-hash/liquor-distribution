@@ -6,6 +6,7 @@ import { json, urlencoded } from 'express';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { AppModule } from './app.module';
+import { buildCorsOptions } from './common/cors';
 import { HttpExceptionFilter } from './common/http-exception.filter';
 import { tenantContext } from './prisma/tenant-context';
 import type { Request, Response, NextFunction } from 'express';
@@ -51,6 +52,8 @@ async function bootstrap(): Promise<void> {
   // bodyParser 自管: 签收页 canvas 签名/拍照凭证以 base64 dataURL 内联(M8-3, 对象存储未接前的过渡方案),
   // Nest 默认 100kb 会 413; 放宽到 6mb 仅影响 JSON 解析上限, 各端点仍有字段级校验
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { logger: ['error', 'warn', 'log'], bodyParser: false });
+  // 预检要先于 body parser。来源只来自白名单，见 common/cors.ts（CORS_ORIGINS）。
+  app.enableCors(buildCorsOptions());
   app.use(json({ limit: '6mb' }));
   app.use(urlencoded({ extended: true, limit: '6mb' }));
   app.use(tenantContextMiddleware); // 必须在路由前注册(先于守卫建立store)

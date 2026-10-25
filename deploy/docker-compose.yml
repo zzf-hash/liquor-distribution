@@ -33,6 +33,8 @@ services:
       NODE_ENV: production
       PORT: 3000
       JWT_SECRET: ${JWT_SECRET:?请在.env设置}
+      # 未设置或留空时，生产（NODE_ENV=production）不允许跨域。见 apps/api/.env.example
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
     depends_on:
       postgres:
         condition: service_healthy

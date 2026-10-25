@@ -152,6 +152,7 @@ export class ReturnsService {
       include: { lines: true, order: { include: { lines: true, outbounds: { include: { lines: true } } } } },
     });
     if (!r) throw new NotFoundException('退货单不存在');
+    if (r.status === 'RECEIVED') throw new ConflictException('已收货');
     if (r.status !== 'APPROVED') throw new ConflictException('退货审批通过后才可收货回冲');
     // 应收按应用层关联查询(schema FK 已移除)
     const orderReceivables = await this.prisma.receivable.findMany({
@@ -178,7 +179,11 @@ export class ReturnsService {
     }
     await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.returnOrder.updateMany({ where: { id, status: 'APPROVED' }, data: { status: 'RECEIVED', receivedAt: new Date(), receivedById: user.id } });
-      if (claimed.count === 0) throw new ConflictException('退货单状态已变化(可能已收货), 请刷新后重试');
+      if (claimed.count === 0) {
+        const current = await tx.returnOrder.findUnique({ where: { id }, select: { status: true } });
+        if (current?.status === 'RECEIVED') throw new ConflictException('已收货');
+        throw new ConflictException('退货单状态已变化(可能已收货), 请刷新后重试');
+      }
       for (const b of batches) {
         await tx.inventoryLedger.create({
           data: { tenantId: user.tenantId, productId: b.productId, batchId: b.batchId, direction: 'IN', qty: new Prisma.Decimal(b.qty), refType: 'RETURN_IN', refNo: r.returnNo, note: `退货回冲 ${r.returnNo}`, createdBy: user.id },
