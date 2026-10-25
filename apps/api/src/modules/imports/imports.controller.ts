@@ -11,8 +11,16 @@ import type { AuthUser } from '../../common/current-user.decorator';
 
 interface UploadFile { buffer: Buffer; originalname: string; size: number }
 
-class PreviewDto {
-  @IsEnum(['PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE']) kind!: ImportKind;
+const IMPORT_KINDS = ['PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE'] as const;
+
+/**
+ * kind 可缺省：管理端把 kind 放在 multipart 字段里（有值时仍按枚举校验）。
+ * 只放在 query 上时，不能在进控制器之前被必填校验挡成 400。
+ */
+export class PreviewDto {
+  @IsOptional()
+  @IsEnum(IMPORT_KINDS)
+  kind?: ImportKind;
 }
 
 class CommitDto {
@@ -37,7 +45,7 @@ export class ImportsController {
   ): Promise<unknown> {
     if (!file?.buffer?.length) throw new BadRequestException('请上传文件(multipart 字段名 file)');
     const kind = (body?.kind ?? kindQuery) as ImportKind | undefined;
-    if (!kind || !['PRODUCT', 'CUSTOMER', 'PRICE', 'INVENTORY', 'RECEIVABLE'].includes(kind)) {
+    if (!kind || !(IMPORT_KINDS as readonly string[]).includes(kind)) {
       throw new BadRequestException('kind 须为 PRODUCT/CUSTOMER/PRICE/INVENTORY/RECEIVABLE');
     }
     if (file.size > 5 * 1024 * 1024) throw new BadRequestException('文件超 5MB');
