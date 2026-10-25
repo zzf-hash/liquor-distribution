@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDateKey, bizMonthRange } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -22,8 +22,7 @@ export class StatementsService {
     if (!customer) throw new NotFoundException('客户不存在');
     const dup = await this.prisma.statement.findUnique({ where: { tenantId_customerId_period: { tenantId: user.tenantId, customerId: dto.customerId, period: dto.period } } });
     if (dup) throw new ConflictException(`该客户 ${dto.period} 对账单已存在(${dup.statementNo})`);
-    const start = dayjs(`${dto.period}-01`).startOf('month').toDate();
-    const end = dayjs(`${dto.period}-01`).endOf('month').toDate();
+    const { start, end } = bizMonthRange(dto.period);
     // P1-11: 口径修正——核销是 FIFO 打在最早到期的应收上(多为以前期间的单), 原实现只遍历
     // 期间内生成的应收, 当期核销/期末未结系统性漏算; 现按客户全部未归档应收聚合
     const ars = await this.prisma.receivable.findMany({
@@ -52,7 +51,7 @@ export class StatementsService {
       openBalance += open;
       // 明细行: 期间内生成的单 + 期间内有核销动作的旧单(否则客户对不上"当期核销"数字的来源)
       if (generatedInPeriod || settledInPeriod > 0.0001) {
-        lines.push({ docNo: ar.sourceDocNo, type: ar.sourceType, total: Number(ar.total), settledInPeriod: Number(settledInPeriod.toFixed(2)), open: Number(open.toFixed(2)), generatedAt: dayjs(ar.generatedAt).format('YYYY-MM-DD'), dueDate: dayjs(ar.dueDate).format('YYYY-MM-DD'), dispute: ar.disputeFlag, generatedBeforePeriod: !generatedInPeriod });
+        lines.push({ docNo: ar.sourceDocNo, type: ar.sourceType, total: Number(ar.total), settledInPeriod: Number(settledInPeriod.toFixed(2)), open: Number(open.toFixed(2)), generatedAt: bizDateKey(ar.generatedAt), dueDate: bizDateKey(ar.dueDate), dispute: ar.disputeFlag, generatedBeforePeriod: !generatedInPeriod });
       }
     }
     // P1-14: count+1 并发撞号 → P2002; 失败按 seq 顺延重试(≤5 次)

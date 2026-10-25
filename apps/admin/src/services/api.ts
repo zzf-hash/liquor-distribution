@@ -403,8 +403,8 @@ export const ordersApi = {
   list: (params: { status?: string; customerId?: string; q?: string; page?: number; pageSize?: number }) =>
     request<PageResult<OrderDTO>>(`/orders${qs(params)}`),
   detail: (id: string) => request<OrderDTO>(`/orders/${id}`),
-  create: (input: CreateOrderInput) =>
-    request<CreateOrderResultDTO>('/orders', { method: 'POST', body: input }),
+  create: (input: CreateOrderInput, idemKey: string) =>
+    request<CreateOrderResultDTO>('/orders', { method: 'POST', body: input, idemKey }),
   confirm: (id: string) => request<OrderDTO>(`/orders/${id}/confirm`, { method: 'POST', body: {} }),
   approveSpecial: (id: string, type: ApproveSpecialType, reason: string) =>
     request<OrderDTO>(`/orders/${id}/approve-special`, { method: 'POST', body: { type, reason } }),
@@ -1289,7 +1289,7 @@ export interface GrossProfitRowDTO {
   name: string;
   revenue: number;
   cost: number;
-  profit: number;
+  profit: number | null;
   margin: number | null;
 }
 
@@ -1297,7 +1297,7 @@ export interface GrossProfitDTO {
   month: string;
   dimension: 'category' | 'customer' | 'rep' | 'product';
   rows: GrossProfitRowDTO[];
-  totals: { revenue: number; cost: number; profit: number; margin: number | null; orderCount: number };
+  totals: { revenue: number; cost: number; profit: number | null; margin: number | null; orderCount: number };
   caliber: string;
 }
 

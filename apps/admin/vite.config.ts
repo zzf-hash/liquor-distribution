@@ -5,6 +5,13 @@ import react from '@vitejs/plugin-react';
 // dev 反代 /api → 本地 NestJS（PORT 3000），前端代码统一走相对 /api 前缀
 export default defineConfig({
   plugins: [react()],
+  // shared 是 CJS，pnpm 把它解析到 packages/shared/dist，不在 node_modules 里。
+  // Vite 默认只对 node_modules 做 CJS 互操作，否则具名导出会被当成不存在。
+  build: {
+    commonjsOptions: {
+      include: [/node_modules/, /packages\/shared\/dist/],
+    },
+  },
   server: {
     port: 5173,
     host: true,

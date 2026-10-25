@@ -1,7 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizMonthRange } from '../../common/business-time';
 import { AuditService } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
@@ -26,8 +26,7 @@ export class PerformanceService {
   /** 月度绩效明细(按业务员) */
   async monthly(user: AuthUser, month: string): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(month)) throw new ConflictException('月份格式 YYYY-MM');
-    const start = dayjs(`${month}-01`).startOf('month').toDate();
-    const end = dayjs(`${month}-01`).endOf('month').toDate();
+    const { start, end } = bizMonthRange(month);
     // 2026-10 审查修复: REP 角色只看本人绩效行(接口对 REP 开放后防横向可见)
     const reps = await this.prisma.user.findMany({
       where: { role: 'REP', status: 'ACTIVE', ...(user.role === 'REP' ? { id: user.id } : {}) },

@@ -1,7 +1,7 @@
 import { Controller, Get, Injectable, Module } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { bizDayDiff, bizNow, bizStartOfDay, bizStartOfMonth } from '../../common/business-time';
+import { daysCoverOf, LOW_STOCK_COVER_WINDOW_DAYS } from '../../common/days-cover';
 import { readAgingConfig, bucketOfDays, arOpenOf } from '../receivables/aging';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -21,8 +21,8 @@ export class DashboardController {
 
   @Get('four-questions')
   async fourQuestions(@CurrentUser() user: AuthUser): Promise<unknown> {
-    const todayStart = dayjs().startOf('day').toDate();
-    const monthStart = dayjs().startOf('month').toDate();
+    const todayStart = bizStartOfDay();
+    const monthStart = bizStartOfMonth();
 
     // ① 今日销售(签收口径) + ② 今日回款
     const [salesAgg, collectedAgg] = await this.prisma.$transaction([
@@ -50,7 +50,7 @@ export class DashboardController {
       const open = arOpenOf(Number(ar.total), ar.ledger).open;
       if (open <= 0.0001) continue;
       debtTotal += open;
-      const days = ar.disputeFlag ? -1 : dayjs().startOf('day').diff(dayjs(ar.dueDate).startOf('day'), 'day');
+      const days = ar.disputeFlag ? -1 : bizDayDiff(ar.dueDate);
       const bucket = ar.disputeFlag ? 'disputed' : bucketOfDays(days, aging);
       buckets[bucket] += open;
       const d = debtor.get(ar.customerId) ?? { customerId: ar.customerId, name: ar.customer.name, open: 0 };
@@ -85,10 +85,24 @@ export class DashboardController {
     const lowProducts = candidateIds.length
       ? await this.prisma.product.findMany({ where: { id: { in: candidateIds }, status: 'ON_SALE' }, select: { id: true, skuCode: true, name: true } })
       : [];
+    const sinceCover = bizNow().subtract(LOW_STOCK_COVER_WINDOW_DAYS, 'day').toDate();
+    const soldRows = lowProducts.length
+      ? await this.prisma.inventoryLedger.groupBy({
+          by: ['productId'],
+          where: { productId: { in: lowProducts.map((p) => p.id) }, direction: 'OUT', refType: 'OUTBOUND', createdAt: { gte: sinceCover } },
+          _sum: { qty: true },
+        })
+      : [];
+    const soldMap = new Map(soldRows.map((row) => [row.productId, Number(row._sum.qty ?? 0)]));
     const lowStock = lowProducts
       .map((p) => {
         const onHand = onHandMap.get(p.id) ?? 0;
-        return { productId: p.id, skuCode: p.skuCode, name: p.name, onHand, occupied: occupiedMap.get(p.id) ?? 0, available: onHand - (occupiedMap.get(p.id) ?? 0) };
+        const occupied = occupiedMap.get(p.id) ?? 0;
+        const available = onHand - occupied;
+        return {
+          productId: p.id, skuCode: p.skuCode, name: p.name, onHand, occupied, available,
+          daysCover: daysCoverOf(available, soldMap.get(p.id) ?? 0, LOW_STOCK_COVER_WINDOW_DAYS),
+        };
       })
       .sort((a, b) => a.available - b.available)
       .slice(0, 10);
