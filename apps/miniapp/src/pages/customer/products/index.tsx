@@ -190,7 +190,7 @@ export default function CustomerProductsPage() {
           disabled={count <= 0}
           onClick={() => Taro.navigateTo({ url: '/pages/customer/cart/index' })}
         >
-          去结算
+          <Text className='btn-label'>去结算</Text>
         </Button>
       </View>
     </View>

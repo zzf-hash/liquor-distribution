@@ -210,6 +210,15 @@
     background: $color-neutral-fill;
     color: $color-neutral-text-disabled;
   }
+
+  // H5 自定义元素会把 disabled={false} 写成属性 disabled="false"。
+  // [disabled] 仍会命中，上面的禁用色和组件样式 taro-button-core[disabled]{color:rgba(255,255,255,.6)}
+  // 会把描边按钮的字画成白色，看起来只剩空框。
+  &[disabled='false'] {
+    color: $color-neutral-white;
+    background: $color-primary;
+    border: none;
+  }
 }
 
 .btn-secondary {
@@ -217,6 +226,12 @@
   color: $color-primary;
   background: $color-brand-primary-light;
   border: none;
+
+  &[disabled='false'] {
+    color: $color-primary;
+    background: $color-brand-primary-light;
+    border: none;
+  }
 }
 
 .btn-ghost {
@@ -227,6 +242,12 @@
 
   &:active {
     background: $color-brand-primary-light;
+  }
+
+  &[disabled='false'] {
+    color: $color-primary;
+    background: $color-card;
+    border: $border-width solid $color-primary;
   }
 }
 
@@ -239,6 +260,12 @@
   &:active {
     background: $color-neutral-fill;
   }
+
+  &[disabled='false'] {
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
+  }
 }
 
 .btn-danger {
@@ -249,6 +276,12 @@
 
   &:active {
     background: $color-functional-danger-light;
+  }
+
+  &[disabled='false'] {
+    color: $color-danger;
+    background: $color-card;
+    border: $border-width solid $color-danger;
   }
 }
 
@@ -362,6 +395,17 @@
   font-weight: inherit;
   line-height: 1.2;
 }
+
+// 标签节点单独设色，避免继承到 taro-button-core[disabled] 的白色。
+.btn-neutral .btn-label { color: $color-text; }
+.btn-danger .btn-label,
+.btn-inline--danger .btn-label { color: $color-danger; }
+.btn-ghost .btn-label,
+.btn-secondary .btn-label,
+.btn-inline--ghost .btn-label { color: $color-primary; }
+.btn-primary .btn-label { color: $color-neutral-white; }
+.btn-primary[disabled='true'] .btn-label,
+.btn-primary[disabled=''] .btn-label { color: $color-neutral-text-disabled; }
 
 .tag {
   @include tag($color-text-sub, $color-neutral-fill);
