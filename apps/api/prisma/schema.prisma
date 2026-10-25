@@ -128,9 +128,9 @@ model Product {
   orderLines    OrderLine[]
   priceChanges  PriceChangeRequest[]
   purchaseLines PurchaseLine[]
-  stockReports  DailyStockReport[]
-  capFeePolicy  CapFeePolicy?
-  promotions    Promotion[]
+  stockReports   DailyStockReport[]
+  capFeePolicies CapFeePolicy[]
+  promotions     Promotion[]
   giftPromotions Promotion[]     @relation("PromotionGift")
   restocks      RestockRequest[]
 
@@ -1043,7 +1043,8 @@ model Expense {
   paidById    String?
   paidNote    String?
   note        String?
-  source      String? // MANUAL / CAP_RECYCLE:<recycleNo> / CAP_ACCRUAL:<period> 来源标记
+  source      String? // MANUAL / CAP_RECYCLE:<recycleNo> / CAP_ACCRUAL:<period>:<customerId> 来源标记
+  // CAP_RECYCLE / CAP_ACCRUAL 另有部分唯一索引 Expense_cap_source_uidx（迁移 20261025120000），Prisma schema 无法表达 WHERE 子句
   createdById String
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
@@ -1060,7 +1061,7 @@ model Expense {
 model CapFeePolicy {
   id           String    @id @default(cuid())
   tenantId     String
-  productId    String @unique // 1:1 反向关系锚点(cuid 全局唯一); 与下行复合唯一并存以显式租户口径
+  productId    String // 与 tenantId 复合唯一; 同一商品可被不同租户各有一条政策, 不可跨租户共用
   perBottleFee Decimal   @db.Decimal(10, 4) // 每瓶开瓶费
   requireCap   Boolean   @default(true) // true=回瓶盖兑付; false=不回瓶盖自动计提
   noCapRate    Decimal   @default(1) @db.Decimal(5, 4) // 不回盖兑付比例(默认全额; 0.5=对折), Q3 可配
@@ -1384,7 +1385,7 @@ model IdempotencyRecord {
 model SystemConfig {
   id        String   @id @default(cuid())
   tenantId  String
-  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold / inventory_alert_config
+  key       String // waive_single_max / waive_monthly_max / remind_days_before / special_approve_threshold / inventory_alert_config / manual_gift_audit_threshold
   value     Json
   note      String?
   updatedBy String

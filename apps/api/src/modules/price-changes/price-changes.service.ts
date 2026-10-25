@@ -5,6 +5,7 @@ import { bizDateKey, bizNow, bizStartOfDay } from '../../common/business-time';
 import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
+import { centsToDecimal, toCents } from '../../common/money';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { requirePriceUnit } from '../../common/require-price-unit';
 
@@ -23,7 +24,7 @@ export class PriceChangesService {
 
   async create(user: AuthUser, dto: { productId: string; unit: 'BASE' | 'MIN'; levelType: string; newPrice: number; effectiveDate: string; reason: string; customerSync?: boolean }): Promise<unknown> {
     if (dto.levelType === 'COST' && user.role !== 'OWNER') throw new ConflictException('成本价调价仅老板可发起');
-    if (dto.newPrice < 0) throw new BadRequestException('新价不能为负');
+    if (toCents(dto.newPrice) <= 0) throw new BadRequestException('新价必须大于 0');
     if (!dto.reason?.trim()) throw new BadRequestException('调价必须填写理由');
     const unit = requirePriceUnit(dto.unit);
     const product = await this.prisma.product.findUnique({ where: { id: dto.productId } });
@@ -102,12 +103,12 @@ export class PriceChangesService {
         for (const cp of exclusives) if (!latestByCustomer.has(cp.customerId)) latestByCustomer.set(cp.customerId, cp);
         let synced = 0;
         for (const [, cp] of latestByCustomer) {
-          const next = Number(cp.price) + delta;
-          if (next < 0) continue; // 价差不至于把专属价打到负
+          const nextCents = toCents(new Prisma.Decimal(cp.price).add(delta));
+          if (nextCents <= 0) continue; // 价差不至于把专属价打到 0 或负
           await this.prisma.customerPrice.create({
             data: {
               tenantId: user.tenantId, customerId: cp.customerId, productId: r.productId, unit,
-              price: new Prisma.Decimal(next.toFixed(2)), validFrom: r.effectiveDate,
+              price: centsToDecimal(nextCents), validFrom: r.effectiveDate,
               approvalRef: `PC-${id.slice(0, 8)}`, note: `调价联动 ${Number(r.oldPrice)}→${Number(r.newPrice)}`, createdBy: user.id,
             },
           });

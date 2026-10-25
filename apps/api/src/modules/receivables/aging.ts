@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+import { centsToNumber, toCents } from '../../common/money';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 // ═══════════════ 账龄分档（M9-3, Q1 已确认口径） ═══════════════
@@ -60,14 +62,15 @@ export function agingBucketLabels(cfg: AgingConfig): Record<AgingBucket, string>
 }
 
 /** B4 统一开账口径(与 ReceivablesService.arOpen 同式): settled/open 从流水投影
- *  FEE_OFFSET(陈列/进店/开瓶费冲抵)与 WAIVE 同类: 核减 open 但不计回款口径 */
-export function arOpenOf(
-  total: number,
+ *  FEE_OFFSET(陈列/进店/开瓶费冲抵)与 WAIVE 同类: 核减 open 但不计回款口径。
+ *  金额以分为整数累加，避免二进制浮点把核减加过应收。 */
+export function arOpenCents(
+  total: Prisma.Decimal | number | string,
   ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }>,
-): { settled: number; open: number } {
+): { settledCents: number; openCents: number } {
   let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let feeOffset = 0;
   for (const l of ledger) {
-    const amt = Number(l.amount);
+    const amt = toCents(l.amount as Prisma.Decimal | number | string | null | undefined);
     if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
     else if (l.direction === 'WAIVE') waived += amt;
     else if (l.direction === 'WRITEOFF') writtenOff += amt;
@@ -75,5 +78,17 @@ export function arOpenOf(
     else if (l.direction === 'FEE_OFFSET') feeOffset += amt;
     else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else reversalNoPay += amt; }
   }
-  return { settled, open: Math.max(0, total - settled - waived - writtenOff - returnCredit - feeOffset - reversalNoPay) };
+  const totalCents = toCents(total);
+  return {
+    settledCents: settled,
+    openCents: Math.max(0, totalCents - settled - waived - writtenOff - returnCredit - feeOffset - reversalNoPay),
+  };
+}
+
+export function arOpenOf(
+  total: number,
+  ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }>,
+): { settled: number; open: number } {
+  const { settledCents, openCents } = arOpenCents(total, ledger);
+  return { settled: centsToNumber(settledCents), open: centsToNumber(openCents) };
 }

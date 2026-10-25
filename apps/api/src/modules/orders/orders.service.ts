@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, HttpException, HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -10,9 +10,17 @@ import { assertOrderTransition, ORDER_STATUS_LABELS } from '../../statemachine/o
 import type { OrderStatus } from '../../statemachine/order-state';
 import { assertOutboundTransition, OutboundState } from '../../statemachine/outbound-state';
 import { computeGiftLines } from '../promotions/promotions.controller';
+import { arOpenCents } from '../receivables/aging';
+import { centsToNumber, mulQtyPriceToCents, toCents } from '../../common/money';
+import { giftStackConflict } from './gift-policy';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { requirePriceUnit } from '../../common/require-price-unit';
 import { assertSignProof } from './sign-proof';
+
+/** SystemConfig JSON number, yuan. Manual-gift reference value above this is audited and not blocked. */
+export const MANUAL_GIFT_AUDIT_KEY = 'manual_gift_audit_threshold';
+/** Used when the tenant has no config row. */
+export const DEFAULT_MANUAL_GIFT_AUDIT_YUAN = 500;
 
 // ═══════════════ P0-T20~T25 订单主线 ═══════════════
 // 设计依据: docs/baseline/开发任务书_MVP分期_v1.md WS-2 + docs/M0/业务适配清单.md
@@ -51,6 +59,8 @@ interface PrecheckResult {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -108,31 +118,25 @@ export class OrdersService {
   }
 
   // ─────────────── 信用投影 (D07: 可用 = 额度 − 未核销应收 − 在途占用) ───────────────
-  private async creditProjection(customerId: string): Promise<{ openAr: number; inTransit: number }> {
-    const ars = await this.prisma.receivable.findMany({
+  // db 传入事务客户端时，与客户行锁处在同一快照里（LQ1-003）。
+  private async creditProjection(customerId: string, db: Pick<PrismaService, 'receivable' | 'salesOrder'> = this.prisma): Promise<{ openAr: number; inTransit: number }> {
+    const ars = await db.receivable.findMany({
       where: { customerId, disputeFlag: false },
       // P1-8: 核销口径须含 RETURN_CREDIT/WAIVE/WRITEOFF——漏算会低估已核销额→误拦新单
       // B组: FEE_OFFSET 同样核减未结, 漏算会高估占用→误拦新单
       include: { ledger: { where: { direction: { in: ['SETTLE', 'REBATE_OFFSET', 'RETURN_CREDIT', 'WAIVE', 'WRITEOFF', 'FEE_OFFSET', 'REVERSAL'] } } } },
     });
-    const openAr = ars.reduce((sum, r) => {
-      let settled = 0; let waived = 0; let writtenOff = 0; let returned = 0; let reversal = 0;
-      for (const row of r.ledger) {
-        const amount = Number(row.amount);
-        if (row.direction === 'SETTLE' || row.direction === 'REBATE_OFFSET') settled += amount;
-        else if (row.direction === 'WAIVE') waived += amount;
-        else if (row.direction === 'WRITEOFF') writtenOff += amount;
-        else if (row.direction === 'RETURN_CREDIT') returned += amount;
-        else if (row.direction === 'FEE_OFFSET') waived += amount; // 冲抵核减, 不计回款
-        else if (row.direction === 'REVERSAL') { if (row.paymentId) settled -= amount; else reversal += amount; }
-      }
-      return sum + Math.max(0, Number(r.total) - settled - waived - writtenOff - returned - reversal);
-    }, 0);
-    const inTransitOrders = await this.prisma.salesOrder.aggregate({
+    const openArCents = ars.reduce((sum, r) => sum + arOpenCents(r.total, r.ledger).openCents, 0);
+    // D2: 赠品 0 单价且不占信用。在途只计订单应付额（totalAmount 不含赠品）。
+    const inTransitOrders = await db.salesOrder.findMany({
       where: { customerId, status: { in: ['CONFIRMED', 'OUTBOUND', 'DELIVERING'] } }, // D07: 已确认直至签收生成应收
-      _sum: { totalAmount: true },
+      select: { totalAmount: true },
     });
-    return { openAr, inTransit: Number(inTransitOrders._sum.totalAmount ?? 0) };
+    let inTransitCents = 0;
+    for (const o of inTransitOrders) {
+      inTransitCents += toCents(o.totalAmount);
+    }
+    return { openAr: centsToNumber(openArCents), inTransit: centsToNumber(inTransitCents) };
   }
 
   // ─────────────── P0-T20 三入口下单 + P0-T21 审单预检 ───────────────
@@ -198,8 +202,9 @@ export class OrdersService {
       let priceVersion: string;
       if (l.isGift) {
         // 2026-10 审查修复: isGift 与 priceOverride 同权(0 元直接改订单金额), 限定内勤/老板
+        // D2 / LQ1-004: 单价 0、扣库存、不占信用、不要求生效价。与买N送M 的互斥在后面拦截。
         if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可标记赠品行');
-        price = new Prisma.Decimal(0); priceType = 'MANUAL'; priceVersion = 'gift'; // 赠品 0 价参与库存扣减, 不占信用(D02)
+        price = new Prisma.Decimal(0); priceType = 'MANUAL'; priceVersion = 'gift';
       } else if (l.priceOverride !== undefined) {
         if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤/老板可手工价');
         if (l.priceOverride < 0) throw new BadRequestException('价格不能为负');
@@ -228,7 +233,8 @@ export class OrdersService {
       });
     }
 
-    // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用)
+    // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用, D02)
+    // LQ1-004: 与手工赠品互斥——同一商品不能再叠加 isGift
     const promoRules = await this.prisma.promotion.findMany({
       where: {
         tenantId: user.tenantId,
@@ -241,6 +247,11 @@ export class OrdersService {
         dto.lines.map((l) => ({ productId: l.productId, unit: l.unit, qty: l.qty, isGift: l.isGift })),
         promoRules.map((r) => ({ productId: r.productId, giftProductId: r.giftProductId, buyQty: r.buyQty, giftQty: r.giftQty, unit: requirePriceUnit(r.unit) })),
       );
+      const conflict = giftStackConflict(
+        dto.lines.filter((l) => l.isGift).map((l) => l.productId),
+        gifts.map((g) => ({ productId: g.rule.productId, giftProductId: g.giftProductId })),
+      );
+      if (conflict) throw new ConflictException(conflict);
       const giftProductIds = [...new Set(gifts.map((g) => g.giftProductId).filter((id) => !productMap.has(id)))];
       if (giftProductIds.length > 0) {
         const extra = await this.prisma.product.findMany({ where: { id: { in: giftProductIds } } });
@@ -269,14 +280,18 @@ export class OrdersService {
     }
     // 四要素②③④: 信用 / 库存 / 起送量
     const credit = await this.creditProjection(customerId);
-    const limit = Number(customer.creditLimit);
+    const limitCents = toCents(customer.creditLimit);
+    const limit = centsToNumber(limitCents);
     // P1-12: 现结客户额度=0 款到发货(D07)——原三元两分支相同是死代码, 款到发货未实现;
     // 现结客户信用需求按全额计且不参与"额度充足"豁免: 额度=0 时必须收款/特批才能过
-    const totalNum = Number(totalAmount);
-    const creditNeed = customer.settlement === 'CASH' ? totalNum + credit.openAr + credit.inTransit : totalNum;
-    const creditOk = customer.settlement === 'CASH'
-      ? creditNeed <= limit // 现结: 全额+在途必须被额度覆盖(额度0则恒 false, 款到发货)
-      : creditNeed <= limit - credit.openAr - credit.inTransit;
+    // D2 / LQ1-004: 应付额不含赠品，赠品不占信用（手工赠品与促销赠品同一口径）。库存仍按行扣。
+    const totalNum = centsToNumber(toCents(totalAmount));
+    const exposureCents = toCents(totalAmount);
+    const openArCents = toCents(credit.openAr);
+    const inTransitCents = toCents(credit.inTransit);
+    const creditNeedCents = customer.settlement === 'CASH' ? exposureCents + openArCents + inTransitCents : exposureCents;
+    const creditNeed = centsToNumber(creditNeedCents);
+    const creditOk = exposureCents + openArCents + inTransitCents <= limitCents;
     const stock = await this.stockProjection([...new Set(lineData.map((l) => l.productId))]); // 含随单赠品
     const inventory = [...new Set(lineData.map((l) => l.productId))].map((pid) => {
       const s = stock.get(pid) ?? { onHand: 0, occupied: 0 };
@@ -285,7 +300,7 @@ export class OrdersService {
       return { productId: pid, productName: productMap.get(pid)?.name ?? pid, ok: s.onHand - s.occupied >= need, onHand: s.onHand, occupied: s.occupied, need };
     });
     const minOrder = { ok: totalNum >= Number(customer.minOrderAmount), amount: totalNum, min: Number(customer.minOrderAmount) };
-    const precheck: PrecheckResult = { customer: precheckCustomer, credit: { ok: creditOk, available: limit - credit.openAr - credit.inTransit, ...credit, limit, need: creditNeed }, inventory, minOrder };
+    const precheck: PrecheckResult = { customer: precheckCustomer, credit: { ok: creditOk, available: centsToNumber(limitCents - openArCents - inTransitCents), ...credit, limit, need: creditNeed }, inventory, minOrder };
     const failed = !precheckCustomer.ok || !creditOk || inventory.some((i) => !i.ok) || !minOrder.ok;
 
     // T21: 超额自动拦截留痕; 老板特批可放行(D01/R2, 信用放行须老板本人)
@@ -328,7 +343,62 @@ export class OrdersService {
       await this.audit.log({ user, action: AuditAction.CREDIT_RELEASE, entityType: 'Order', entityId: order.id, after: { orderNo, amount: totalNum, reason: dto.specialReason } , ip });
     }
     await this.audit.log({ user, action: AuditAction.ORDER_CREATE, entityType: 'Order', entityId: order.id, after: { orderNo, source: dto.source, totalAmount: totalNum, precheck }, ip });
+    // I1: 订单已经落库。赠品审计（取价、阈值、写审计）失败只告警，不能把已成功的下单变成 500。
+    try {
+      await this.auditManualGiftIfOver(user, customerId, dto.lines, order.id, orderNo, ip);
+    } catch (e) {
+      this.logger.warn(`ORDER_GIFT_MANUAL failed for ${orderNo}: ${e instanceof Error ? e.message : String(e)}`);
+    }
     return { id: order.id, orderNo, status: order.status, totalAmount: totalNum, precheck };
+  }
+
+  /**
+   * S3: 手工赠品不占信用、不拦截。参考价（当前生效售价 × 数量，不含买N送M）超过阈值时只写审计。
+   * 取不到参考价的手工赠品行也写审计，并标记「无参考价」（参考额仍只累加有价行，不回退成本价）。
+   * 阈值：SystemConfig `manual_gift_audit_threshold`，JSON 数字，单位元；缺省 500。
+   * 取价、读阈值或写审计失败时只记 warn，不把已落库的订单变成 500。
+   */
+  private async auditManualGiftIfOver(
+    user: AuthUser, customerId: string, lines: CreateLineDto[], orderId: string, orderNo: string, ip?: string,
+  ): Promise<void> {
+    try {
+      const giftLines = lines.filter((l) => l.isGift);
+      if (giftLines.length === 0) return;
+      let referenceCents = 0;
+      let unpriced = false;
+      const auditedLines: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; note?: string }> = [];
+      for (const l of giftLines) {
+        const resolved = await this.resolvePrice(customerId, l.productId, l.unit);
+        if (!resolved) {
+          unpriced = true;
+          auditedLines.push({ productId: l.productId, qty: l.qty, unit: l.unit, note: '无参考价' });
+          continue;
+        }
+        referenceCents += mulQtyPriceToCents(l.qty, resolved.price);
+        auditedLines.push({ productId: l.productId, qty: l.qty, unit: l.unit });
+      }
+      const thresholdCents = await this.manualGiftAuditThresholdCents(user.tenantId);
+      if (!unpriced && referenceCents <= thresholdCents) return;
+      await this.audit.log({
+        user, action: AuditAction.ORDER_GIFT_MANUAL, entityType: 'Order', entityId: orderId, ip,
+        after: {
+          orderNo,
+          referenceYuan: centsToNumber(referenceCents),
+          thresholdYuan: centsToNumber(thresholdCents),
+          lines: auditedLines,
+        },
+      });
+    } catch (e) {
+      this.logger.warn(`ORDER_GIFT_MANUAL failed for ${orderNo}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  private async manualGiftAuditThresholdCents(tenantId: string): Promise<number> {
+    const row = await this.prisma.systemConfig.findFirst({ where: { tenantId, key: MANUAL_GIFT_AUDIT_KEY } });
+    const raw = row?.value;
+    const yuan = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : Number.NaN;
+    if (!Number.isFinite(yuan) || yuan < 0) return toCents(DEFAULT_MANUAL_GIFT_AUDIT_YUAN);
+    return toCents(yuan);
   }
 
   /** 订单+行+特批审批单+幂等记录 同事务原子落(2026-10 审查修复: 此前主表/行分离写, 中断留零行订单) */
@@ -465,20 +535,46 @@ export class OrdersService {
     return updated;
   }
 
-  /** T20 确认: 待确认→已确认(重跑预检, 通过才放行) */
+  /** T20 确认: 待确认→已确认(重跑预检, 通过才放行)
+   *  LQ1-003: 客户行 FOR UPDATE 把额度复核和状态改写放进同一事务，并行确认不能一起穿过额度。 */
   async confirm(user: AuthUser, orderId: string, ip?: string): Promise<unknown> {
     const order = await this.prisma.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
     if (!order) throw new NotFoundException('订单不存在');
     await this.assertOrderScope(user, order.customerId);
     if (order.status !== 'PENDING_CONFIRM') throw new ConflictException('仅待确认订单可确认');
-    const credit = await this.creditProjection(order.customerId);
-    const customer = await this.prisma.customer.findUnique({ where: { id: order.customerId } });
-    const need = Number(order.totalAmount) + credit.inTransit + credit.openAr;
-    if (customer && !order.specialApproved && need > Number(customer.creditLimit)) {
-      await this.audit.log({ user, action: AuditAction.PRECHECK_BLOCK, entityType: 'Order', entityId: orderId, before: { stage: 'confirm', credit } , ip });
-      throw new HttpException({ code: 422, message: '信用复核未通过, 需老板特批', data: credit }, HttpStatus.UNPROCESSABLE_ENTITY);
+    assertOrderTransition(order.status as OrderStatus, 'CONFIRMED');
+    try {
+      const updated = await this.prisma.$transaction(async (tx) => {
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "Customer" WHERE id = ${order.customerId} FOR UPDATE`);
+        const fresh = await tx.salesOrder.findUnique({ where: { id: orderId }, include: { lines: true } });
+        if (!fresh) throw new NotFoundException('订单不存在');
+        if (fresh.status !== 'PENDING_CONFIRM') throw new ConflictException('仅待确认订单可确认');
+        const credit = await this.creditProjection(fresh.customerId, tx);
+        const customer = await tx.customer.findUnique({ where: { id: fresh.customerId } });
+        const needCents = toCents(fresh.totalAmount) + toCents(credit.inTransit) + toCents(credit.openAr);
+        const limitCents = customer ? toCents(customer.creditLimit) : 0;
+        if (customer && !fresh.specialApproved && needCents > limitCents) {
+          throw new HttpException({
+            code: 422,
+            message: '信用复核未通过, 需老板特批',
+            data: { ...credit, need: centsToNumber(needCents), limit: centsToNumber(limitCents) },
+          }, HttpStatus.UNPROCESSABLE_ENTITY);
+        }
+        const claimed = await tx.salesOrder.updateMany({
+          where: { id: orderId, status: 'PENDING_CONFIRM' },
+          data: { status: 'CONFIRMED', confirmedAt: new Date() },
+        });
+        if (claimed.count === 0) throw new ConflictException('订单状态已变化, 请刷新后重试');
+        return tx.salesOrder.findUnique({ where: { id: orderId } });
+      });
+      await this.audit.log({ user, action: AuditAction.ORDER_CONFIRM, entityType: 'Order', entityId: orderId, before: { status: 'PENDING_CONFIRM' }, after: { status: 'CONFIRMED' }, ip });
+      return updated;
+    } catch (e) {
+      if (e instanceof HttpException && e.getStatus() === HttpStatus.UNPROCESSABLE_ENTITY) {
+        await this.audit.log({ user, action: AuditAction.PRECHECK_BLOCK, entityType: 'Order', entityId: orderId, before: { stage: 'confirm', credit: e.getResponse() }, ip });
+      }
+      throw e;
     }
-    return this.transition(user, orderId, 'CONFIRMED', { confirmedAt: new Date() }, AuditAction.ORDER_CONFIRM, ip);
   }
 
   /** D01 特批: 老板本人, 必须给理由 */

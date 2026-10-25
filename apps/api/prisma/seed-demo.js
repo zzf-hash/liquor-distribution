@@ -340,7 +340,7 @@ async function main() {
   ];
   for (const d of policyDefs) {
     await prisma.capFeePolicy.upsert({
-      where: { productId: d.p.id },
+      where: { tenantId_productId: { tenantId: T, productId: d.p.id } },
       update: {},
       create: { tenantId: T, productId: d.p.id, perBottleFee: d.perBottleFee, requireCap: d.requireCap, noCapRate: d.noCapRate, createdById: owner.id },
     });

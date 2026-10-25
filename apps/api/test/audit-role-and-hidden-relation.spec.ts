@@ -92,8 +92,13 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
     goodPolicy = await rawClient.capFeePolicy.create({
       data: { tenantId: tenantB.id, productId: productB.id, perBottleFee: new Prisma.Decimal('1.0000'), createdById: userB.id },
     });
-    badPolicy = await rawClient.capFeePolicy.create({
-      data: { tenantId: tenantB.id, productId: productA.id, perBottleFee: new Prisma.Decimal('1.0000'), createdById: userB.id },
+    // cap_fee_policy_same_tenant 会拒绝新的跨租户政策。这一行是历史脏数据，
+    // 只在本事务里关掉触发器，用来覆盖「必填关联被 RLS 滤掉」的列表回退。
+    badPolicy = await rawClient.$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+      return tx.capFeePolicy.create({
+        data: { tenantId: tenantB.id, productId: productA.id, perBottleFee: new Prisma.Decimal('1.0000'), createdById: userB.id },
+      });
     });
     goodRecycle = await rawClient.capRecycleOrder.create({
       data: {

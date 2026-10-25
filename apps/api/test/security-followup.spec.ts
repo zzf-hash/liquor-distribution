@@ -1,11 +1,21 @@
-import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
-import express from 'express';
+import path from 'node:path';
+import { ExpressAdapter } from '@nestjs/platform-express';
 import { assessDbRole } from '../src/prisma/db-role-check';
 import { IP_ALERT_THRESHOLD, LOGIN_FAIL_THRESHOLD, loginDelayMs, LoginThrottle } from '../src/modules/auth/login-throttle';
 
-const requireFromExpress = createRequire(require.resolve('express'));
-const proxyaddr = requireFromExpress('proxy-addr') as { compile: (value: string | string[]) => (addr: string, i: number) => boolean };
+// express is not hoisted. Load the copy nested next to @nestjs/platform-express,
+// which Jest can resolve. A bare `from 'express'` fails once the full suite is loaded.
+const nestEntry = Object.keys(require.cache).find((id) => id.includes(`${path.sep}@nestjs${path.sep}platform-express${path.sep}`));
+if (!nestEntry) throw new Error('platform-express module path missing');
+const nestModules = path.resolve(nestEntry.slice(0, nestEntry.indexOf(`${path.sep}@nestjs${path.sep}platform-express${path.sep}`)));
+const express = require(path.join(nestModules, 'express')) as typeof import('express');
+const expressEntry = Object.keys(require.cache).find((id) => id.endsWith(`${path.sep}express${path.sep}index.js`));
+if (!expressEntry) throw new Error('express module path missing');
+const proxyaddr = require(path.join(path.dirname(expressEntry), '..', 'proxy-addr')) as {
+  compile: (value: string | string[]) => (addr: string, i: number) => boolean;
+};
+void ExpressAdapter;
 
 describe('登录变慢 / 角色自检 / trust proxy', () => {
   it('超过阈值后延迟从 1 秒走到 3 秒, 不把次数变成拒绝', () => {

@@ -10,7 +10,7 @@ import { OrdersService } from '../src/modules/orders/orders.service';
 import { SignDto } from '../src/modules/orders/orders.controller';
 import { ReturnsService } from '../src/modules/returns/returns.service';
 import { ReportsController } from '../src/modules/reports/reports.controller';
-import { fallbackLineCost } from '../src/modules/reports/cost-fallback';
+import { fallbackCostCents } from '../src/modules/reports/gross-profit';
 import { buildCorsOptions, DEV_CORS_ORIGINS } from '../src/common/cors';
 
 const warehouse = { id: 'u1', tenantId: 't1', role: 'WAREHOUSE', username: 'wh', name: '仓', aud: 'staff' } as never;
@@ -284,14 +284,28 @@ describe('PR35-3 return receive copy', () => {
 });
 
 describe('LQ-FE-004 gross-margin cost fallback', () => {
+  function fallbackYuan(args: { qty: number; unit: 'BASE' | 'MIN'; conversionRate: number; ratio: number; basePrice: number | null; minPrice: number | null }): number | null {
+    const cents = fallbackCostCents({
+      qty: args.qty,
+      unit: args.unit,
+      conversionRate: args.conversionRate,
+      ratio: args.ratio,
+      quote: {
+        baseCents: args.basePrice === null ? null : Math.round(args.basePrice * 100),
+        minCents: args.minPrice === null ? null : Math.round(args.minPrice * 100),
+      },
+    });
+    return cents === null ? null : cents / 100;
+  }
+
   it('converts BASE and MIN cost with pack size and does not divide a bottle price twice', () => {
-    expect(fallbackLineCost({ qty: 2, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: 100, minPrice: null })).toBe(200);
-    expect(fallbackLineCost({ qty: 2, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: null, minPrice: 10 })).toBe(120);
-    expect(fallbackLineCost({ qty: 6, unit: 'MIN', conversionRate: 6, ratio: 1, basePrice: null, minPrice: 10 })).toBe(60);
-    expect(fallbackLineCost({ qty: 6, unit: 'MIN', conversionRate: 6, ratio: 1, basePrice: 60, minPrice: null })).toBe(60);
-    expect(fallbackLineCost({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: 100, minPrice: 10 })).toBe(100);
-    expect(fallbackLineCost({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: null, minPrice: null })).toBeNull();
-    expect(fallbackLineCost({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 0, basePrice: null, minPrice: null })).toBe(0);
+    expect(fallbackYuan({ qty: 2, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: 100, minPrice: null })).toBe(200);
+    expect(fallbackYuan({ qty: 2, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: null, minPrice: 10 })).toBe(120);
+    expect(fallbackYuan({ qty: 6, unit: 'MIN', conversionRate: 6, ratio: 1, basePrice: null, minPrice: 10 })).toBe(60);
+    expect(fallbackYuan({ qty: 6, unit: 'MIN', conversionRate: 6, ratio: 1, basePrice: 60, minPrice: null })).toBe(60);
+    expect(fallbackYuan({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: 100, minPrice: 10 })).toBe(100);
+    expect(fallbackYuan({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 1, basePrice: null, minPrice: null })).toBeNull();
+    expect(fallbackYuan({ qty: 1, unit: 'BASE', conversionRate: 6, ratio: 0, basePrice: null, minPrice: null })).toBe(0);
   });
 
   function signedLine(line: { qty: number; unit: 'BASE' | 'MIN'; conversionRate: number; amount: string; actualQty?: number }) {
@@ -313,6 +327,11 @@ describe('LQ-FE-004 gross-margin cost fallback', () => {
       salesOrder: { findMany: jest.fn().mockResolvedValue(orders) },
       price: { findMany: jest.fn().mockResolvedValue(prices) },
       user: { findMany: jest.fn().mockResolvedValue([]) },
+      receivable: { findMany: jest.fn().mockResolvedValue([]) },
+      receivableLedger: { findMany: jest.fn().mockResolvedValue([]) },
+      expense: { findMany: jest.fn().mockResolvedValue([]) },
+      customer: { findMany: jest.fn().mockResolvedValue([]) },
+      $transaction: async (arg: unknown) => (Array.isArray(arg) ? Promise.all(arg) : Promise.reject(new Error('unexpected transaction'))),
     };
     const ctrl = new ReportsController(prisma as never);
     const body = await ctrl.grossProfit({ tenantId: 't1' } as never, '2026-10', 'category') as {

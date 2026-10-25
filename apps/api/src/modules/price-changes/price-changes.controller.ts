@@ -11,7 +11,7 @@ class CreatePriceChangeDto {
   @IsString() productId!: string;
   @IsEnum(['BASE', 'MIN']) unit!: 'BASE' | 'MIN';
   @IsEnum(['COST', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL']) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
-  @IsNumber() @Min(0) newPrice!: number;
+  @IsNumber() @Min(0.01) newPrice!: number;
   @IsString() effectiveDate!: string;
   @IsString() reason!: string;
   @IsOptional() @IsBoolean() customerSync?: boolean;
@@ -22,7 +22,7 @@ class BatchItemDto {
   @IsString() productId!: string;
   @IsOptional() @IsEnum(['BASE', 'MIN']) unit?: 'BASE' | 'MIN';
   @IsEnum(['COST', 'TIER1', 'TIER2', 'TERMINAL', 'RETAIL']) levelType!: 'COST' | 'TIER1' | 'TIER2' | 'TERMINAL' | 'RETAIL';
-  @IsNumber() @Min(0) newPrice!: number;
+  @IsNumber() @Min(0.01) newPrice!: number;
 }
 
 class CreateBatchDto {

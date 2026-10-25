@@ -1,11 +1,13 @@
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { bizMonthRange } from '../../common/business-time';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
-import { fallbackLineCost } from './cost-fallback';
+import { centsToNumber, toCents } from '../../common/money';
+import { assembleGrossProfit, cashRebateBusinessMonth, fallbackCostCents, GROSS_PROFIT_CALIBER, marginPercent, offsetBusinessMonth, type CustomerErosion, type GrossRowIn } from './gross-profit';
 
 // ═══════════════ P1-T11 一键报表 (口径与台账一致: 流水投影, 不另立账) ═══════════════
 // 月报表: 销售(签收口径)/回款/退货/采购 + 品类/业务员/Top商品 维度
@@ -94,7 +96,8 @@ export class ReportsController {
   }
 
   /** C组 M10-2 毛利分析: 期间签收订单(实收口径) × 行成本(出库批次成本; 无出库记录回退最新成本价)
-   *  dimension: category | customer | rep | product; 赠品行收入 0 但成本计入(促销侵蚀毛利如实反映) */
+   *  毛利 = 收入 − 成本（清单 3.3）。返利/费用冲抵单列净贡献，按原单业务月归集（LQ1-021 / LQ1-051）。
+   *  dimension: category | customer | rep | product; 赠品行收入 0 但成本计入。 */
   @Get('gross-profit')
   async grossProfit(@CurrentUser() user: AuthUser, @Query('month') month: string, @Query('dimension') dimension?: string): Promise<unknown> {
     if (!/^\d{4}-\d{2}$/.test(month ?? '')) throw new ConflictException('月份格式 YYYY-MM');
@@ -108,7 +111,7 @@ export class ReportsController {
         outbounds: { include: { lines: { include: { batch: { select: { unitCost: true } } } } } },
       },
     });
-    // 行 → 成本: 出库行按批次成本×数量聚合; 无出库回退最新 COST 价（BASE 与 MIN，按换算率，LQ-FE-004）
+    // 行 → 成本: 出库行按批次成本×数量(分); 无出库回退 BASE 或 MIN 成本价，按行单位换算（LQ1-006）
     const baseCost = new Map<string, number>();
     const minCost = new Map<string, number>();
     {
@@ -117,94 +120,173 @@ export class ReportsController {
         orderBy: { validFrom: 'desc' },
       });
       for (const r of rows) {
-        const bucket = r.unit === 'BASE' ? baseCost : minCost;
-        if (!bucket.has(r.productId)) bucket.set(r.productId, Number(r.price));
+        const map = r.unit === 'BASE' ? baseCost : minCost;
+        if (!map.has(r.productId)) map.set(r.productId, toCents(r.price));
       }
     }
-    const agg = new Map<string, { key: string; name: string; revenue: number; cost: number; costKnown: boolean }>();
-    const bump = (key: string, name: string, revenue: number, cost: number, lineCostKnown: boolean) => {
-      const cur = agg.get(key) ?? { key, name, revenue: 0, cost: 0, costKnown: true };
-      cur.revenue += revenue; cur.cost += cost; cur.costKnown = cur.costKnown && lineCostKnown;
+    const agg = new Map<string, GrossRowIn>();
+    const bump = (key: string, name: string, revenueCents: number, costCents: number, costKnown: boolean) => {
+      const cur = agg.get(key) ?? { key, name, revenueCents: 0, costCents: 0, costKnown: true };
+      cur.revenueCents += revenueCents;
+      cur.costCents += costCents;
+      if (!costKnown) cur.costKnown = false;
       agg.set(key, cur);
     };
-    let totalRevenue = 0; let totalCost = 0; let costKnown = true;
     const repIds = new Set<string>();
     for (const o of orders) {
       if (o.salespersonId) repIds.add(o.salespersonId);
-      // 出库行成本按 orderLineId 归集
       const costByLine = new Map<string, number>();
       for (const ob of o.outbounds) {
         for (const ol of ob.lines) {
-          costByLine.set(ol.orderLineId, (costByLine.get(ol.orderLineId) ?? 0) + Number(ol.qty) * Number(ol.batch.unitCost));
+          const cents = new Prisma.Decimal(ol.qty).mul(ol.batch.unitCost).mul(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+          costByLine.set(ol.orderLineId, (costByLine.get(ol.orderLineId) ?? 0) + cents);
         }
       }
-      const reversed = new Map<string, number>();
-      for (const line of o.lines) if (line.reversalOfId) reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? 0) + Number(line.qty));
+      const reversed = new Map<string, Prisma.Decimal>();
+      for (const line of o.lines) {
+        if (line.reversalOfId) reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? new Prisma.Decimal(0)).add(line.qty));
+      }
       const actualLines = Array.isArray(o.signature?.actualLines) ? o.signature.actualLines as Array<{ orderLineId: string; actualQty: number }> : [];
-      const ratioByLine = new Map<string, number>(); // 实收/净量(部分拒收按比例折收入与成本)
+      const ratioByLine = new Map<string, Prisma.Decimal>();
       for (const l of o.lines) {
         if (l.reversalOfId) continue;
-        const netQty = Number(l.qty) + (reversed.get(l.id) ?? 0);
-        const actual = actualLines.length ? Number(actualLines.find((x) => x.orderLineId === l.id)?.actualQty ?? 0) : netQty;
-        ratioByLine.set(l.id, netQty > 0 ? Math.max(0, Math.min(netQty, actual)) / netQty : 0);
+        const netQty = new Prisma.Decimal(l.qty).add(reversed.get(l.id) ?? 0);
+        const actual = actualLines.length ? new Prisma.Decimal(actualLines.find((x) => x.orderLineId === l.id)?.actualQty ?? 0) : netQty;
+        const accepted = Prisma.Decimal.max(0, Prisma.Decimal.min(netQty, actual));
+        ratioByLine.set(l.id, netQty.gt(0) ? accepted.div(netQty) : new Prisma.Decimal(0));
       }
       const customerName = o.customerName;
       for (const l of o.lines) {
         if (l.reversalOfId) continue;
-        const ratio = ratioByLine.get(l.id) ?? 0;
-        const revenue = Number((Number(l.amount) * ratio).toFixed(2));
-        let cost = Number(((costByLine.get(l.id) ?? 0) * ratio).toFixed(2));
-        let lineCostKnown = true;
-        if (!costByLine.has(l.id)) {
-          const fallback = fallbackLineCost({
-            qty: Number(l.qty),
-            unit: l.unit,
-            conversionRate: Number(l.conversionRate) || 1,
-            ratio,
-            basePrice: baseCost.has(l.productId) ? baseCost.get(l.productId)! : null,
-            minPrice: minCost.has(l.productId) ? minCost.get(l.productId)! : null,
+        const ratio = ratioByLine.get(l.id) ?? new Prisma.Decimal(0);
+        const revenueCents = new Prisma.Decimal(l.amount).mul(ratio).mul(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+        let costCents = 0;
+        let costKnown = true;
+        if (costByLine.has(l.id)) {
+          costCents = new Prisma.Decimal(costByLine.get(l.id)!).mul(ratio).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+        } else {
+          const fallback = fallbackCostCents({
+            qty: l.qty, unit: l.unit, conversionRate: l.conversionRate, ratio,
+            quote: { baseCents: baseCost.get(l.productId) ?? null, minCents: minCost.get(l.productId) ?? null },
           });
-          if (fallback === null) { lineCostKnown = false; cost = 0; }
-          else cost = fallback;
+          if (fallback === null) { costKnown = false; costCents = 0; }
+          else costCents = fallback;
         }
-        if (!lineCostKnown) costKnown = false;
-        totalRevenue += revenue; totalCost += cost;
-        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenue, cost, lineCostKnown);
-        else if (dim === 'customer') bump(o.customerId, customerName, revenue, cost, lineCostKnown);
-        else if (dim === 'product') bump(l.productId, l.productName, revenue, cost, lineCostKnown);
-        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenue, cost, lineCostKnown);
+        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenueCents, costCents, costKnown);
+        else if (dim === 'customer') bump(o.customerId, customerName, revenueCents, costCents, costKnown);
+        else if (dim === 'product') bump(l.productId, l.productName, revenueCents, costCents, costKnown);
+        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenueCents, costCents, costKnown);
       }
+    }
+    // 冲抵按原单业务月，不按流水 createdAt（LQ1-051：期初单的 FEE_OFFSET 不能压到入账月的毛利）。
+    const orderNos = orders.map((o) => o.orderNo);
+    const signedAtByOrderNo = new Map(orders.map((o) => [o.orderNo, o.signedAt]));
+    const [orderDocs, otherDocs, cashRebates] = await this.prisma.$transaction([
+      this.prisma.receivable.findMany({
+        where: { tenantId: user.tenantId, sourceType: 'ORDER', sourceDocNo: { in: orderNos.length ? orderNos : ['__none__'] } },
+        select: { id: true, customerId: true, sourceType: true, sourceDocNo: true, generatedAt: true },
+      }),
+      this.prisma.receivable.findMany({
+        where: { tenantId: user.tenantId, NOT: { sourceType: 'ORDER' }, generatedAt: { gte: start, lte: end } },
+        select: { id: true, customerId: true, sourceType: true, sourceDocNo: true, generatedAt: true },
+      }),
+      this.prisma.expense.findMany({
+        where: {
+          tenantId: user.tenantId,
+          category: 'REBATE',
+          status: { in: ['APPROVED', 'PAID'] },
+          OR: [
+            { source: { startsWith: `REBATE_SETTLE:${month}:` } },
+            { occurredAt: { gte: start, lte: end } },
+          ],
+        },
+        select: { amount: true, customerId: true, source: true, occurredAt: true },
+      }),
+    ]);
+    const docs = [...orderDocs, ...otherDocs].filter((d) => offsetBusinessMonth({
+      sourceType: d.sourceType,
+      signedAt: d.sourceType === 'ORDER' ? signedAtByOrderNo.get(d.sourceDocNo) ?? null : null,
+      generatedAt: d.generatedAt,
+    }) === month);
+    const ledgers = docs.length === 0 ? [] : await this.prisma.receivableLedger.findMany({
+      where: {
+        tenantId: user.tenantId,
+        receivableId: { in: docs.map((d) => d.id) },
+        direction: { in: ['REBATE_OFFSET', 'FEE_OFFSET'] },
+      },
+      select: { direction: true, amount: true, receivableId: true },
+    });
+    const docById = new Map(docs.map((d) => [d.id, d]));
+    const erosionMap = new Map<string, CustomerErosion>();
+    const touch = (customerId: string): CustomerErosion => {
+      const cur = erosionMap.get(customerId) ?? { customerId, rebateCents: 0, feeCents: 0 };
+      erosionMap.set(customerId, cur);
+      return cur;
+    };
+    for (const l of ledgers) {
+      const doc = docById.get(l.receivableId);
+      if (!doc) continue;
+      const row = touch(doc.customerId);
+      if (l.direction === 'REBATE_OFFSET') row.rebateCents += toCents(l.amount);
+      else row.feeCents += toCents(l.amount);
+    }
+    for (const e of cashRebates) {
+      if (!e.customerId) continue;
+      if (cashRebateBusinessMonth(e.source, e.occurredAt) !== month) continue;
+      touch(e.customerId).rebateCents += toCents(e.amount);
     }
     const reps = repIds.size ? await this.prisma.user.findMany({ where: { id: { in: [...repIds] } }, select: { id: true, name: true } }) : [];
     const repName = (id: string) => reps.find((u) => u.id === id)?.name ?? '未归属';
     const CATEGORY_LABELS: Record<string, string> = { BAIJIU: '白酒', PIJIU: '啤酒', HONGJIU: '红酒', YANGJIU: '洋酒', YINLIAO: '饮料', QITA: '其他' };
-    const rows = [...agg.values()].map((r) => {
-      const numericProfit = Number((r.revenue - r.cost).toFixed(2));
-      const { costKnown: rowCostKnown, ...rest } = r;
-      // 成本未知时不把缺价当成 0 去减收入：毛利与毛利率都为空
-      const profit = rowCostKnown ? numericProfit : null;
-      return {
-        ...rest,
-        name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
-        revenue: Number(r.revenue.toFixed(2)), cost: Number(r.cost.toFixed(2)),
-        profit,
-        margin: r.revenue > 0 && profit !== null ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
-      };
-    }).sort((a, b) => {
-      if (a.profit === null && b.profit === null) return b.revenue - a.revenue;
+    const named = [...agg.values()].map((r) => ({
+      ...r,
+      name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
+    }));
+    const missingCustomerIds = [...erosionMap.keys()].filter((id) => !named.some((r) => r.key === id));
+    const extraCustomers = dim === 'customer' && missingCustomerIds.length
+      ? await this.prisma.customer.findMany({ where: { id: { in: missingCustomerIds } }, select: { id: true, name: true } })
+      : [];
+    const customerNames = new Map(extraCustomers.map((c) => [c.id, c.name]));
+    const assembled = assembleGrossProfit({
+      dimension: dim as 'category' | 'customer' | 'rep' | 'product',
+      rows: named,
+      erosions: [...erosionMap.values()],
+      customerNames,
+    });
+    const yuanOrNull = (cents: number | null): number | null => (cents === null ? null : centsToNumber(cents));
+    const yuanRow = (r: typeof assembled.rows[number]) => ({
+      key: r.key,
+      name: r.name,
+      revenue: centsToNumber(r.revenueCents),
+      cost: centsToNumber(r.costCents),
+      profitBeforeErosion: yuanOrNull(r.profitCents),
+      rebateErosion: centsToNumber(r.rebateCents),
+      feeErosion: centsToNumber(r.feeCents),
+      profit: yuanOrNull(r.profitCents),
+      netContribution: yuanOrNull(r.netContributionCents),
+      margin: r.margin,
+    });
+    const rows = assembled.rows.map(yuanRow).sort((a, b) => {
+      if (a.profit === null && b.profit === null) return 0;
       if (a.profit === null) return 1;
       if (b.profit === null) return -1;
       return b.profit - a.profit;
     });
-    const totalProfit = costKnown ? Number((totalRevenue - totalCost).toFixed(2)) : null;
+    const t = assembled.totals;
     return {
       month, dimension: dim, rows,
       totals: {
-        revenue: Number(totalRevenue.toFixed(2)), cost: Number(totalCost.toFixed(2)), profit: totalProfit,
-        margin: totalRevenue > 0 && totalProfit !== null ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
+        revenue: centsToNumber(t.revenueCents),
+        cost: centsToNumber(t.costCents),
+        profitBeforeErosion: yuanOrNull(t.profitCents),
+        rebateErosion: centsToNumber(t.rebateCents),
+        feeErosion: centsToNumber(t.feeCents),
+        profit: yuanOrNull(t.profitCents),
+        netContribution: yuanOrNull(t.netContributionCents),
+        margin: t.profitCents === null ? null : marginPercent(t.profitCents, t.revenueCents, t.costKnown),
         orderCount: orders.length,
       },
-      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新 COST 价: 行单位与价目单位一致则直接相乘; 仅有箱价 BASE 而行为瓶 MIN 时按箱价÷换算率; 仅有瓶价 MIN 而行为箱 BASE 时按瓶价×换算率; 缺少成本时该行毛利与毛利率为空，合计里任一行缺成本则合计毛利与毛利率为空); 赠品行收入0成本照计(促销侵蚀如实反映)',
+      caliber: GROSS_PROFIT_CALIBER,
     };
   }
 }
