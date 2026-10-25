@@ -9,7 +9,9 @@ import { ApprovalsService } from '../approvals/approvals.service';
 import { PurchasesService } from '../purchases/purchases.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
-/** 系统任务身份(日切 / 每日任务无登录态)。User 表没有 id=system, 写审计时 userId 置 null, username 仍记 system。 */
+/** 系统任务身份(日切 / 每日任务无登录态)。User 表没有 id=system。
+ *  写审计时 userId=null, username=system, role=SYSTEM, channel=cron。
+ *  AuthUser.role 不含 SYSTEM, 业务判断仍用 OWNER。 */
 export function SYSTEM_USER(tenantId: string): AuthUser {
   return { id: 'system', tenantId, username: 'system', name: '系统', role: 'OWNER', dataScope: 'ALL', aud: 'staff' };
 }

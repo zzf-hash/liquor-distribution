@@ -3,6 +3,7 @@
  * liquor_app: LOGIN、非超级用户、非表主、无 BYPASSRLS, AuditLog 只有 SELECT/INSERT。
  * 口令只在本进程里生成, 不作为部署凭据。
  */
+import { execFileSync } from 'node:child_process';
 import { Logger } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaService, rawClient } from '../src/prisma/prisma.service';
@@ -56,18 +57,11 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
 
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL 未设置');
-    await rawClient.$executeRawUnsafe(`
-      DO $$ BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'liquor_app') THEN
-          CREATE ROLE liquor_app LOGIN PASSWORD '${appPassword}' NOSUPERUSER NOBYPASSRLS;
-        ELSE
-          ALTER ROLE liquor_app WITH LOGIN PASSWORD '${appPassword}' NOSUPERUSER NOBYPASSRLS;
-        END IF;
-      END $$;
-    `);
-    await rawClient.$executeRawUnsafe(`GRANT USAGE ON SCHEMA public TO liquor_app`);
-    await rawClient.$executeRawUnsafe(`GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO liquor_app`);
-    await rawClient.$executeRawUnsafe(`REVOKE UPDATE, DELETE, TRUNCATE ON TABLE "AuditLog" FROM liquor_app`);
+    execFileSync('pnpm', ['exec', 'prisma', 'db', 'execute', '--schema', 'prisma/schema.prisma', '--file', 'prisma/grant-liquor-app.sql'], {
+      stdio: 'pipe',
+      env: process.env,
+    });
+    await rawClient.$executeRawUnsafe(`ALTER ROLE liquor_app WITH LOGIN PASSWORD '${appPassword}'`);
 
     tenantA = await rawClient.tenant.create({ data: { code: `${nonce}-A`, name: '审计A' } });
     tenantB = await rawClient.tenant.create({ data: { code: `${nonce}-B`, name: '审计B' } });
@@ -144,6 +138,7 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
     if (tenantA && tenantB) {
       const ids = [tenantA.id, tenantB.id];
       await rawClient.auditLog.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
+      await rawClient.systemConfig.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.dailyStockReport.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.orderLine.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.salesOrder.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
@@ -155,7 +150,10 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
       await rawClient.user.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.tenant.deleteMany({ where: { id: { in: ids } } }).catch(() => undefined);
     }
+    await rawClient.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM liquor_app`).catch(() => undefined);
+    await rawClient.$executeRawUnsafe(`ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM liquor_app`).catch(() => undefined);
     await rawClient.$executeRawUnsafe(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM liquor_app`).catch(() => undefined);
+    await rawClient.$executeRawUnsafe(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM liquor_app`).catch(() => undefined);
     await rawClient.$executeRawUnsafe(`REVOKE USAGE ON SCHEMA public FROM liquor_app`).catch(() => undefined);
     await rawClient.$executeRawUnsafe(`DROP ROLE IF EXISTS liquor_app`).catch(() => undefined);
     await prisma.$disconnect().catch(() => undefined);
@@ -163,18 +161,40 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
   });
 
   it('liquor_app 不是超级用户也不是表主, AuditLog 不能 UPDATE, 但审计能写入且链连续', async () => {
-    const priv = await rawClient.$queryRaw<Array<{ upd: boolean; ins: boolean; sel: boolean; super: boolean; bypass: boolean; owner: boolean }>>`
+    const priv = await rawClient.$queryRaw<Array<{ upd: boolean; ins: boolean; sel: boolean; super: boolean; bypass: boolean; createdb: boolean; createrole: boolean; owner: boolean }>>`
       SELECT
         has_table_privilege('liquor_app', '"AuditLog"', 'UPDATE') AS upd,
         has_table_privilege('liquor_app', '"AuditLog"', 'INSERT') AS ins,
         has_table_privilege('liquor_app', '"AuditLog"', 'SELECT') AS sel,
         r.rolsuper AS super,
         r.rolbypassrls AS bypass,
+        r.rolcreatedb AS createdb,
+        r.rolcreaterole AS createrole,
         pg_get_userbyid(c.relowner) = 'liquor_app' AS owner
       FROM pg_roles r, pg_class c
       WHERE r.rolname = 'liquor_app' AND c.relname = 'AuditLog'
     `;
-    expect(priv[0]).toMatchObject({ upd: false, ins: true, sel: true, super: false, bypass: false, owner: false });
+    expect(priv[0]).toMatchObject({ upd: false, ins: true, sel: true, super: false, bypass: false, createdb: false, createrole: false, owner: false });
+    const appendOnly = ['InventoryLedger', 'ReceivableLedger', 'SignatureRecord', 'ImportRowError', 'OrderLine', 'ReturnLine', 'IdempotencyRecord', 'PackageRecord', 'Visit'];
+    for (const table of appendOnly) {
+      const row = await rawClient.$queryRawUnsafe<Array<{ upd: boolean; ins: boolean }>>(
+        `SELECT has_table_privilege('liquor_app', '"${table}"', 'UPDATE') AS upd, has_table_privilege('liquor_app', '"${table}"', 'INSERT') AS ins`,
+      );
+      expect(row[0]).toEqual({ upd: false, ins: true });
+    }
+    const mutable = await rawClient.$queryRaw<Array<{ orderUpd: boolean; approvalUpd: boolean; stocktakeUpd: boolean }>>`
+      SELECT
+        has_table_privilege('liquor_app', '"SalesOrder"', 'UPDATE') AS "orderUpd",
+        has_table_privilege('liquor_app', '"ApprovalRecord"', 'UPDATE') AS "approvalUpd",
+        has_table_privilege('liquor_app', '"StocktakeLine"', 'UPDATE') AS "stocktakeUpd"
+    `;
+    expect(mutable[0]).toEqual({ orderUpd: true, approvalUpd: true, stocktakeUpd: true });
+    const owned = await rawClient.$queryRaw<Array<{ n: number }>>`
+      SELECT count(*)::int AS n FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = 'public' AND pg_get_userbyid(c.relowner) = 'liquor_app'
+    `;
+    expect(owned[0].n).toBe(0);
 
     await expect(appClient.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantA.id}, true)`;
@@ -263,8 +283,38 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
       orderBy: { action: 'asc' },
     });
     expect(rows.map((row) => row.action)).toEqual(['AR_REMINDER_RUN', 'STOCK_REPORT_RUN']);
-    expect(rows.every((row) => row.userId === null && row.username === 'system')).toBe(true);
+    expect(rows.every((row) => row.userId === null && row.username === 'system' && row.role === 'SYSTEM' && row.channel === 'cron')).toBe(true);
     await expect(audit.verifyChain(tenantA.id)).resolves.toEqual({ ok: true });
+  });
+
+  it('事务回调里用 this.prisma 会 warn 并单独包 RLS, liquor_app 仍能读到行', async () => {
+    const warns: string[] = [];
+    const spy = jest.spyOn(Logger.prototype, 'warn').mockImplementation((message: unknown) => {
+      warns.push(String(message));
+    });
+    let cfgId = '';
+    try {
+      const result = await rlsRoleContext.run('liquor_app', () => tenantContext.run({ tenantId: tenantA.id }, async () => {
+        return prisma.$transaction(async (tx) => {
+          const viaTx = await tx.product.count({ where: { tenantId: tenantA.id } });
+          const viaClient = await prisma.product.count({ where: { tenantId: tenantA.id } });
+          return { viaTx, viaClient };
+        });
+      }));
+      expect(result.viaTx).toBeGreaterThan(0);
+      expect(result.viaClient).toBe(result.viaTx);
+      const created = await rlsRoleContext.run('liquor_app', () => tenantContext.run({ tenantId: tenantA.id }, () => prisma.$transaction(async () => {
+        return prisma.systemConfig.create({
+          data: { tenantId: tenantA.id, key: `out-${nonce}`, value: { v: 1 }, updatedBy: 't' },
+        });
+      })));
+      cfgId = created.id;
+    } finally {
+      spy.mockRestore();
+      if (cfgId) await rawClient.systemConfig.delete({ where: { id: cfgId } }).catch(() => undefined);
+    }
+    expect(warns.some((line) => line.includes('事务外查询') && line.includes('Product.count'))).toBe(true);
+    expect(warns.some((line) => line.includes('事务外查询') && line.includes('SystemConfig.create'))).toBe(true);
   });
 
   it('跨租户必填关联不把列表打成 500: 跳过该行, 详情按不存在', async () => {

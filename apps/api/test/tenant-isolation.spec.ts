@@ -3,18 +3,20 @@
  * 应用连接沿用超级用户(与官方 postgres 镜像的 POSTGRES_USER 一致), RLS 对它不生效;
  * 行级策略用 SET ROLE 到非超级用户 liquor_rls_probe 验证。
  */
-import { BadRequestException, HttpException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, Logger, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService, rawClient } from '../src/prisma/prisma.service';
 import { tenantContext } from '../src/prisma/tenant-context';
 import { TENANT_MODELS } from '../src/prisma/tenant-models';
-import { AuthService } from '../src/modules/auth/auth.service';
+import { AuthService, DUMMY_PASSWORD_HASH } from '../src/modules/auth/auth.service';
+import { loginDelayMs, loginThrottle, loginUserKey } from '../src/modules/auth/login-throttle';
 import { AuditService } from '../src/audit/audit.service';
 import { ExpensesService } from '../src/modules/expenses/expenses.service';
 import { PromotionsController } from '../src/modules/promotions/promotions.controller';
 import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
+import { UsersController } from '../src/modules/users/users.controller';
 import type { AuthUser } from '../src/common/current-user.decorator';
 
 const nonce = `lq1${Date.now().toString(36)}`;
@@ -310,7 +312,10 @@ describe('租户隔离 / RLS / 登录', () => {
 
     await expect(auth.login('shared', 'password-wrong', '10.0.0.3', tenantA.code)).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(auth.login('shared', 'password-a', '10.0.0.4', tenantB.code)).rejects.toBeInstanceOf(UnauthorizedException);
-    await expect(auth.login('shared', 'password-a', '10.0.0.5')).rejects.toBeInstanceOf(BadRequestException);
+    const ambiguousKey = loginUserKey(undefined, 'shared');
+    const ambiguousBefore = loginThrottle.userCount(ambiguousKey);
+    await expect(auth.login('shared', 'password-a', '10.0.0.5')).rejects.toThrow('该用户名存在于多个租户, 请填写租户编码');
+    expect(loginThrottle.userCount(ambiguousKey)).toBe(ambiguousBefore + 1);
 
     const only = await auth.login(`only-${nonce}`, 'password-u', '10.0.0.6');
     expect(jwt.decode(only.token)).toMatchObject({ tenantId: tenantA.id });
@@ -339,14 +344,49 @@ describe('租户隔离 / RLS / 登录', () => {
     expect((wrong as UnauthorizedException).getStatus()).toBe(401);
     expect((wrong as UnauthorizedException).message).toBe('用户名或密码错误');
 
-    for (let i = 0; i < 10; i += 1) {
-      const attempt = await capture(i % 2 === 0 ? 'password-wrong' : 'password-d', '10.2.1.1');
-      expect(bodyOf(attempt)).toEqual({ status: 401, body: (wrong as UnauthorizedException).getResponse() });
+    const slept: number[] = [];
+    const origSleep = loginThrottle.sleep;
+    loginThrottle.sleep = async (ms) => { slept.push(ms); };
+    const alerts: string[] = [];
+    const alertSpy = jest.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+      alerts.push(String(message));
+    });
+    try {
+      loginThrottle.reset();
+      const captureNamed = async (username: string, password: string) => {
+        try {
+          await auth.login(username, password, '10.2.2.9', tenantA.code);
+          throw new Error('登录应当失败');
+        } catch (e) {
+          return e;
+        }
+      };
+      const wrongName = `slow-wrong-${nonce}`;
+      const disabledName = `slow-disabled-${nonce}`;
+      const hashSlow = bcrypt.hashSync('password-d', 4);
+      await rawClient.user.create({
+        data: { tenantId: tenantA.id, username: wrongName, name: '慢错', role: 'CLERK', dataScope: 'ALL', passwordHash: hashSlow, status: 'ACTIVE' },
+      });
+      await rawClient.user.create({
+        data: { tenantId: tenantA.id, username: disabledName, name: '慢禁', role: 'CLERK', dataScope: 'ALL', passwordHash: hashSlow, status: 'DISABLED' },
+      });
+      for (let i = 0; i < 10; i += 1) {
+        await expect(auth.login(wrongName, 'password-wrong', '10.2.2.1', tenantA.code)).rejects.toThrow('用户名或密码错误');
+        await expect(auth.login(disabledName, 'password-wrong', '10.2.2.2', tenantA.code)).rejects.toThrow('用户名或密码错误');
+      }
+      expect(slept).toEqual([]);
+      const eleventhWrong = await captureNamed(wrongName, 'password-wrong');
+      const eleventhDisabled = await captureNamed(disabledName, 'password-d');
+      expect(bodyOf(eleventhWrong)).toEqual(bodyOf(eleventhDisabled));
+      expect(bodyOf(eleventhWrong).status).toBe(401);
+      expect(slept).toEqual([loginDelayMs(11), loginDelayMs(11)]);
+      expect(loginDelayMs(11)).toBeGreaterThanOrEqual(1000);
+      expect(loginDelayMs(21)).toBeLessThanOrEqual(3000);
+      expect(alerts.some((line) => line.includes('开始延迟而不锁定'))).toBe(true);
+    } finally {
+      loginThrottle.sleep = origSleep;
+      alertSpy.mockRestore();
     }
-    const blockedRight = await capture('password-d', '10.2.1.1');
-    const blockedWrong = await capture('password-wrong', '10.2.1.1');
-    expect(bodyOf(blockedRight)).toEqual(bodyOf(blockedWrong));
-    expect((blockedRight as HttpException).getStatus()).toBe(429);
 
     await expect(auth.login(`missing-${nonce}`, 'password-a', '10.2.0.3', tenantA.code)).rejects.toThrow('用户名或密码错误');
     await expect(auth.login('shared', 'password-wrong', '10.2.0.4', tenantA.code)).rejects.toThrow('用户名或密码错误');
@@ -371,5 +411,42 @@ describe('租户隔离 / RLS / 登录', () => {
     });
     expect(sharedFails.length).toBeGreaterThan(0);
     expect(sharedFails.every((row) => row.userId === userA.id)).toBe(true);
+
+    const warns: string[] = [];
+    const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation((message: unknown) => {
+      warns.push(String(message));
+    });
+    try {
+      await expect(auth.login(`ghost-${nonce}`, 'password-a', '10.2.0.8', `missing-tenant-${nonce}`)).rejects.toThrow('用户名或密码错误');
+    } finally {
+      warnSpy.mockRestore();
+    }
+    expect(warns.some((line) => line.includes('无法写入审计'))).toBe(true);
+    expect(await rawClient.auditLog.count({ where: { username: `ghost-${nonce}` } })).toBe(0);
+
+    const hashCost10 = bcrypt.hashSync('password-cost10', 10);
+    await rawClient.user.create({
+      data: { tenantId: tenantA.id, username: `cost10-${nonce}`, name: '代价', role: 'CLERK', dataScope: 'ALL', passwordHash: hashCost10, status: 'ACTIVE' },
+    });
+    const startedWrong = Date.now();
+    await expect(auth.login(`cost10-${nonce}`, 'password-wrong', '10.2.3.1', tenantA.code)).rejects.toThrow('用户名或密码错误');
+    const wrongMs = Date.now() - startedWrong;
+    const startedMissing = Date.now();
+    await expect(auth.login(`nobody-${nonce}`, 'password-wrong', '10.2.3.2', `missing-tenant-${nonce}`)).rejects.toThrow('用户名或密码错误');
+    const missingMs = Date.now() - startedMissing;
+    expect(Math.abs(wrongMs - missingMs)).toBeLessThan(400);
+    expect(DUMMY_PASSWORD_HASH.split('$')[2]).toBe('10');
+
+    await expect(tenantContext.run({ tenantId: tenantA.id }, () => prisma.user.create({
+      data: { tenantId: tenantA.id, username: 'System', name: '保留', role: 'CLERK', dataScope: 'ALL', passwordHash: bcrypt.hashSync('password-x', 4), status: 'ACTIVE' },
+    }))).rejects.toThrow('用户名 system 为系统保留');
+    const users = new UsersController(prisma, auth, new AuditService());
+    await expect(users.create(owner(userA.id, tenantA.id), {
+      username: 'SyStEm', password: 'password-x', name: '保留', role: 'CLERK',
+    })).rejects.toThrow('用户名 system 为系统保留');
+    await expect(tenantContext.run({ tenantId: tenantA.id }, () => prisma.user.update({
+      where: { id: userA.id },
+      data: { username: 'system' },
+    }))).rejects.toThrow('用户名 system 为系统保留');
   });
 });

@@ -137,6 +137,9 @@ export class AuditService {
     // username 原样保留(系统任务是 'system')。列在 0_init 里已是可空 TEXT, 不必再迁移。
     // null 不进 rowHash(见 hash), 插在已有链中间也不会让后续校验失败。
     const userId = entry.user.id && entry.user.id !== 'system' ? entry.user.id : null;
+    const systemActor = entry.user.id === 'system' || entry.user.username.toLowerCase() === 'system';
+    const role = systemActor ? 'SYSTEM' : String(entry.user.role);
+    const channel = entry.channel ?? (systemActor ? 'cron' : 'web');
     await this.db.$transaction(async (tx) => {
       // rawClient 不走扩展层, 这里自行把租户放进本事务, 否则 FORCE RLS 下非超级用户插不进 AuditLog。
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
@@ -169,14 +172,14 @@ export class AuditService {
           tenantId,
           userId,
           username: entry.user.username,
-          role: String(entry.user.role),
+          role,
           action: entry.action,
           entityType: entry.entityType,
           entityId: entry.entityId,
           before: (entry.before ?? undefined) as never,
           after: (entry.after ?? undefined) as never,
           ip: entry.ip,
-          channel: entry.channel ?? 'web',
+          channel,
           prevRowHash: prev,
           rowHash,
           createdAt: now,

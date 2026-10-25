@@ -1,5 +1,5 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { Injectable, OnModuleDestroy, OnModuleInit, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
 import { tenantContext, rlsBypassContext, currentRlsRole } from './tenant-context';
 import { TENANT_MODELS } from './tenant-models';
@@ -57,8 +57,12 @@ function applyGuards(params: Record<string, unknown>, ctx: Ctx): Record<string, 
     const tag = APPEND_ONLY_MODELS.has(model) ? 'append-only(安全评审B2/B4)' : '写一次(安全评审B3, 改单只走红字冲销新行)';
     throw new ForbiddenException(`模型 ${model} 为 ${tag}, 禁止 ${action}`);
   }
-  if (!ctx || !TENANT_MODELS.has(model)) return params;
   const args = (params.args ?? {}) as Record<string, any>;
+  if (model === 'User' && (action === 'create' || action === 'createMany' || action === 'update' || action === 'updateMany' || action === 'upsert')) {
+    rejectReservedUsername(args.data);
+    if (action === 'upsert') rejectReservedUsername(args.update);
+  }
+  if (!ctx || !TENANT_MODELS.has(model)) return params;
   if (WHERE_ACTIONS.has(action)) {
     // 无 where 的集合查询此前整个被跳过(GET /users 等裸 findMany 全租户泄漏), 这里主动构造
     if (args.where === undefined) args.where = {};
@@ -82,8 +86,10 @@ function applyGuards(params: Record<string, unknown>, ctx: Ctx): Record<string, 
   return params;
 }
 
-// 已经处在「我们包过的」RLS 事务里, 内层查询不要再套一层(否则批量事务被拆开)。
+// 外层交互事务回调期间为 true。不能单凭它跳过 RLS 包装:
+// 回调里若用 this.prisma 而不是 tx, 查询在另一条连接上, kind 不是 itx/batch。
 const inRlsTx = new AsyncLocalStorage<true>();
+const rlsLogger = new Logger('PrismaRls');
 // 关联回退正在逐行重查。内层扩展只执行语句, 不再包一层回退(否则递归)。
 const inRelationFallback = new AsyncLocalStorage<true>();
 
@@ -96,6 +102,16 @@ type RlsQueryParams = {
 };
 
 type TxClient = Prisma.TransactionClient;
+
+function rejectReservedUsername(data: unknown): void {
+  const rows = Array.isArray(data) ? data : data ? [data] : [];
+  for (const row of rows) {
+    const name = (row as { username?: unknown } | null)?.username;
+    if (typeof name === 'string' && name.trim().toLowerCase() === 'system') {
+      throw new BadRequestException('用户名 system 为系统保留');
+    }
+  }
+}
 
 function needsRlsGuc(): boolean {
   return Boolean(tenantContext.getStore()?.tenantId || rlsBypassContext.getStore());
@@ -144,8 +160,12 @@ const extendedClient = baseClient.$extends({
         if (inRelationFallback.getStore()) return query(args);
         const txKind = params.__internalParams?.transaction?.kind;
         const insidePrismaTx = txKind === 'batch' || txKind === 'itx';
-        if (!model || !needsRlsGuc() || inRlsTx.getStore() || insidePrismaTx) {
+        if (!model || !needsRlsGuc() || insidePrismaTx) {
           return runRead(model, operation, args, query);
+        }
+        // inRlsTx 只说明外层回调还在跑。这条查询没有 itx/batch, 就是另一条连接。
+        if (inRlsTx.getStore()) {
+          rlsLogger.warn(`事务外查询 ${model}.${operation}: 回调里用了 this.prisma 而不是 tx, 已单独包一层 RLS 事务`);
         }
         // 单条查询: 包进交互事务, 先设 GUC 再在同一连接上执行。
         // 回退放在这一层: 内层 delegate 每次只跑一条 query(), 坏行可以逐条重查。
@@ -170,8 +190,11 @@ function installRlsTransaction(client: ExtendedClient): void {
   if (typeof current !== 'function') return;
   originalTransaction = current.bind(client) as PrismaClient['$transaction'];
   const patched = ((arg: unknown, opts?: unknown) => {
-    if (!needsRlsGuc() || inRlsTx.getStore()) {
+    if (!needsRlsGuc()) {
       return (originalTransaction as (a: unknown, o?: unknown) => Promise<unknown>)(arg, opts);
+    }
+    if (inRlsTx.getStore()) {
+      rlsLogger.warn('事务外查询 $transaction: 回调里又开了事务, 已在新连接上单独设置 app.tenant_id');
     }
     if (typeof arg === 'function') {
       return originalTransaction(async (tx) => {

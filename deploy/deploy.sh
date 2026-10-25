@@ -41,9 +41,13 @@ ssh "$REMOTE" "
     cat > .env <<EOF
 POSTGRES_PASSWORD=\$(openssl rand -hex 16)
 JWT_SECRET=\$(openssl rand -hex 32)
+LIQUOR_APP_PASSWORD=\$(openssl rand -hex 24)
 TAG=$TAG
 EOF
     echo '  已生成 .env (首次)'
+  elif ! grep -q '^LIQUOR_APP_PASSWORD=' .env; then
+    echo LIQUOR_APP_PASSWORD=\$(openssl rand -hex 24) >> .env
+    echo '  已补 LIQUOR_APP_PASSWORD (不覆盖已有口令)'
   fi
 "
 
