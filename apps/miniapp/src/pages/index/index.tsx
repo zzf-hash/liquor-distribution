@@ -1,76 +1,152 @@
-import { View, Text, Button } from '@tarojs/components'
-import Taro from '@tarojs/taro'
-import { APP_TITLE } from '../../config/app-role'
-import { getToken } from '../../services/api'
+import { useState } from 'react'
+import { View, Text } from '@tarojs/components'
+import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../components/Icon'
+import RoleTabBar from '../../components/RoleTabBar'
+import { homeEntriesForRole } from '../../config/home-entries'
+import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES, getRole, getToken, getUserName, fmtMoney, ordersApi, receivablesApi } from '../../services/api'
+import type { CustomerOrderDTO } from '../../services/api'
+import { openAppPage } from '../../services/navigation'
 import './index.scss'
 
 /**
- * 客户首页——三主入口壳（task d0974541, 计划书§2.1易用性红线）
- *
- * §2.1 原文约束：客户订货主路径=语音/拍照/文字三入口，首次下单≤3分钟。
- * 本壳只做入口路由，不做业务逻辑：
- *   语音 → P0-02+ 接 ASR；拍照 → P0-02+ 接拍照识单；
- *   文字 → P0-T50/T51 已开通：进商品浏览/购物车下单通道。
- * 每个入口整卡可点（≥88px 计量 = 44px 物理），适配老年用户。
+ * 客户首页。文字下单是唯一主入口。
+ * 语音只在当前角色能调草稿接口时进入已有语音报单页，否则与拍照一样标为即将上线，不弹「建设中」。
  */
 
-type EntryKind = 'voice' | 'photo' | 'text'
-
-const ENTRIES: Array<{
-  kind: EntryKind
-  icon: string
-  title: string
-  desc: string
-}> = [
-  { kind: 'voice', icon: '🎙️', title: '语音下单', desc: '说出要订的酒，一键下单' },
-  { kind: 'photo', icon: '📷', title: '拍照下单', desc: '拍下进货单/货架，自动识别' },
-  { kind: 'text', icon: '📝', title: '文字下单', desc: '搜索或输入品名快速下单' },
-]
-
-function goEntry(kind: EntryKind) {
-  if (kind === 'text') {
-    // 文字下单（P0-T50/T51）：直达选酒页；未登录先走登录页
-    if (getToken()) Taro.switchTab({ url: '/pages/customer/products/index' })
-    else Taro.navigateTo({ url: '/pages/customer/login/index' })
-    return
-  }
-  // 语音/拍照通道待 P0-02 接 ASR / 拍照识单
-  Taro.showToast({ title: kind === 'voice' ? '语音通道建设中' : '拍照通道建设中', icon: 'none' })
-}
+const DELIVERING = new Set(['DELIVERING'])
 
 export default function Index() {
+  const [role, setRole] = useState('')
+  const [name, setName] = useState('')
+  const [openAmount, setOpenAmount] = useState<number | null>(null)
+  const [delivering, setDelivering] = useState<number | null>(null)
+  const [recent, setRecent] = useState<CustomerOrderDTO | null>(null)
+
+  useDidShow(() => {
+    const nextRole = getRole()
+    setRole(nextRole)
+    if (!getToken()) {
+      setName('')
+      setOpenAmount(null)
+      setDelivering(null)
+      setRecent(null)
+      return
+    }
+    setName(getUserName())
+    void loadSummary()
+  })
+
+  async function loadSummary() {
+    const [ar, orders] = await Promise.all([
+      receivablesApi.mine().catch(() => null),
+      ordersApi.mine({ page: 1, pageSize: 20 }).catch(() => null),
+    ])
+    if (ar) {
+      const open = (ar.items ?? []).reduce((sum, row) => sum + (row.open > 0 ? row.open : 0), 0)
+      setOpenAmount(open)
+    }
+    const list = orders?.items ?? []
+    if (orders) {
+      setDelivering(list.filter((row) => DELIVERING.has(row.status)).length)
+      setRecent(list[0] ?? null)
+    }
+  }
+
+  const voiceReady = homeEntriesForRole(role).includes('voice')
+
+  function goText() {
+    if (getToken()) openAppPage('/pages/customer/products/index')
+    else Taro.navigateTo({ url: '/pages/customer/login/index' })
+  }
+
+  function goVoice() {
+    if (!voiceReady) return
+    openAppPage('/pages/salesman/voice-order/index')
+  }
+
   return (
     <View className='home'>
-      <View className='home__header'>
-        <Text className='home__title'>{APP_TITLE.customer}</Text>
-        <Text className='home__subtitle'>三种方式订酒，选您顺手的</Text>
+      <View className='hero'>
+        <Text className='hero__kicker'>{name ? `${name}（演示账号）` : '登录后查看待结与配送'}</Text>
+        <Text className='hero__title'>今天订点什么？</Text>
+        <Text className='hero__sub'>下单后由商家确认送货</Text>
+        <View className='hero__stats'>
+          <View className='hero__stat'>
+            <Text className='hero__stat-k'>待结金额</Text>
+            <Text className='hero__stat-v'>{openAmount === null ? '—' : fmtMoney(openAmount)}</Text>
+          </View>
+          <View className='hero__stat'>
+            <Text className='hero__stat-k'>配送中订单</Text>
+            <Text className='hero__stat-v'>{delivering === null ? '—' : `${delivering} 单`}</Text>
+          </View>
+        </View>
       </View>
 
-      <View className='home__entries'>
-        {ENTRIES.map((it) => (
-          <Button
-            key={it.kind}
-            className='entry'
-            onClick={() => goEntry(it.kind)}
-          >
-            <Text className='entry__icon'>{it.icon}</Text>
-            <View className='entry__body'>
-              <Text className='entry__title'>{it.title}</Text>
-              <Text className='entry__desc'>{it.desc}</Text>
+      <View className='home-entry' onClick={goText}>
+        <View className='home-entry__icon'>
+          <Icon name='pen' color='#FFFFFF' size={44} />
+        </View>
+        <View className='home-entry__body'>
+          <Text className='home-entry__title'>文字下单</Text>
+          <Text className='home-entry__desc'>搜索或输入品名，快速加购</Text>
+        </View>
+        <Text className='home-entry__go'>去选酒</Text>
+      </View>
+
+      <View className='home-soon'>
+        <View className={`home-soon__card ${voiceReady ? 'home-soon__card--on' : ''}`} onClick={goVoice}>
+          <View className='home-soon__top'>
+            <View className='home-soon__icon'>
+              <Icon name='mic' color='#6B5F5A' size={44} />
             </View>
-          </Button>
-        ))}
+            {voiceReady ? null : <Text className='tag tag--muted'>即将上线</Text>}
+          </View>
+          <Text className='home-soon__title'>语音下单</Text>
+          <Text className='home-soon__desc'>说出要订的酒</Text>
+        </View>
+        <View className='home-soon__card'>
+          <View className='home-soon__top'>
+            <View className='home-soon__icon'>
+              <Icon name='cam' color='#6B5F5A' size={44} />
+            </View>
+            <Text className='tag tag--muted'>即将上线</Text>
+          </View>
+          <Text className='home-soon__title'>拍照下单</Text>
+          <Text className='home-soon__desc'>拍进货单自动识别</Text>
+        </View>
       </View>
 
-      <View className='home__footer'>
-        <Text className='home__footer-tip'>下单后由商家确认送货，首次下单预计3分钟内完成</Text>
-        <Text
-          className='home__staff-entry'
-          onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}
-        >
-          员工入口（业务员/内勤/仓配/老板）
-        </Text>
+      <View className='card home-recent'>
+        <View className='home-recent__hd'>
+          <Text className='card__title'>最近订单</Text>
+          <Text className='home-recent__all' onClick={() => openAppPage('/pages/customer/orders/index')}>全部 ›</Text>
+        </View>
+        {recent ? (
+          <View className='home-recent__row' onClick={() => openAppPage('/pages/customer/orders/index')}>
+            <View>
+              <Text className='home-recent__no'>{recent.orderNo}</Text>
+              <Text className={`tag tag--${ORDER_STATUS_TONES[recent.status] ?? 'muted'}`}>
+                {recent.statusLabel || ORDER_STATUS_LABELS[recent.status] || recent.status}
+              </Text>
+            </View>
+            <Text className='home-recent__amt'>{fmtMoney(recent.totalAmount)}</Text>
+          </View>
+        ) : (
+          <View className='state'>
+            <Text className='state__title'>还没有订单</Text>
+            <Text className='state__txt'>选好酒下单后，可在这里查看进度</Text>
+          </View>
+        )}
       </View>
+
+      <Text
+        className='home__staff'
+        onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}
+      >
+        员工登录（业务员／内勤／仓配／老板）
+      </Text>
+      <RoleTabBar />
     </View>
   )
 }

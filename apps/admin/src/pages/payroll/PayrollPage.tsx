@@ -1,6 +1,6 @@
 // 绩效工资（P1-T09，D5 三指标）：选月份 → 业务员绩效卡片（回款/新客/拜访/退货冲减/提成测算）
 // → 一键生成工资表（tenant+month 唯一，可复算覆盖）→ 老板确认发放（CONFIRMED 后不可复算）。
-// 口径：回款＝当月确认收款×客户归属（D5 归下单人）；拜访数待 T13 接入（预留 0）；退货当期冲减不回算。
+// 口径：回款＝当月确认收款×客户归属（D5 归下单人）；拜访数用接口 visitCount；退货当期冲减不回算。
 import { useCallback, useEffect, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import {
@@ -135,7 +135,7 @@ export default function PayrollPage(): JSX.Element {
         extra={<Typography.Text type="secondary">回款合计 {fmtMoney(sumPayment)} · 提成合计 {fmtMoney(sumCommission)}</Typography.Text>}
       >
         <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 12 }}>
-          口径：回款＝当月确认收款×客户归属（D5 归下单人）；拜访数待 T13 接入（当前预留 0）；退货当期冲减不回算。
+          口径：回款＝当月确认收款×客户归属（D5 归下单人）；拜访数为接口返回的 visitCount；退货当期冲减不回算。
         </Typography.Paragraph>
         {perfLoading ? (
           <Card size="small" loading style={{ border: 'none' }} />
@@ -156,7 +156,7 @@ export default function PayrollPage(): JSX.Element {
                       <div>{it.newCustomers}</div>
                     </Col>
                     <Col span={8}>
-                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>拜访数(预留0)</Typography.Text>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>拜访数</Typography.Text>
                       <div>{it.visitCount}</div>
                     </Col>
                     <Col span={8}>

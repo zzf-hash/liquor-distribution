@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Input, Picker, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
@@ -23,6 +25,7 @@ interface RecycleLine {
  * 「不回瓶盖」模式的商品无需登记（系统按月自动计提）。
  */
 export default function CapRecyclePage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<CustomerRowDTO[]>([])
   const [policies, setPolicies] = useState<CapPolicyDTO[]>([])
   const [customerIdx, setCustomerIdx] = useState(0)
@@ -86,11 +89,13 @@ export default function CapRecyclePage() {
     }
     setSubmitting(true)
     try {
-      const res = await capFeesApi.createRecycle({
+      const payload = {
         customerId: customer.id,
         lines: valid,
         note: note.trim() || undefined,
-      })
+      }
+      const res = await capFeesApi.createRecycle(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showToast({ title: `已登记 ${res.recycleNo}`, icon: 'success' })
       setLines([])
       setNote('')

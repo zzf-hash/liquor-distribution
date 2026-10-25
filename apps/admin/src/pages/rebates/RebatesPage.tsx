@@ -3,7 +3,7 @@
 // 同客户同一时刻仅一个生效方案（后端 409 互斥，前端捕获展示）；
 // 月末核算：GOODS=货补走随单赠下单 / INVOICE=票折冲应收 / CASH=现金(生成返利费用单付款)；
 // 随单赠：买N送M 规则，下单管线自动追加 0 价赠品行。
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageContainer } from '@ant-design/pro-components';
 import { PlusOutlined } from '@ant-design/icons';
 import {
@@ -12,6 +12,8 @@ import {
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
 import { customersApi, productsApi, promotionsApi, rebatesApi, ApiError } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   CustomerDTO, ProductDTO, PromotionDTO, RebateSchemeDTO, RebateSettlementDTO, RebateSettlementPreviewDTO, RebateSettleTypeDTO, RebateTierDTO, RebateTypeDTO,
 } from '../../services/api';
@@ -63,6 +65,7 @@ function PromotionsTab(): JSX.Element {
   const [giftProductId, setGiftProductId] = useState<string>();
   const [buyQty, setBuyQty] = useState(10);
   const [giftQty, setGiftQty] = useState(1);
+  const [unit, setUnit] = useState<'BASE' | 'MIN'>('BASE');
   const [validTo, setValidTo] = useState<string>();
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -82,7 +85,7 @@ function PromotionsTab(): JSX.Element {
   useEffect(() => {
     if (createOpen) {
       productsApi.list({ page: 1, pageSize: 200 }).then((r) => setProducts(r.items)).catch(() => setProducts([]));
-      setProductId(undefined); setGiftProductId(undefined); setBuyQty(10); setGiftQty(1); setValidTo(undefined); setNote('');
+      setProductId(undefined); setGiftProductId(undefined); setBuyQty(10); setGiftQty(1); setUnit('BASE'); setValidTo(undefined); setNote('');
     }
   }, [createOpen]);
 
@@ -91,7 +94,7 @@ function PromotionsTab(): JSX.Element {
     if (!(buyQty >= 1 && giftQty >= 1)) { message.warning('买/送数量须 ≥ 1'); return; }
     setSubmitting(true);
     try {
-      await promotionsApi.create({ productId, giftProductId: giftProductId || undefined, buyQty, giftQty, validTo: validTo || undefined, note: note.trim() || undefined });
+      await promotionsApi.create({ productId, giftProductId: giftProductId || undefined, buyQty, giftQty, unit, validTo: validTo || undefined, note: note.trim() || undefined });
       message.success('规则已创建并即时生效（下单自动挂赠品行）');
       setCreateOpen(false);
       void load();
@@ -165,7 +168,7 @@ function PromotionsTab(): JSX.Element {
         <Space direction="vertical" style={{ width: '100%' }} size={12}>
           <Select
             style={{ width: '100%' }} showSearch optionFilterProp="label"
-            placeholder="商品（买了它才计数，按箱）"
+            placeholder="商品（买了它才计数）"
             value={productId}
             onChange={setProductId}
             options={productOptions}
@@ -180,7 +183,13 @@ function PromotionsTab(): JSX.Element {
           <Space wrap>
             <Typography.Text>买</Typography.Text>
             <InputNumber min={1} precision={0} style={{ width: 90 }} value={buyQty} onChange={(v) => setBuyQty(v ?? 1)} />
-            <Typography.Text>箱 送</Typography.Text>
+            <Select
+              style={{ width: 88 }}
+              value={unit}
+              onChange={setUnit}
+              options={[{ value: 'BASE', label: '箱' }, { value: 'MIN', label: '瓶' }]}
+            />
+            <Typography.Text>送</Typography.Text>
             <InputNumber min={1} precision={0} style={{ width: 90 }} value={giftQty} onChange={(v) => setGiftQty(v ?? 1)} />
           </Space>
           <Space wrap>
@@ -516,6 +525,7 @@ function SettlementsTab(): JSX.Element {
   const [loading, setLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [confirming, setConfirming] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     customersApi.list({ page: 1, pageSize: 200 })
@@ -580,11 +590,13 @@ function SettlementsTab(): JSX.Element {
       onOk: async () => {
         setConfirming(true);
         try {
-          await rebatesApi.createSettlement({
+          const payload = {
             customerId: preview.customerId,
             period: preview.period,
             settleType,
-          });
+          };
+          await rebatesApi.createSettlement(payload, rememberIdemKey(idemRef, payload));
+          idemRef.current = null;
           message.success(settleType === 'INVOICE'
             ? '票折核算完成，已冲减该客户应收'
             : settleType === 'CASH'

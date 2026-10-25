@@ -1,4 +1,5 @@
 import type { Role } from '../constants/roles';
+import { apiBase } from './api-base';
 
 export interface AuthUser {
   token: string;
@@ -7,8 +8,7 @@ export interface AuthUser {
   role: Role;
 }
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 const STORE_KEY = 'ld_admin_auth';
 
 const ROLES: Role[] = ['owner', 'rep', 'clerk', 'warehouse', 'customer'];
@@ -32,12 +32,13 @@ export async function login(username: string, password: string, tenantCode?: str
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 300)); // 模拟网络延迟
     const hit = MOCK_USERS.find((u) => u.username === username && u.password === password);
-    if (!hit) throw new Error('账号或密码错误（mock账户: owner/rep/clerk/warehouse/customer, 密码 123456）');
+    if (!hit) throw new Error('账号或密码错误');
     const { token, name, role } = hit;
+    assertAdminRole(role);
     return { token, username, name, role };
   }
   // 真实通道：POST {API_BASE}/api/auth/login → {code:0,data:{token,user:{...,role}}}
-  const res = await fetch(`${API_BASE}/api/auth/login`, {
+  const res = await fetch(`${apiBase()}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, ...(tenantCode?.trim() ? { tenantCode: tenantCode.trim() } : {}) }),
@@ -52,12 +53,20 @@ export async function login(username: string, password: string, tenantCode?: str
     throw new Error(body?.message || `登录失败: HTTP ${res.status}`);
   }
   const { token, user } = body.data;
+  const role = normalizeRole(user?.role);
+  assertAdminRole(role);
   return {
     token,
     username: user?.username ?? username,
     name: user?.name ?? username,
-    role: normalizeRole(user?.role),
+    role,
   };
+}
+
+function assertAdminRole(role: Role): void {
+  if (role === 'customer') {
+    throw new Error('客户账号请使用订货小程序，不能进入内勤后台');
+  }
 }
 
 export function saveAuth(user: AuthUser): void {

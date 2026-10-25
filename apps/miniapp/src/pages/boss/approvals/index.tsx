@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
+import RoleTabBar from '../../../components/RoleTabBar'
 import {
   APPROVAL_LINE_LABELS,
   APPROVAL_STATUS_LABELS,
@@ -115,7 +116,7 @@ export default function BossApprovalsPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/boss/home/index' })}>工作台</Text>
       </View>
 
-      <View className='tabs'>
+      <View className='tabs tabs--segment'>
         <Button className={`tabs__btn ${tab === 'pending' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('pending')}>待办</Button>
         <Button className={`tabs__btn ${tab === 'done' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('done')}>已决</Button>
       </View>
@@ -129,7 +130,8 @@ export default function BossApprovalsPage() {
         <Text className='tip'>正在加载…</Text>
       ) : items.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>{tab === 'pending' ? '没有待办审批' : '还没有已决审批'}</Text>
+          <Text className='state__title'>{tab === 'pending' ? '审批都处理完了' : '还没有已决审批'}</Text>
+          <Text className='state__txt'>{tab === 'pending' ? '新的审批会在这里提醒你' : '处理过的审批会留在这里'}</Text>
         </View>
       ) : (
         items.map((it) => {
@@ -182,7 +184,7 @@ export default function BossApprovalsPage() {
               {tab === 'pending' && (
                 <View className='appr__ops'>
                   <Button
-                    className='btn-inline btn-inline--ghost'
+                    className='btn-inline btn-inline--danger'
                     disabled={submitting}
                     onClick={() => setDeciding({ id: it.id, action: 'reject', title: `驳回：${it.title}` })}
                   >
@@ -207,10 +209,12 @@ export default function BossApprovalsPage() {
         title={deciding?.title ?? ''}
         confirmText={deciding?.action === 'reject' ? '确认驳回' : '确认通过'}
         danger={deciding?.action === 'reject'}
+        presets={deciding?.action === 'reject' ? ['资料不完整', '金额不符', '其他'] : ['同意', '老客户信用良好', '其他']}
         placeholder='审批意见（必填，留痕到审批记录）'
         onSubmit={(text) => { void decide(text) }}
         onClose={() => setDeciding(null)}
       />
+      <RoleTabBar />
     </View>
   )
 }

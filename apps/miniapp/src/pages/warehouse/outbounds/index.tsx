@@ -4,6 +4,7 @@ import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { LOGIN_PAGE, fmtDateTime, getToken, outboundsApi, toNum } from '../../../services/api'
 import type { OutboundRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 /**
  * 拣货工作台（P1 全员端，仓配）：GET /orders/outbounds?status=PICKING 待拣货复核列表，
@@ -86,6 +87,7 @@ export default function WarehouseOutboundsPage() {
       )}
 
       {items.length > 0 && <Text className='tip'>按系统给出的 FIFO 批次建议拣货，复核无误后确认出库</Text>}
+      <RoleTabBar />
     </View>
   )
 }

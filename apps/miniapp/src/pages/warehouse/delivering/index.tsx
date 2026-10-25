@@ -11,6 +11,7 @@ import {
 } from '../../../services/api'
 import type { StaffOrderRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 type TabKey = 'OUTBOUND' | 'DELIVERING'
 
@@ -68,7 +69,7 @@ export default function WarehouseDeliveringPage() {
       title: `发运 ${o.orderNo}`,
       content: `确认货已装车发出？发运后订单进入「配送中」，司机送达后签收。`,
       confirmText: '确认发运',
-      confirmColor: '#8b1e24',
+      confirmColor: '#7A1F2B',
       success: (res) => {
         if (res.confirm) void doDeliver(o.id)
       },
@@ -154,6 +155,7 @@ export default function WarehouseDeliveringPage() {
           </View>
         ))
       )}
+      <RoleTabBar />
     </View>
   )
 }

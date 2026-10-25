@@ -3,7 +3,7 @@
 // F4 后付 DRAFT→PENDING_APPROVAL→APPROVED→RECEIVED→PAID（审批→收货→付款）
 // 收货入库：按(商品,批次)建/补批次 + IN 流水(PURCHASE_IN) + 每行落 COST 成本价版本（D08 版本化）。
 // 按钮按类型×状态显隐；新建/提交/付款=老板+内勤，收货=仓配+老板（对齐后端 @Roles）。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -12,6 +12,8 @@ import {
 } from 'antd';
 import type { RadioChangeEvent } from 'antd';
 import { productsApi, purchasesApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   ProductDTO,
   PurchaseLineDTO,
@@ -49,6 +51,7 @@ export default function PurchasesPage(): JSX.Element {
   const [activeStatus, setActiveStatus] = useState('ALL');
   const [refreshKey, setRefreshKey] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   const reload = (): void => setRefreshKey((k) => k + 1);
 
@@ -80,7 +83,8 @@ export default function PurchasesPage(): JSX.Element {
       cancelText: '取消',
       onOk: async () => {
         try {
-          const res = await purchasesApi.pay(r.id);
+          const res = await purchasesApi.pay(r.id, rememberIdemKey(idemRef, { pay: r.id }));
+          idemRef.current = null;
           message.success(`已登记付款 ${fmtMoney(res.amount ?? r.totalAmount)}（${res.purNo}）`);
           reload();
         } catch (e) {

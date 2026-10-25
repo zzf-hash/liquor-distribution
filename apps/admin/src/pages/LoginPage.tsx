@@ -4,12 +4,17 @@ import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { login, saveAuth } from '../services/auth';
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
 
 export default function LoginPage(): JSX.Element {
   const navigate = useNavigate();
   const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(false);
+  const [denied] = useState(() => {
+    const text = sessionStorage.getItem('ld_admin_denied');
+    if (text) sessionStorage.removeItem('ld_admin_denied');
+    return text;
+  });
 
   const onFinish = async (values: { username: string; password: string; tenantCode?: string }) => {
     setLoading(true);
@@ -33,16 +38,17 @@ export default function LoginPage(): JSX.Element {
       }}
     >
       <Card title="酒类分销订货商城 · 内勤后台登录" style={{ width: 380 }}>
+        {denied && <Alert type="warning" showIcon style={{ marginBottom: 16 }} message={denied} />}
         {USE_MOCK && (
           <Alert
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="当前为 mock 登录（VITE_USE_MOCK=false 切真接口）"
-            description="账户: owner / rep / clerk / warehouse / customer，密码均为 123456"
+            message="当前为 mock 登录（仅 VITE_USE_MOCK=true 时启用）"
+            description="请输入已配置的 mock 账号，页面不再预填"
           />
         )}
-        <Form onFinish={onFinish} initialValues={{ username: 'clerk', password: '123456' }}>
+        <Form onFinish={onFinish}>
           <Form.Item name="tenantCode">
             <Input placeholder="租户编码（同名账号时必填）" size="large" />
           </Form.Item>

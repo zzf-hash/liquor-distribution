@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Canvas, Image, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { readRouteQuery } from '../../../services/route-param'
 import ReasonPopup from '../../../components/reason-popup'
+import { rejectConfirmText } from '../../../services/sign-reject'
+import { bumpReceivedQty, receivedQtyForSubmit } from '../../../services/sign-qty'
 import {
   LOGIN_PAGE,
   UNIT_LABELS,
@@ -92,6 +97,7 @@ export default function WarehouseSignPage() {
   const drawing = useRef(false)
   const lastPoint = useRef<{ x: number; y: number } | null>(null)
   const hasDrawn = useRef(false)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   useEffect(() => {
     // 页面渲染完成后再取 canvas 节点（2d 模式必须 node 方式拿 context）
@@ -191,11 +197,9 @@ export default function WarehouseSignPage() {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
-    const pages = Taro.getCurrentPages()
-    const cur = pages[pages.length - 1]
-    const q = (cur as { options?: Record<string, string> })?.options ?? {}
+    const q = readRouteQuery()
     const paramId = q.id ?? ''
-    const paramNo = decodeURIComponent(q.no ?? '')
+    const paramNo = q.no ?? ''
     setOrderNo(paramNo)
     setSignerName((prev) => prev || getUserName())
     if (paramId && paramId !== id) {
@@ -222,6 +226,12 @@ export default function WarehouseSignPage() {
     setSignLines((prev) => prev.map((s, idx) => (idx === i ? { ...s, actual: v } : s)))
   }
 
+  function bumpActual(i: number, delta: number) {
+    setSignLines((prev) => prev.map((s, idx) => (
+      idx === i ? { ...s, actual: bumpReceivedQty(s.actual, s.net, delta) } : s
+    )))
+  }
+
   function setPackage(idx: number, patch: Partial<{ category: string; qty: string }>) {
     setPackages((prev) => prev.map((p, i) => (i === idx ? { ...p, ...patch } : p)))
   }
@@ -231,41 +241,48 @@ export default function WarehouseSignPage() {
     const lines: Array<{ orderLineId: string; actualQty: number }> = []
     for (let i = 0; i < signLines.length; i++) {
       const s = signLines[i]
-      const actual = Number(s.actual)
-      if (!Number.isFinite(actual) || actual < 0 || actual > s.net) {
+      const actualQty = receivedQtyForSubmit(s.actual, s.net)
+      if (actualQty === null) {
         Taro.showToast({ title: `${s.line.productName} 实收须在 0~${s.net} 之间`, icon: 'none' })
         return
       }
-      lines.push({ orderLineId: s.line.id, actualQty: Number(actual.toFixed(3)) })
+      lines.push({ orderLineId: s.line.id, actualQty })
     }
     const returnPackages = packages
       .map((p) => ({ category: p.category, qty: Math.trunc(Number(p.qty)) }))
       .filter((p) => Number.isFinite(p.qty) && p.qty > 0)
     const type = SIGN_TYPES[typeIdx]?.key ?? 'E_SIGN'
-    const rejectedTotal = signLines.reduce((s2, s) => s2 + (s.net - Number(s.actual || 0)), 0)
-    if (rejectedTotal > 0) {
+    if (type === 'E_SIGN' && !exportSignature()) {
+      Taro.showToast({ title: '电子签请先手写签名', icon: 'none' })
+      return
+    }
+    if ((type === 'PHOTO' || type === 'PAPER') && !photoPath) {
+      Taro.showToast({ title: '请先拍摄签收凭证', icon: 'none' })
+      return
+    }
+    const rejectText = rejectConfirmText(signLines.map((s) => ({
+      name: s.line.productName,
+      unitLabel: UNIT_LABELS[s.line.unit] ?? s.line.unit,
+      rejected: s.net - Number(s.actual || 0),
+    })))
+    if (rejectText) {
       const ok = await new Promise<boolean>((resolve) => {
         Taro.showModal({
           title: '存在拒收数量',
-          content: `共拒收 ${rejectedTotal} 件，确认提交？拒收部分将自动回冲库存。`,
+          content: rejectText,
           confirmText: '确认提交',
-          confirmColor: '#8b1e24',
+          confirmColor: '#7A1F2B',
           success: (r) => resolve(Boolean(r.confirm)),
           fail: () => resolve(false),
         })
       })
       if (!ok) return
     }
-    if (type === 'PHOTO' && !photoPath) {
-      Taro.showToast({ title: '拍照签收请先拍一张凭证', icon: 'none' })
-      return
-    }
     setSubmitting(true)
     try {
-      // E_SIGN: canvas 导出签名 base64; PHOTO: 凭证图转 base64(对象存储未接前的内联过渡)
       const signatureData = type === 'E_SIGN' ? exportSignature() : undefined
-      const photoUrl = type === 'PHOTO' && photoPath ? await fileToDataUrl(photoPath) : undefined
-      const res = await ordersApi.sign(order.id, {
+      const photoUrl = (type === 'PHOTO' || type === 'PAPER') && photoPath ? await fileToDataUrl(photoPath) : undefined
+      const body = {
         type,
         signerName: signerName.trim() || undefined,
         signatureData,
@@ -273,7 +290,9 @@ export default function WarehouseSignPage() {
         deviceInfo: `${Taro.getSystemInfoSync().platform ?? ''} sign-canvas`,
         returnPackages: returnPackages.length ? returnPackages : undefined,
         lines,
-      })
+      }
+      const res = await ordersApi.sign(order.id, body, rememberIdemKey(idemRef, { id: order.id, ...body }))
+      idemRef.current = null
       Taro.showToast({
         title: res.status === 'REJECTED' ? '已按整单拒收处理' : `签收成功 ${fmtMoney(res.acceptedAmount)}`,
         icon: 'success',
@@ -339,10 +358,15 @@ export default function WarehouseSignPage() {
                 <Text className='sline__label'>实收</Text>
                 <Input
                   className='sline__ipt'
-                  type='number'
+                  type='digit'
                   value={s.actual}
                   onInput={(e) => setActual(i, e.detail.value)}
                 />
+                <View className='stepper'>
+                  <Button className='stepper__btn' disabled={Number(s.actual) <= 0} onClick={() => bumpActual(i, -1)}>−</Button>
+                  <Text className='stepper__num'>{s.actual}</Text>
+                  <Button className='stepper__btn' disabled={Number(s.actual) >= s.net} onClick={() => bumpActual(i, 1)}>＋</Button>
+                </View>
                 <Text className={`sline__rej ${rejected > 0 ? 'sline__rej--on' : ''}`}>
                   {rejected > 0 ? `拒收 ${rejected}` : '足额'}
                 </Text>
@@ -383,7 +407,7 @@ export default function WarehouseSignPage() {
           <View className='signpad'>
             <View className='signpad__head'>
               <Text className='signpad__label'>请让客户手写签名</Text>
-              <Text className='signpad__clear' onClick={clearSignature}>清除重写</Text>
+              <Button className='btn-neutral btn-sm signpad__clear' onClick={clearSignature}>清除重写</Button>
             </View>
             <Canvas
               type='2d'
@@ -394,14 +418,15 @@ export default function WarehouseSignPage() {
               onTouchMove={onTouchMove}
               onTouchEnd={onTouchEnd}
             />
-            <Text className='signpad__tip'>签名将随签收单存证；不签名也可提交（仅记录签收人姓名）</Text>
+            <Text className='signpad__tip'>签名将随签收单存证。未手写签名不能提交。</Text>
           </View>
         )}
 
-        {/* M8-3 拍照签收: 现场凭证 */}
-        {SIGN_TYPES[typeIdx]?.key === 'PHOTO' && (
+        {(SIGN_TYPES[typeIdx]?.key === 'PHOTO' || SIGN_TYPES[typeIdx]?.key === 'PAPER') && (
           <View className='signpad'>
-            <Text className='signpad__label'>拍一张签收凭证（签收单/卸货现场）</Text>
+            <Text className='signpad__label'>
+              {SIGN_TYPES[typeIdx]?.key === 'PAPER' ? '拍一张纸质签收单，没有照片不能提交' : '拍一张签收凭证（签收单/卸货现场），没有照片不能提交'}
+            </Text>
             {photoPath ? (
               <View className='signpad__preview' onClick={() => { void takePhoto() }}>
                 <Image src={photoPath} mode='aspectFill' className='signpad__photo' />
@@ -454,7 +479,7 @@ export default function WarehouseSignPage() {
         disabled={submitting || signLines.length === 0}
         onClick={() => { void submit() }}
       >
-        提交签收
+        确认签收
       </Button>
       <Button className='btn-danger sign__reject' disabled={submitting} onClick={() => setShowReject(true)}>
         整单拒收

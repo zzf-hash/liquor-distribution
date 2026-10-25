@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Text, View } from '@tarojs/components'
+import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
@@ -9,10 +9,10 @@ import {
   fmtMoney,
   getToken,
   receivablesApi,
-  toNum,
 } from '../../../services/api'
 import type { ArBucket, CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 // 账龄分档 tab（bucket 对齐后端 AgingBucket；'' = 全部未结）
 // M9-3: 档位文案按租户配置下发（默认 30/50/90），tab 短标签取档位天数
@@ -37,19 +37,24 @@ function tabsOf(_labels: Record<ArBucket, string>): Array<{ key: string; label: 
   ]
 }
 
-function tabLabel(labels: Record<ArBucket, string>, key: string): string {
+function displayBucket(labels: Record<ArBucket, string>, key: string): string {
   if (!key) return '全部'
-  if (key === 'disputed') return '争议'
-  const text = labels[key as ArBucket] ?? key
-  return text.replace('逾期', '')
+  if (key === 'disputed') return '争议款'
+  const raw = labels[key as ArBucket] ?? key
+  return raw.replace(/^逾期(?=\d)/, '逾期 ').replace(/天/, ' 天').replace(/\s+/g, ' ').trim()
 }
 
 /**
  * 应收台账（P1 全员端，内勤）：GET /receivables?bucket= 分档 tab（未到期/逾期4档/争议）；
  * 行显示 未结 open / 到期日 / 账龄，列表顺序即 FIFO 核销顺序（最早到期在前）。
  */
+const PAGE_SIZE = 50
+
 export default function ClerkReceivablesPage() {
   const [tab, setTab] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [openTotal, setOpenTotal] = useState<number | null>(null)
   const [items, setItems] = useState<CustomerReceivableDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -66,12 +71,19 @@ export default function ClerkReceivablesPage() {
     agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
   })
 
-  async function load(bucket?: string) {
+  async function load(bucket?: string, nextPage = 1) {
     setLoading(true)
     setError('')
     try {
-      const res = await receivablesApi.list((bucket ?? tab) || undefined)
+      const res = await receivablesApi.list({
+        bucket: (bucket ?? tab) || undefined,
+        page: nextPage,
+        pageSize: PAGE_SIZE,
+      })
       setItems(res.items ?? [])
+      setTotal(res.total ?? res.items?.length ?? 0)
+      setOpenTotal(typeof res.openTotal === 'number' ? res.openTotal : null)
+      setPage(nextPage)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载应收台账失败')
     } finally {
@@ -82,10 +94,10 @@ export default function ClerkReceivablesPage() {
   function switchTab(next: string) {
     if (tab === next) return
     setTab(next)
-    void load(next)
+    void load(next, 1)
   }
 
-  const openTotal = items.reduce((s, r) => s + toNum(r.open), 0)
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <View className='page'>
@@ -94,17 +106,20 @@ export default function ClerkReceivablesPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
       </View>
 
-      <View className='tabs'>
-        {tabs.map((t) => (
-          <Button
-            key={t.key || 'all'}
-            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
-            onClick={() => switchTab(t.key)}
-          >
-            {t.label}
-          </Button>
-        ))}
-      </View>
+      <ScrollView scrollX scrollWithAnimation scrollIntoView={`ar-${tab || 'all'}`} className='tabs-scroll' showScrollbar={false}>
+        <View className='tabs'>
+          {tabs.map((t) => (
+            <Button
+              id={`ar-${t.key || 'all'}`}
+              key={t.key || 'all'}
+              className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
+              onClick={() => switchTab(t.key)}
+            >
+              {displayBucket(bucketLabels, t.key)}
+            </Button>
+          ))}
+        </View>
+      </ScrollView>
 
       {error ? (
         <View className='state'>
@@ -116,9 +131,12 @@ export default function ClerkReceivablesPage() {
       ) : (
         <>
           <View className='card'>
-            <Text className='card__title'>
-              未结合计（{tabLabel(bucketLabels, tab)}） {fmtMoney(openTotal)} · 共 {items.length} 单
+            <Text className='card__title'>未结合计 · {displayBucket(bucketLabels, tab)}</Text>
+            <Text className={`num num--lg ${tab && tab !== 'not_due' && tab !== 'disputed' ? 'num--danger' : ''}`}>
+              {openTotal === null ? '—' : fmtMoney(openTotal)}
             </Text>
+            <Text className='ar__note'>共 {total} 单</Text>
+            <Text className='ar__note'>合计是筛选后的全部未结，不是本页相加。第 {page}/{pageCount} 页，本页 {items.length} 单。</Text>
             <Text className='ar__note'>按到期先后排序，收款按「先到期先结」核销</Text>
           </View>
           {items.length === 0 ? (
@@ -130,7 +148,7 @@ export default function ClerkReceivablesPage() {
               <View key={r.id} className='card arcard'>
                 <View className='arcard__row'>
                   <Text className='arcard__doc'>{r.sourceDocNo}</Text>
-                  <Text className='arcard__open'>未结 {fmtMoney(r.open)}</Text>
+                  <Text className={`arcard__open num ${r.daysOverdue > 0 ? 'num--danger' : ''}`}>未结 {fmtMoney(r.open)}</Text>
                 </View>
                 <View className='arcard__row'>
                   <Text className='arcard__cust'>{r.customerName}</Text>
@@ -149,8 +167,15 @@ export default function ClerkReceivablesPage() {
               </View>
             ))
           )}
+          {pageCount > 1 ? (
+            <View className='tabs'>
+              <Button className='tabs__btn' disabled={page <= 1} onClick={() => { void load(tab, page - 1) }}>上一页</Button>
+              <Button className='tabs__btn' disabled={page >= pageCount} onClick={() => { void load(tab, page + 1) }}>下一页</Button>
+            </View>
+          ) : null}
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

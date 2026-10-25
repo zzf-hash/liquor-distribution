@@ -25,6 +25,7 @@ import {
   labelOf,
 } from '../../constants/labels';
 import { fmtDate, fmtDateTime, fmtMoney, toNum } from '../../utils/format';
+import { customerSyncLabel } from './sync-copy';
 
 /** 当前 (unit,levelType) 最新生效价（与后端快照口径一致：validFrom≤now 且未失效，取最新） */
 function currentPriceOf(rows: PriceVersionDTO[], unit: PriceUnitDTO, levelType: string): number | null {
@@ -473,11 +474,11 @@ function PriceChangeDetailCard({ record }: { record: PriceChangeDTO }): JSX.Elem
           ) : '-'}
         </Descriptions.Item>
         <Descriptions.Item label="生效时间">{record.effectuatedAt ? fmtDateTime(record.effectuatedAt) : '未生效'}</Descriptions.Item>
-        <Descriptions.Item label="客户专属价联动">{record.customerSync ? '提示联动' : '不联动'}</Descriptions.Item>
+        <Descriptions.Item label="客户专属价联动">{customerSyncLabel(record)}</Descriptions.Item>
         <Descriptions.Item label="审批单">{record.approvalId ?? '-'}</Descriptions.Item>
       </Descriptions>
       <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-        R7/D15：增贬值仅登记不自动调账；客户专属价不自动修改，需在主数据单独维护。
+        R7/D15：增贬值仅登记不自动调账。客户专属价是否平移，以上方联动结果为准。
       </Typography.Text>
     </Card>
   );

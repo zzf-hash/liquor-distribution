@@ -1,45 +1,97 @@
 @use '../../styles/tokens' as *;
 
-// 意见/原因输入弹层：全屏遮罩 + 底部卡片；按钮触控 ≥ $touch-min
 .rp {
   position: fixed;
   inset: 0;
   z-index: 999;
   display: flex;
   align-items: flex-end;
-  background: rgba(43, 36, 34, 0.55);
+  background: $color-neutral-mask;
 }
 
 .rp__panel {
   width: 100%;
-  padding: $gap-lg $gap-base calc($gap-base + env(safe-area-inset-bottom));
+  padding: $space-xl $space-page calc($space-lg + env(safe-area-inset-bottom));
   background: $color-card;
-  border-radius: $radius-base $radius-base 0 0;
+  border-radius: $radius-lg $radius-lg 0 0;
   box-sizing: border-box;
 }
 
 .rp__title {
   display: block;
-  font-size: $font-title;
-  font-weight: 600;
+  font-size: $font-h2;
+  font-weight: $weight-semibold;
   color: $color-text;
-  margin-bottom: $gap-base;
+  line-height: $line-height-tight;
+}
+
+.rp__sub {
+  display: block;
+  margin: $space-xxs 0 $space-md;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.rp__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $space-sm;
+  margin-bottom: $space-md;
+}
+
+.rp__chip {
+  min-height: $size-chip;
+  padding: 0 $space-md;
+  display: flex;
+  align-items: center;
+  border-radius: $radius-pill;
+  border: $border-width solid $color-neutral-line-strong;
+  background: $color-card;
+  color: $color-text-sub;
+  font-size: $font-sub;
+
+  &--on {
+    border-color: transparent;
+    background: $color-brand-primary-light;
+    color: $color-primary;
+    font-weight: $weight-semibold;
+  }
+}
+
+.rp__box {
+  position: relative;
 }
 
 .rp__ipt {
   width: 100%;
-  min-height: 180px;
-  padding: $gap-base;
+  height: 192px;
+  padding: $space-md;
   font-size: $font-body;
-  background: $color-bg;
-  border-radius: $radius-base;
+  color: $color-text;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-sm;
   box-sizing: border-box;
+
+  &--focus {
+    border-color: $border-focus;
+    box-shadow: 0 0 0 6px $color-brand-primary-light;
+  }
+}
+
+.rp__count {
+  position: absolute;
+  right: $space-md;
+  bottom: $space-sm;
+  font-size: $font-caption;
+  color: $color-text-sub;
+  @include num;
 }
 
 .rp__ops {
   display: flex;
-  gap: $gap-base;
-  margin-top: $gap-base;
+  gap: $space-sm;
+  margin-top: $space-lg;
 }
 
 .rp__btn {
@@ -47,13 +99,13 @@
   align-items: center;
   justify-content: center;
   flex: 1;
-  min-height: $touch-min;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
+  min-height: $size-btn-lg;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
-  border-radius: $radius-base;
+  border-radius: $radius-pill;
 
   &::after {
     border: none;
@@ -64,11 +116,19 @@
   }
 
   &--ghost {
-    color: $color-text-sub;
-    background: rgba(138, 127, 122, 0.12);
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
   }
 
   &--danger {
     background: $color-danger;
+    border-color: $color-danger;
+  }
+
+  &[disabled] {
+    background: $color-neutral-fill;
+    color: $color-neutral-text-disabled;
+    border-color: transparent;
   }
 }

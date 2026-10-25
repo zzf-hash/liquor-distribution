@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Button, Input, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import {
   LOGIN_PAGE,
   PRICE_TYPE_LABELS,
@@ -16,6 +18,7 @@ import {
 } from '../../../services/api'
 import type { CustomerRowDTO, ProductRowDTO, ShopUnit } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 interface DraftLine {
   productId: string
@@ -32,6 +35,7 @@ interface DraftLine {
  * {customerId, source:'REP', lines}。价格仅作展示参考，服务端下单时重新取价快照。
  */
 export default function SalesmanOrderCreatePage() {
+  const idemRef = useRef<IdemSlot | null>(null)
   const [customers, setCustomers] = useState<CustomerRowDTO[]>([])
   const [customerId, setCustomerId] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -127,10 +131,12 @@ export default function SalesmanOrderCreatePage() {
     }
     setSubmitting(true)
     try {
-      const res = await ordersApi.repCreate({
+      const payload = {
         customerId,
         lines: lines.map((l) => ({ productId: l.productId, unit: l.unit, qty: l.qty })),
-      })
+      }
+      const res = await ordersApi.repCreate(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       Taro.showModal({
         title: `下单成功 ${res.orderNo}`,
         content: `订单已进入订单池（待内勤确认），金额 ${fmtMoney(res.totalAmount)}。`,
@@ -270,6 +276,7 @@ export default function SalesmanOrderCreatePage() {
           <Text className='tip'>价格按当前生效价预估，最终以服务端下单快照为准</Text>
         </>
       )}
+      <RoleTabBar />
     </View>
   )
 }

@@ -1,5 +1,5 @@
 // 应收台账（P0-T30~T31）：账龄分档 tab（档位可配 M9-3）/ 收款登记（幂等键）/ 待确认收款→确认销账（二次确认摘要）
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import { DownloadOutlined, SettingOutlined } from '@ant-design/icons';
@@ -8,6 +8,9 @@ import {
   Select, Space, Table, Tag, Typography,
 } from 'antd';
 import { agingApi, customersApi, downloadApiFile, receivablesApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
+import { getAuth } from '../../services/auth';
 import type {
   AgingConfigDTO,
   ArBucketDTO,
@@ -31,6 +34,11 @@ export default function ReceivablesPage(): JSX.Element {
   const [bucketTabs, setBucketTabs] = useState(AR_BUCKET_TABS);
   const [agingOpen, setAgingOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const role = getAuth()?.role ?? '';
+  const canWaive = role === 'owner' || role === 'clerk';
+  const canWriteOff = role === 'owner';
+  const [fundAction, setFundAction] = useState<{ type: 'waive' | 'writeoff'; row: ReceivableDTO } | null>(null);
+  const [remindOpen, setRemindOpen] = useState(false);
 
   useEffect(() => {
     agingApi.get()
@@ -58,6 +66,18 @@ export default function ReceivablesPage(): JSX.Element {
     { title: '争议', dataIndex: 'disputeFlag', width: 80, render: (_, r) => (
       r.disputeFlag ? <Tag color="error">争议</Tag> : <Tag>正常</Tag>
     ) },
+    {
+      title: '操作', width: 140,
+      render: (_, r) => {
+        if (!(r.open > 0) || (!canWaive && !canWriteOff)) return '-';
+        return (
+          <Space size={8}>
+            {canWaive && <a onClick={() => setFundAction({ type: 'waive', row: r })}>抹零</a>}
+            {canWriteOff && <a onClick={() => setFundAction({ type: 'writeoff', row: r })}>坏账</a>}
+          </Space>
+        );
+      },
+    },
   ];
 
   return (
@@ -90,6 +110,19 @@ export default function ReceivablesPage(): JSX.Element {
               导出 xlsx
             </Button>
             <Button icon={<SettingOutlined />} onClick={() => setAgingOpen(true)}>账龄档位</Button>
+            <Button
+              onClick={async () => {
+                try {
+                  await downloadApiFile('/payments/export', '收款单');
+                  message.success('收款单已导出');
+                } catch (e) {
+                  message.error(e instanceof Error ? e.message : '导出收款单失败');
+                }
+              }}
+            >
+              导出收款单
+            </Button>
+            <Button onClick={() => setRemindOpen(true)}>到期提醒</Button>
           </Space>
           <ProTable<ReceivableDTO>
             rowKey="id"
@@ -115,6 +148,7 @@ export default function ReceivablesPage(): JSX.Element {
         </Card>
 
         <PendingPaymentsCard refreshKey={payRefreshKey} onChanged={() => setPayRefreshKey((k) => k + 1)} />
+        {role === 'owner' && <ConfirmedPaymentsCard refreshKey={payRefreshKey} onChanged={() => setPayRefreshKey((k) => k + 1)} />}
       </Space>
 
       <PaymentModal
@@ -128,7 +162,107 @@ export default function ReceivablesPage(): JSX.Element {
         onClose={() => setAgingOpen(false)}
         onSaved={() => { setAgingOpen(false); setRefreshKey((k) => k + 1); }}
       />
+      <RemindersModal open={remindOpen} onClose={() => setRemindOpen(false)} />
+      <FundActionModal
+        state={fundAction}
+        onClose={() => setFundAction(null)}
+        onDone={() => { setFundAction(null); setRefreshKey((k) => k + 1); }}
+      />
     </PageContainer>
+  );
+}
+
+function FundActionModal({
+  state, onClose, onDone,
+}: {
+  state: { type: 'waive' | 'writeoff'; row: ReceivableDTO } | null;
+  onClose: () => void;
+  onDone: () => void;
+}): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [amount, setAmount] = useState<number | null>(null);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
+
+  useEffect(() => {
+    if (state) {
+      setAmount(state.type === 'waive' ? null : state.row.open);
+      setReason('');
+    }
+  }, [state]);
+
+  async function submit(): Promise<void> {
+    if (!state) return;
+    if (!reason.trim()) {
+      message.warning('请填写原因');
+      return;
+    }
+    if (state.type === 'waive' && (!amount || amount <= 0)) {
+      message.warning('请填写抹零金额');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      if (state.type === 'waive') {
+        const payload = { id: state.row.id, amount, reason: reason.trim() };
+        await receivablesApi.waive(state.row.id, amount as number, reason.trim(), rememberIdemKey(idemRef, payload));
+        idemRef.current = null;
+        message.success('抹零已提交');
+      } else {
+        const payload = { id: state.row.id, reason: reason.trim(), writeOff: true };
+        await receivablesApi.writeOff(state.row.id, reason.trim(), rememberIdemKey(idemRef, payload));
+        idemRef.current = null;
+        message.success('坏账已核销');
+      }
+      onDone();
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '操作失败');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal
+      open={state !== null}
+      title={state?.type === 'writeoff' ? '坏账核销' : '抹零'}
+      okText={state?.type === 'writeoff' ? '确认核销' : '提交抹零'}
+      cancelText="取消"
+      confirmLoading={submitting}
+      onOk={() => { void submit(); }}
+      onCancel={onClose}
+      destroyOnClose
+    >
+      {state && (
+        <Space direction="vertical" style={{ width: '100%' }}>
+          <Typography.Text>
+            {state.row.sourceDocNo} · {state.row.customerName} · 未结 {fmtMoney(state.row.open)}
+          </Typography.Text>
+          {state.type === 'waive' ? (
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0.01}
+              max={state.row.open}
+              value={amount ?? undefined}
+              placeholder="抹零金额（必填，不超过未结）"
+              onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
+            />
+          ) : (
+            <Typography.Text type="secondary">
+              将按未结余额整笔核销，金额由服务端计算。
+            </Typography.Text>
+          )}
+          <Input.TextArea
+            rows={3}
+            maxLength={200}
+            value={reason}
+            placeholder={state.type === 'waive' ? '抹零原因（必填）' : '坏账原因（必填）'}
+            onChange={(e) => setReason(e.target.value)}
+          />
+        </Space>
+      )}
+    </Modal>
   );
 }
 
@@ -230,6 +364,7 @@ function PaymentModal({
   const [voucher, setVoucher] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -255,14 +390,15 @@ function PaymentModal({
     }
     setSubmitting(true);
     try {
-      // api 层自动带 Idempotency-Key（P0-03 幂等，重试不双写）
-      const res = await receivablesApi.createPayment({
+      const payload = {
         customerId,
         amount,
         method,
         voucher: voucher || undefined,
         note: note || undefined,
-      });
+      };
+      const res = await receivablesApi.createPayment(payload, rememberIdemKey(idemRef, payload));
+      idemRef.current = null;
       message.success(`收款已登记：${res.paymentNo ?? ''}（待确认后 FIFO 销账）`);
       onSaved();
     } catch (e) {
@@ -316,6 +452,97 @@ function PaymentModal({
         </Typography.Text>
       </Space>
     </Modal>
+  );
+}
+
+function RemindersModal({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [rows, setRows] = useState<Array<{ sourceDocNo: string; dueDate: string; open: number; daysLeft: number }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    receivablesApi.reminders()
+      .then(setRows)
+      .catch((e) => message.error(e instanceof Error ? e.message : '加载提醒失败'))
+      .finally(() => setLoading(false));
+  }, [open, message]);
+
+  return (
+    <Modal open={open} title="到期提醒" footer={null} onCancel={onClose} width={640}>
+      <Table
+        size="small"
+        rowKey="sourceDocNo"
+        loading={loading}
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '没有即将到期的未结单据' }}
+        columns={[
+          { title: '单据', dataIndex: 'sourceDocNo' },
+          { title: '到期日', dataIndex: 'dueDate', width: 120 },
+          { title: '剩余天数', dataIndex: 'daysLeft', width: 100 },
+          { title: '未结', dataIndex: 'open', width: 120, render: (v: number) => fmtMoney(v) },
+        ]}
+      />
+    </Modal>
+  );
+}
+
+function ConfirmedPaymentsCard({ refreshKey, onChanged }: { refreshKey: number; onChanged: () => void }): JSX.Element {
+  const { message, modal } = AntApp.useApp();
+  const [rows, setRows] = useState<PaymentDTO[]>([]);
+  const [reason, setReason] = useState('');
+  const [target, setTarget] = useState<PaymentDTO | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    receivablesApi.listPayments({ status: 'CONFIRMED' })
+      .then((r) => { if (alive) setRows(r.slice(0, 20)); })
+      .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载已确认收款失败'); });
+    return () => { alive = false; };
+  }, [refreshKey, message]);
+
+  return (
+    <Card size="small" title="已确认收款（老板可冲正，最多 20 笔）">
+      <Table<PaymentDTO>
+        size="small"
+        rowKey="id"
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '没有已确认收款' }}
+        columns={[
+          { title: '收款单号', dataIndex: 'paymentNo' },
+          { title: '客户', render: (_, r) => r.customer?.name ?? r.customerId },
+          { title: '金额', dataIndex: 'amount', render: (v: PaymentDTO['amount']) => fmtMoney(v) },
+          { title: '操作', width: 80, render: (_, r) => <a onClick={() => { setTarget(r); setReason(''); }}>冲正</a> },
+        ]}
+      />
+      <Modal
+        open={target !== null}
+        title={`冲正 ${target?.paymentNo ?? ''}`}
+        okText="冲正"
+        onCancel={() => setTarget(null)}
+        onOk={() => {
+          if (!target || !reason.trim()) {
+            message.warning('请填写冲正原因');
+            return;
+          }
+          modal.confirm({
+            title: '确认冲正？',
+            content: '冲正会按红字新单处理，不能改原收款。',
+            onOk: async () => {
+              await receivablesApi.reversePayment(target.id, reason.trim());
+              message.success('已冲正');
+              setTarget(null);
+              onChanged();
+            },
+          });
+        }}
+      >
+        <Input.TextArea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="冲正原因" />
+      </Modal>
+    </Card>
   );
 }
 

@@ -744,3 +744,57 @@ describe('LQ1-011 price adjustment rejects a zero new price', () => {
     expect(centsToDecimal(1).toFixed(2)).toBe('0.01');
   });
 });
+
+describe('price change effectuate normalizes the unit and keeps cent prices', () => {
+  it('maps 箱 to BASE and rounds the shifted customer price in cents', async () => {
+    const priceWrites: Array<{ unit: string }> = [];
+    const customerWrites: Array<{ unit: string; price: Prisma.Decimal }> = [];
+    const exclusive = new Prisma.Decimal('1.005');
+    const oldPrice = new Prisma.Decimal('0.10');
+    const newPrice = new Prisma.Decimal('0.20');
+    const prisma = {
+      priceChangeRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'pc-1',
+          status: 'APPROVED',
+          productId: 'p1',
+          unit: '箱',
+          levelType: 'TERMINAL',
+          oldPrice,
+          newPrice,
+          customerSync: true,
+          effectiveDate: new Date('2026-10-25T00:00:00.000Z'),
+          reason: '调价',
+        }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      price: {
+        create: jest.fn(async ({ data }: { data: { unit: string } }) => {
+          priceWrites.push(data);
+          return { id: 'price-1' };
+        }),
+      },
+      customerPrice: {
+        findMany: jest.fn().mockResolvedValue([
+          { customerId: 'c1', price: exclusive, productId: 'p1' },
+        ]),
+        create: jest.fn(async ({ data }: { data: { unit: string; price: Prisma.Decimal } }) => {
+          customerWrites.push(data);
+          return data;
+        }),
+      },
+    };
+    const svc = new PriceChangesService(prisma as never, audit as never, {} as never);
+    await svc.effectuate(owner, 'pc-1');
+
+    expect(prisma.customerPrice.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ unit: 'BASE' }),
+    }));
+    expect(priceWrites[0]?.unit).toBe('BASE');
+    expect(customerWrites).toHaveLength(1);
+    expect(customerWrites[0]?.unit).toBe('BASE');
+    // 1.005 + 0.10 is 1.105. Half-up cents is 1.11. Number#toFixed lands on 1.10.
+    expect(customerWrites[0]?.price.toFixed(2)).toBe('1.11');
+    expect((Number(exclusive) + (Number(newPrice) - Number(oldPrice))).toFixed(2)).toBe('1.10');
+  });
+});

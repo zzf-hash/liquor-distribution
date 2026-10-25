@@ -1,187 +1,168 @@
-@use '../../../styles/tokens' as *;
+@use '../../../styles/shared' as *;
 
 .plist {
   min-height: 100vh;
   background: $color-bg;
-  padding: $gap-base;
+  padding: $space-page;
+  // H5 的 postcss-plugin-constparse 会把标识符 taro-tabbar-height 替换成 50PX。
+  // 写进 var(--taro-tabbar-height) 会把变量名改成 --50PX，回退值变成 0，结算条就被 tabBar 压住。
+  // 小程序 tabBar 在 webview 外，不能再加这段高度。
+  /*  #ifdef  h5  */
+  padding-bottom: calc(taro-tabbar-height + #{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
+  /*  #endif  */
+  /*  #ifndef  h5  */
+  padding-bottom: calc(#{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
+  /*  #endif  */
   box-sizing: border-box;
 }
 
-// 顶部：搜索框 + 购物车入口（都守 $touch-min 触控红线）
-.plist__bar {
-  display: flex;
-  gap: $gap-base;
-  margin-bottom: $gap-base;
-}
-
 .plist__search {
-  flex: 1;
-  min-height: $touch-min;
-  padding: 0 32px;
-  font-size: $font-body;
-  color: $color-text;
-  background: $color-card;
-  border-radius: $radius-base;
-}
-
-.bar-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 200px;
-  min-height: $touch-min;
-  padding: 0 24px;
-  font-size: $font-sub;
-  color: $color-primary;
+  gap: $space-xs;
+  height: $size-input;
+  margin-bottom: $space-md;
+  padding: 0 $space-xxs 0 $space-lg;
   background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
+
+  &--focus {
+    border-color: $border-focus;
+    box-shadow: 0 0 0 6px $color-brand-primary-light;
+  }
+}
+
+// 搜索条是 border-box，输入框高度要扣掉上下边框，否则占位文字相对胶囊偏下。
+// .weui-input 自带 height/line-height:1.47em，必须用更高优先级盖掉。
+.plist__search .plist__input {
+  flex: 1;
+  width: 0;
+  height: calc(#{$size-input} - #{$border-width} * 2);
+  margin: 0;
+  padding: 0;
   border: none;
-  border-radius: $radius-base;
+  line-height: calc(#{$size-input} - #{$border-width} * 2);
+  font-size: $font-body;
+  color: $color-text;
+  background: transparent;
+  box-sizing: border-box;
+
+  &::placeholder {
+    line-height: calc(#{$size-input} - #{$border-width} * 2);
+    color: $color-text-sub;
+  }
+}
+
+.plist__search .plist__go {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 112px;
+  height: 64px;
+  min-height: 64px;
+  margin: 0;
+  padding: 0 $space-md;
   line-height: 1.2;
+  font-size: $font-sub;
+  font-weight: $weight-semibold;
+  color: $color-neutral-white;
+  background: $color-primary;
+  border: none;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
 
   &::after {
     border: none;
   }
 
-  &:active {
-    background: $color-primary-pressed;
-    color: #fff;
+  .btn-label {
+    color: $color-neutral-white;
+    font-size: $font-sub;
+    font-weight: $weight-semibold;
   }
 }
 
 .plist__body {
   display: flex;
   flex-direction: column;
-  gap: $gap-base;
+  gap: $space-lg;
 }
 
-.plist__tip {
-  display: block;
-  padding: 16px 8px;
-  font-size: $font-sub;
-  color: $color-text-sub;
-  text-align: center;
-}
-
-// 商品卡
 .pcard {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: $gap-base;
+  gap: $space-md;
+  padding: $space-lg;
   background: $color-card;
-  border-radius: $radius-base;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.pcard__pic {
+  width: 128px;
+  height: 144px;
+  border-radius: $radius-sm;
+  background: $color-neutral-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .pcard__info {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .pcard__name {
-  font-size: $font-body;
-  font-weight: 600;
+  display: block;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
   color: $color-text;
 }
 
 .pcard__spec {
-  margin-top: 8px;
-  font-size: $font-sub;
+  display: block;
+  margin-top: $space-xxs;
+  font-size: 26px;
   color: $color-text-sub;
+}
+
+.pcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  margin-top: $space-sm;
 }
 
 .pcard__price {
-  margin-top: 12px;
-  font-size: $font-title;
-  font-weight: 700;
-  color: $color-primary;
+  font-size: $font-amount;
+  font-weight: $weight-bold;
+  color: $color-text;
+  @include num;
 }
 
-.pcard__ptype {
-  margin-left: 8px;
-  font-size: $font-sub;
-  font-weight: 400;
+.pcard__unit {
+  font-size: $font-caption;
+  font-weight: $weight-regular;
   color: $color-text-sub;
 }
 
-// 步进器：按钮 88px 见方（触控红线），数值不小于正文字号
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: $gap-base;
+.pcard__add {
+  min-width: 120px;
 }
 
-.stepper__btn {
-  width: $touch-min;
-  height: $touch-min;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: $font-title;
-  line-height: 1;
-  color: $color-text;
-  background: $color-bg;
-  border: none;
-  border-radius: $radius-base;
-  padding: 0;
-
-  &::after {
-    border: none;
-  }
-}
-
-.stepper__btn--plus {
-  color: #fff;
-  background: $color-primary;
-
-  &:active {
-    background: $color-primary-pressed;
-  }
-}
-
-.stepper__num {
-  min-width: 56px;
-  text-align: center;
-  font-size: $font-body;
-  font-weight: 600;
-  color: $color-text;
-}
-
-// 空态/错误态
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: $gap-base;
-  padding: 96px $gap-base;
-}
-
-.state__txt {
-  font-size: $font-body;
-  color: $color-text-sub;
-  text-align: center;
-}
-
-.btn-primary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
-  background: $color-primary;
-  border: none;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
-
-  &:active {
-    background: $color-primary-pressed;
-  }
+.plist .settle {
+  position: fixed;
+  left: $space-page;
+  right: $space-page;
+  z-index: 30;
+  /*  #ifdef  h5  */
+  bottom: calc(taro-tabbar-height + env(safe-area-inset-bottom) + #{$space-sm});
+  /*  #endif  */
+  /*  #ifndef  h5  */
+  bottom: calc(env(safe-area-inset-bottom) + #{$space-sm});
+  /*  #endif  */
 }

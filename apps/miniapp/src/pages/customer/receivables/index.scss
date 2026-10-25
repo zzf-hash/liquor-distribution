@@ -33,7 +33,7 @@
 
   &--on {
     font-weight: 600;
-    color: #fff;
+    color: $color-neutral-white;
     background: $color-primary;
   }
 }
@@ -128,9 +128,11 @@
 }
 
 .rcard__amount {
-  font-size: $font-title;
+  font-size: $font-amount;
   font-weight: 700;
-  color: $color-primary;
+  color: $color-text;
+  font-family: $font-family-num;
+  font-variant-numeric: tabular-nums;
 }
 
 .rcard__amount--settled {
@@ -148,23 +150,23 @@
 }
 
 .tag--danger {
-  color: #a02228;
-  background: rgba(160, 34, 40, 0.12);
+  color: $color-functional-danger-text;
+  background: $color-functional-danger-light;
 }
 
 .tag--warn {
-  color: #8a5a00;
-  background: rgba(138, 90, 0, 0.12);
+  color: $color-functional-warning-text;
+  background: $color-functional-warning-light;
 }
 
 .tag--muted {
   color: $color-text-sub;
-  background: rgba(138, 127, 122, 0.12);
+  background: $color-neutral-fill;
 }
 
 .tag--ok {
-  color: #2e6b34;
-  background: rgba(46, 107, 52, 0.1);
+  color: $color-functional-success-text;
+  background: $color-functional-success-light;
 }
 
 // 空态/错误态
@@ -189,10 +191,10 @@
   width: 100%;
   font-size: $font-body;
   font-weight: 600;
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
-  border-radius: $radius-base;
+  border-radius: $radius-pill;
 
   &::after {
     border: none;

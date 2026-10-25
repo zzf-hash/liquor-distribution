@@ -1,10 +1,11 @@
 // 真接口通道：统一 fetch 封装（{code:0,data} 信封 / 401 跳登录 / 幂等键）+ 各资源类型化方法。
 // 接口契约对齐 apps/api：products/customers/prices(L3 自研) + orders/receivables/payments/imports/users。
+import { apiBase } from './api-base';
 import { clearAuth, getAuth } from './auth';
 import { reportError } from './telemetry';
 import type { Decimalish } from '../utils/format';
 
-const BASE_URL: string = import.meta.env.VITE_API_BASE || '/api';
+const BASE_URL: string = apiBase();
 export { BASE_URL };
 
 export interface ApiEnvelope<T> {
@@ -26,14 +27,6 @@ export class ApiError extends Error {
     this.code = code;
     this.body = body;
   }
-}
-
-/** 资金/库存写接口幂等键（P0-03：服务端唯一索引兜底，重试不双写） */
-export function genIdemKey(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `idem-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 interface RequestOptions {
@@ -220,6 +213,7 @@ export interface CustomerDTO {
   type: string;
   contact?: string | null;
   phone: string;
+  licenseNo?: string | null;
   region?: string | null;
   address: string;
   abcLevel?: string | null;
@@ -244,6 +238,7 @@ export interface CustomerInput {
   type?: string;
   contact?: string;
   phone?: string;
+  licenseNo?: string;
   region?: string;
   address?: string;
   abcLevel?: string;
@@ -417,6 +412,13 @@ export const ordersApi = {
     request<OrderDTO>(`/orders/${id}/cancel`, { method: 'POST', body: { reason } }),
   reject: (id: string, reason: string) =>
     request<OrderDTO>(`/orders/${id}/reject`, { method: 'POST', body: { reason } }),
+  /** 配送前红字冲销一行（POST /orders/:id/lines/:lineId/reverse） */
+  reverseLine: (id: string, lineId: string, qty: number, reason: string) =>
+    request<OrderDTO>(`/orders/${id}/lines/${lineId}/reverse`, { method: 'POST', body: { qty, reason } }),
+  /** 已确认订单生成拣货单。仓配、老板、内勤。 */
+  outbound: (id: string) => request<Record<string, unknown>>(`/orders/${id}/outbound`, { method: 'POST', body: {} }),
+  /** 已出库订单发运。仓配、老板。 */
+  deliver: (id: string) => request<Record<string, unknown>>(`/orders/${id}/deliver`, { method: 'POST', body: {} }),
 };
 
 // ───────────────────────── 应收 / 收款（P0-T30~T31） ─────────────────────────
@@ -483,9 +485,26 @@ export const receivablesApi = {
   /** 待确认收款列表（F9②：业务员上报→内勤确认销账） */
   listPayments: (params?: { status?: string; customerId?: string }) =>
     request<PaymentDTO[]>(`/payments${qs(params ?? {})}`),
-  createPayment: (input: PaymentInput) =>
-    request<PaymentDTO>('/payments', { method: 'POST', body: input, idemKey: genIdemKey() }),
+  createPayment: (input: PaymentInput, idemKey: string) =>
+    request<PaymentDTO>('/payments', { method: 'POST', body: input, idemKey }),
   confirmPayment: (id: string) => request<PaymentDTO>(`/payments/${id}/confirm`, { method: 'POST', body: {} }),
+  /** 抹零：金额与原因必填，幂等键必带 */
+  waive: (id: string, amount: number, reason: string, idemKey: string) =>
+    request<Record<string, unknown>>(`/receivables/${id}/waive`, {
+      method: 'POST',
+      body: { amount, reason },
+      idemKey,
+    }),
+  /** 坏账：老板执行，原因必填，金额由服务端按未结余额核销 */
+  writeOff: (id: string, reason: string, idemKey: string) =>
+    request<Record<string, unknown>>(`/receivables/${id}/write-off`, {
+      method: 'POST',
+      body: { reason },
+      idemKey,
+    }),
+  reminders: () => request<Array<{ sourceDocNo: string; dueDate: string; open: number; daysLeft: number }>>('/receivables/reminders'),
+  reversePayment: (id: string, reason: string) =>
+    request<Record<string, unknown>>(`/payments/${id}/reverse`, { method: 'POST', body: { reason } }),
 };
 
 // ───────────────────────── 数据导入（P0-T13 / P0-07） ─────────────────────────
@@ -540,6 +559,15 @@ export const importsApi = {
     }),
 };
 
+export const dailyTasksApi = {
+  reminders: () => request<Record<string, unknown>>('/daily-tasks/reminders/run', { method: 'POST', body: {} }),
+  statements: (period?: string) =>
+    request<Record<string, unknown>>(`/daily-tasks/statements/run${period ? `?period=${encodeURIComponent(period)}` : ''}`, { method: 'POST', body: {} }),
+  archive: () => request<Record<string, unknown>>('/daily-tasks/archive/run', { method: 'POST', body: {} }),
+  capAccrue: (period?: string) =>
+    request<Record<string, unknown>>(`/daily-tasks/cap-accrue/run${period ? `?period=${encodeURIComponent(period)}` : ''}`, { method: 'POST', body: {} }),
+};
+
 // ───────────────────────── 员工（业务员下拉用） ─────────────────────────
 
 export interface UserDTO {
@@ -553,6 +581,9 @@ export interface UserDTO {
 
 export const usersApi = {
   list: () => request<UserDTO[]>('/users'),
+  create: (input: { username: string; password: string; name: string; role: UserDTO['role']; phone?: string }) =>
+    request<Pick<UserDTO, 'id' | 'username' | 'name' | 'role'>>('/users', { method: 'POST', body: input }),
+  disable: (id: string) => request<{ ok: boolean }>(`/users/${id}/disable`, { method: 'POST', body: {} }),
   /** 归属业务员下拉；接口不可用时静默降级为空（REP 自建后端自动挂自己） */
   listReps: async (): Promise<UserDTO[]> => {
     try {
@@ -685,11 +716,11 @@ export const specialOrdersApi = {
   submit: (id: string) =>
     request<SpecialOrderDTO>(`/special-orders/${id}/submit`, { method: 'POST', body: {} }),
   /** APPROVED → CONVERTED，生成正式订单 */
-  convert: (id: string) =>
+  convert: (id: string, idemKey: string) =>
     request<SpecialOrderConvertResultDTO>(`/special-orders/${id}/convert`, {
       method: 'POST',
       body: {},
-      idemKey: genIdemKey(),
+      idemKey,
     }),
 };
 
@@ -730,7 +761,7 @@ export interface ReturnInput {
   lines: Array<{ orderLineId: string; qty: number }>;
 }
 
-/** 收货预览：批次回冲 + 应收冲减摘要（可选能力，未就绪时降级直接确认） */
+/** 收货预览：批次回冲 + 应收冲减。依赖后端 PR #1 的 GET /returns/:id/preview-receive。 */
 export interface ReturnReceivePreviewDTO {
   batches: Array<{ batchNo?: string | null; productId?: string; productName?: string | null; qty: Decimalish }>;
   arCredit: Decimalish;
@@ -740,13 +771,16 @@ export const returnsApi = {
   list: (params: { status?: string; page?: number; pageSize?: number }) =>
     request<PageResult<ReturnOrderDTO>>(`/returns${qs(params)}`),
   detail: (id: string) => request<ReturnOrderDTO>(`/returns/${id}`),
-  create: (input: ReturnInput) =>
-    request<ReturnOrderDTO>('/returns', { method: 'POST', body: input, idemKey: genIdemKey() }),
-  /** 收货预览（回冲批次/应收冲减）；接口 404/未实现时调用方直接走确认 */
+  create: (input: ReturnInput, idemKey: string) =>
+    request<ReturnOrderDTO>('/returns', { method: 'POST', body: input, idemKey }),
+  /** 收货预览。404 表示接口尚未部署；409 表示当前退货单不能收货。 */
   previewReceive: (id: string) => request<ReturnReceivePreviewDTO>(`/returns/${id}/preview-receive`),
   /** 仓库收货确认：批次回冲 + 应收重算（幂等键防重放双写） */
-  receive: (id: string) =>
-    request<ReturnOrderDTO>(`/returns/${id}/receive`, { method: 'POST', body: {}, idemKey: genIdemKey() }),
+  receive: (id: string, idemKey: string) =>
+    request<ReturnOrderDTO>(`/returns/${id}/receive`, { method: 'POST', body: {}, idemKey }),
+  /** 待审批退货追加行（数量只增） */
+  appendLines: (id: string, lines: Array<{ orderLineId: string; qty: number; note?: string }>) =>
+    request<{ appended: number }>(`/returns/${id}/lines`, { method: 'POST', body: { lines } }),
 };
 
 // ───────────────────────── 调价（P1-T05，F7 + D08 版本化） ─────────────────────────
@@ -780,6 +814,7 @@ export interface PriceChangeDTO {
   reason: string;
   stockImpact?: StockImpactDTO | null;
   customerSync: boolean;
+  customerSyncResult?: { customers: number; delta?: number } | null;
   status: PriceChangeStatusDTO;
   approvalId?: string | null;
   effectuatedAt?: string | null;
@@ -865,8 +900,8 @@ export const packagesApi = {
   list: (params: { customerId?: string; category?: string; type?: string; page?: number; pageSize?: number }) =>
     request<PageResult<PackageRecordDTO>>(`/packages${qs(params)}`),
   /** F11 无单回收（STANDALONE）/ 押金退付（OUT，后端校验余额）；押金=品类 cfg 单价×数量 */
-  create: (input: { customerId: string; category: string; qty: number; type: 'STANDALONE' | 'OUT'; note?: string }) =>
-    request<PackageCreateResultDTO>('/packages', { method: 'POST', body: input, idemKey: genIdemKey() }),
+  create: (input: { customerId: string; category: string; qty: number; type: 'STANDALONE' | 'OUT'; note?: string }, idemKey: string) =>
+    request<PackageCreateResultDTO>('/packages', { method: 'POST', body: input, idemKey }),
 };
 
 // ───────────────────────── 采购（P1-T06，F3 先付 / F4 后付双流程） ─────────────────────────
@@ -935,11 +970,11 @@ export const purchasesApi = {
       body: {},
     }),
   /** 登记付款：F3=APPROVED 后 / F4=RECEIVED 后（资金动作，幂等键必传） */
-  pay: (id: string, note?: string) =>
+  pay: (id: string, idemKey: string, note?: string) =>
     request<{ purNo: string; status: PurchaseStatusDTO; amount: number }>(`/purchases/${id}/pay`, {
       method: 'POST',
       body: { note },
-      idemKey: genIdemKey(),
+      idemKey,
     }),
   /** 收货入库：F3=PAID 后 / F4=APPROVED 后；批次建/补 + IN 流水 + COST 价版本 */
   receive: (id: string) =>
@@ -1090,8 +1125,8 @@ export const rebatesApi = {
   previewSettlement: (input: { customerId: string; period: string }) =>
     request<RebateSettlementPreviewDTO>('/rebates/settlements/preview', { method: 'POST', body: input }),
   /** GOODS=货补（走随单赠下单）/ INVOICE=票折（REBATE_OFFSET 冲应收）/ CASH=现金（REBATE 费用单）；资金动作加幂等键防重放 */
-  createSettlement: (input: { customerId: string; period: string; settleType: RebateSettleTypeDTO; note?: string }) =>
-    request<RebateSettlementDTO>('/rebates/settlements', { method: 'POST', body: input, idemKey: genIdemKey() }),
+  createSettlement: (input: { customerId: string; period: string; settleType: RebateSettleTypeDTO; note?: string }, idemKey: string) =>
+    request<RebateSettlementDTO>('/rebates/settlements', { method: 'POST', body: input, idemKey }),
   listSettlements: (params: { period?: string }) =>
     request<RebateSettlementDTO[]>(`/rebates/settlements${qs(params)}`),
 };
@@ -1390,8 +1425,9 @@ export const draftsApi = {
   confirm: (
     id: string,
     input: { customerId?: string; lines?: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; priceOverride?: number }>; learnAliases?: boolean },
+    idemKey: string,
   ) =>
-    request<DraftConfirmResultDTO>(`/drafts/${id}/confirm`, { method: 'POST', body: input, idemKey: genIdemKey() }),
+    request<DraftConfirmResultDTO>(`/drafts/${id}/confirm`, { method: 'POST', body: input, idemKey }),
   /** 废弃（仅 PENDING_REVIEW）；reason 选填，服务端 DTO 暂未收该字段（whitelist 剥离，不报错） */
   discard: (id: string, reason?: string) =>
     request<{ id: string; status: DraftStatusDTO }>(`/drafts/${id}/discard`, { method: 'POST', body: reason ? { reason } : {} }),

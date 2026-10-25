@@ -4,6 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, SETTLEMENT_LABELS, customersApi, getToken } from '../../../services/api'
 import type { CustomerRowDTO } from '../../../services/api'
 import './index.scss'
+import RoleTabBar from '../../../components/RoleTabBar'
 
 /**
  * 我的客户（P1 全员端，rep token 自动过滤名下）：GET /customers 列表+搜索
@@ -83,7 +84,7 @@ export default function SalesmanCustomersPage() {
           <View key={c.id} className='card ccard' onClick={() => call(c.phone)}>
             <View className='ccard__row'>
               <Text className='ccard__name'>{c.name}</Text>
-              <Text className='ccard__call'>📞 拨号</Text>
+              <Text className='ccard__call'>拨号</Text>
             </View>
             <View className='ccard__row'>
               <Text className='ccard__meta'>
@@ -96,6 +97,7 @@ export default function SalesmanCustomersPage() {
           </View>
         ))
       )}
+      <RoleTabBar />
     </View>
   )
 }

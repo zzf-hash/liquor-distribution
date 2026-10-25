@@ -7,7 +7,10 @@ import {
   Alert, App as AntApp, Badge, Button, Card, Drawer, Empty, Input, InputNumber, List,
   Modal, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
+import { priceUnitErrorMessage, toPriceUnit } from '@liquor/shared';
 import { aliasesApi, customersApi, draftsApi, productsApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type {
   AliasEntryDTO, AliasKindDTO, CustomerDTO, DraftItemDTO, DraftSourceDTO,
   DraftStatusDTO, OrderDraftDTO, ProductDTO,
@@ -258,6 +261,7 @@ function DraftEditDrawer({
   const [saving, setSaving] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discardReason, setDiscardReason] = useState('');
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (!draft) return;
@@ -311,12 +315,20 @@ function DraftEditDrawer({
       message.warning('无可转单行：请先为商品行匹配商品（黄色未匹配行不会转单）');
       return;
     }
-    const lines = matched.map((i) => ({
-      productId: i.productId as string,
-      qty: Number(i.qty),
-      unit: (i.unit === '瓶' || i.unit === '个' ? 'MIN' : 'BASE') as 'BASE' | 'MIN',
-      priceOverride: i.unitPrice ?? undefined,
-    }));
+    const lines: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; priceOverride?: number }> = [];
+    for (const i of matched) {
+      const unit = toPriceUnit(i.unit);
+      if (!unit) {
+        message.error(priceUnitErrorMessage(i.unit));
+        return;
+      }
+      lines.push({
+        productId: i.productId as string,
+        qty: Number(i.qty),
+        unit,
+        priceOverride: i.unitPrice ?? undefined,
+      });
+    }
     modal.confirm({
       title: `确认转单？${d.draftNo}`,
       width: 560,
@@ -339,7 +351,9 @@ function DraftEditDrawer({
       onOk: async () => {
         if (!(await save())) throw new Error('保存失败'); // 弹窗保持打开，可重试
         try {
-          const res = await draftsApi.confirm(d.id, { customerId, lines, learnAliases: true });
+          const input = { customerId, lines, learnAliases: true as const };
+          const res = await draftsApi.confirm(d.id, input, rememberIdemKey(idemRef, { id: d.id, input }));
+          idemRef.current = null;
           message.success(`已转单：${res.orderNo}（已进入订单池待确认，不会直接出库）`);
           onChanged();
           onClose();
