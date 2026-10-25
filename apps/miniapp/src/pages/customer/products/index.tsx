@@ -134,7 +134,7 @@ export default function CustomerProductsPage() {
       ) : items.length === 0 ? (
         <View className='card state'>
           <View className='state__icon'>
-            <Icon name='box' color='#B3A9A4' size={72} />
+            <Icon name='bottle' color='#B3A9A4' size={72} />
           </View>
           <Text className='state__title'>{keyword.trim() ? '没有找到相关商品' : '商家还没有上架商品'}</Text>
           <Text className='state__txt'>
@@ -152,7 +152,7 @@ export default function CustomerProductsPage() {
             return (
               <View key={cartKeyOf(p.productId, p.unit)} className='pcard'>
                 <View className='pcard__pic'>
-                  <Icon name='box' color='#7A1F2B' size={64} />
+                  <Icon name='bottle' color='#7A1F2B' size={64} />
                 </View>
                 <View className='pcard__info'>
                   <Text className='pcard__name'>{p.name}</Text>
@@ -176,7 +176,7 @@ export default function CustomerProductsPage() {
               </View>
             )
           })}
-          <Text className='tip'>按接口返回的单位下单。没有瓶价的商品只能按箱。成交价以商家核算为准。</Text>
+          <Text className='tip'>成交价以商家核算为准。</Text>
         </View>
       )}
 

@@ -18,6 +18,7 @@ export const ICON_PATHS = {
   cap: 'M7 4h10v4H7zM6 8h12l-1 12H7z',
   order: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6',
   box: 'M3 7l9-4 9 4v10l-9 4-9-4zM3 7l9 4 9-4M12 11v10',
+  bottle: 'M10 2h4v3l2 2v13a2 2 0 0 1-2 2h-4a2 2 0 0 1-2-2V7l2-2zM10 2h4',
   check: 'M5 12l5 5 9-10',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13',
   bell: 'M6 16V11a6 6 0 0 1 12 0v5l2 2H4zM10 20h4',

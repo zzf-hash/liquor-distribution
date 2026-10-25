@@ -301,6 +301,68 @@
   }
 }
 
+// H5 按钮是 .taro-button-core.taro-btn-default（特异性高于单个类），
+// 默认 overflow:hidden + 行高会把较窄描边按钮里的文字裁成空白框。
+.taro-button-core {
+  &.btn-primary,
+  &.btn-secondary,
+  &.btn-ghost,
+  &.btn-neutral,
+  &.btn-danger,
+  &.btn-inline {
+    overflow: visible;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  &.taro-btn-default.btn-primary {
+    color: $color-neutral-white;
+    background: $color-primary;
+    border: none;
+  }
+
+  &.taro-btn-default.btn-secondary,
+  &.taro-btn-default.btn-inline--ghost {
+    color: $color-primary;
+    background: $color-brand-primary-light;
+    border: none;
+  }
+
+  &.taro-btn-default.btn-ghost {
+    color: $color-primary;
+    background: $color-card;
+    border: $border-width solid $color-primary;
+  }
+
+  &.taro-btn-default.btn-neutral,
+  &.taro-btn-default.btn-inline--neutral {
+    color: $color-text;
+    background: $color-card;
+    border: $border-width solid $color-neutral-line-strong;
+  }
+
+  &.taro-btn-default.btn-danger,
+  &.taro-btn-default.btn-inline--danger {
+    color: $color-danger;
+    background: $color-card;
+    border: $border-width solid $color-danger;
+  }
+
+  &.btn-primary.taro-btn-disabled,
+  &.btn-primary[disabled] {
+    color: $color-neutral-text-disabled;
+    background: $color-neutral-fill;
+    border: none;
+  }
+}
+
+.btn-label {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1.2;
+}
+
 .tag {
   @include tag($color-text-sub, $color-neutral-fill);
   line-height: 1;
@@ -694,6 +756,8 @@
     width: auto;
     flex: 1;
     margin: 0;
+    padding: 0 $space-sm;
+    font-size: $font-sub;
   }
 
   .btn-primary {

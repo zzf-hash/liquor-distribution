@@ -183,8 +183,11 @@ export default function BossDashboardPage() {
           {low.map((p) => {
             const available = toNum(p.available)
             return (
-              <View key={p.productId} className='kv'>
-                <Text className='kv__k'>{p.name}{p.skuCode ? `（${p.skuCode}）` : ''}</Text>
+              <View key={p.productId} className='kv dash__stock-row'>
+                <View className='dash__stock-main'>
+                  <Text className='dash__stock-name'>{p.name}</Text>
+                  {p.skuCode ? <Text className='dash__stock-sku'>{p.skuCode}</Text> : null}
+                </View>
                 <Text className={`num dash__stock ${available <= 0 ? 'dash__stock--bad' : 'dash__stock--warn'}`}>
                   可用 {available} / 在库 {toNum(p.onHand)}
                 </Text>

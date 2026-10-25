@@ -4,7 +4,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../components/Icon'
 import RoleTabBar from '../../components/RoleTabBar'
 import { homeEntriesForRole } from '../../config/home-entries'
-import { getRole, getToken, getUserName, fmtMoney, ordersApi, receivablesApi } from '../../services/api'
+import { ORDER_STATUS_LABELS, ORDER_STATUS_TONES, getRole, getToken, getUserName, fmtMoney, ordersApi, receivablesApi } from '../../services/api'
 import type { CustomerOrderDTO } from '../../services/api'
 import { openAppPage } from '../../services/navigation'
 import './index.scss'
@@ -120,13 +120,15 @@ export default function Index() {
       <View className='card home-recent'>
         <View className='home-recent__hd'>
           <Text className='card__title'>最近订单</Text>
-          <Text className='home-recent__all' onClick={() => openAppPage('/pages/customer/orders/index')}>全部</Text>
+          <Text className='home-recent__all' onClick={() => openAppPage('/pages/customer/orders/index')}>全部 ›</Text>
         </View>
         {recent ? (
           <View className='home-recent__row' onClick={() => openAppPage('/pages/customer/orders/index')}>
             <View>
               <Text className='home-recent__no'>{recent.orderNo}</Text>
-              <Text className='home-recent__meta'>{recent.statusLabel || '查看进度'}</Text>
+              <Text className={`tag tag--${ORDER_STATUS_TONES[recent.status] ?? 'muted'}`}>
+                {recent.statusLabel || ORDER_STATUS_LABELS[recent.status] || recent.status}
+              </Text>
             </View>
             <Text className='home-recent__amt'>{fmtMoney(recent.totalAmount)}</Text>
           </View>
@@ -138,7 +140,6 @@ export default function Index() {
         )}
       </View>
 
-      <Text className='home__tip'>下单后由商家确认送货，首次下单预计 3 分钟内完成</Text>
       <Text
         className='home__staff'
         onClick={() => Taro.navigateTo({ url: '/pages/staff/login/index' })}

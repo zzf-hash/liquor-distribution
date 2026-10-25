@@ -4,7 +4,7 @@
   min-height: 100vh;
   background: $color-bg;
   padding: $space-page;
-  padding-bottom: 180px;
+  padding-bottom: calc(var(--taro-tabbar-height, 0px) + #{$size-btn-lg} + #{$space-xxl} + env(safe-area-inset-bottom));
   box-sizing: border-box;
 }
 
@@ -28,10 +28,21 @@
 
 .plist__input {
   flex: 1;
-  min-height: $size-input;
+  width: 0;
+  height: $size-input;
+  margin: 0;
+  padding: 0;
+  border: none;
+  line-height: $size-input;
   font-size: $font-body;
   color: $color-text;
   background: transparent;
+  box-sizing: border-box;
+
+  &::placeholder {
+    line-height: $size-input;
+    color: $color-text-sub;
+  }
 }
 
 .plist__body {
@@ -109,5 +120,6 @@
   position: fixed;
   left: $space-page;
   right: $space-page;
-  bottom: calc(#{$space-sm} + env(safe-area-inset-bottom));
+  z-index: 30;
+  bottom: calc(var(--taro-tabbar-height, 0px) + env(safe-area-inset-bottom) + #{$space-sm});
 }

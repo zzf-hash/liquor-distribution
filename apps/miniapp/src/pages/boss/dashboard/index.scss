@@ -144,7 +144,31 @@
   color: $color-text;
 }
 
+.dash__stock-row {
+  align-items: center;
+}
+
+.dash__stock-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.dash__stock-name {
+  display: block;
+  font-size: $font-body;
+  color: $color-text;
+}
+
+.dash__stock-sku {
+  display: block;
+  margin-top: 4px;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
 .dash__stock {
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: $font-sub;
   font-weight: 600;
 

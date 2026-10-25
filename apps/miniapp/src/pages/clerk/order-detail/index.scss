@@ -45,6 +45,10 @@
 
 // 预检结论行（✓ 绿 / ✗ 红）
 .od__check {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
   font-size: $font-sub;
   font-weight: 600;
 
@@ -74,14 +78,31 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: $gap-base;
+  gap: $space-sm;
+}
+
+.oline__main {
+  flex: 1;
+  min-width: 0;
 }
 
 .oline__name {
   font-size: $font-body;
   color: $color-text;
   font-weight: 600;
-  flex: 1;
+}
+
+.oline__reverse {
+  flex-shrink: 0;
+  height: $size-btn-sm;
+  margin: -14px 0;
+  padding: 14px $space-sm;
+  box-sizing: content-box;
+  display: flex;
+  align-items: center;
+  font-size: $font-sub;
+  color: $color-primary;
+  line-height: 1;
 }
 
 .oline__amount {
