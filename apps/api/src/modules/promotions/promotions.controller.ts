@@ -5,6 +5,7 @@ import { AuditService } from '../../audit/audit.service';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { requirePriceUnit } from '../../common/require-price-unit';
 
 // ═══════════════ C组 随单赠规则引擎 (M3-1 买N送M) ═══════════════
 // 规则商品级: 下单管线(OrdersService.create)对命中的行自动追加 0 价赠品行(promoNote 留痕),
@@ -66,7 +67,7 @@ export class PromotionsController {
     const created = await this.prisma.promotion.create({
       data: {
         tenantId: user.tenantId, productId: dto.productId, giftProductId: dto.giftProductId ?? null,
-        buyQty: dto.buyQty, giftQty: dto.giftQty, unit: dto.unit ?? 'BASE',
+        buyQty: dto.buyQty, giftQty: dto.giftQty, unit: requirePriceUnit(dto.unit ?? 'BASE'),
         validTo: dto.validTo ? new Date(dto.validTo) : null, note: dto.note, createdById: user.id,
       },
     });

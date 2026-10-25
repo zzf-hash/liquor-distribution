@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import dayjs from 'dayjs';
+import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { bizDateKey, bizNow } from '../../common/business-time';
 import { AuditService, AuditAction } from '../../audit/audit.service';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { priceUnitErrorMessage, toPriceUnit } from '@liquor/shared';
 
 // 预览文件缓存目录: preview 落盘原始文件, commit 重放写入(不进 git, 重启丢失=重新预览)
 const IMPORT_DIR = join(tmpdir(), 'liquor-imports');
@@ -78,7 +80,8 @@ export class ImportsService {
     const warn = errs.filter((e) => e.level === 'WARN');
     const passed = validated.length - rejectRow.length;
 
-    const batchNo = `IMP${bizNow().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}`;
+    // 同一秒内连续预览会撞 (tenantId, batchNo)。上海业务日时间戳后面再加 4 字节随机后缀。
+    const batchNo = `IMP${bizNow().format('YYYYMMDDHHmmss')}-${kind.slice(0, 3)}-${randomBytes(4).toString('hex')}`;
     const snapshotDate = kind === 'INVENTORY' ? parseDate(rows[0].cells['盘点基准日*'] ?? rows[0].cells['盘点基准日'] ?? '') : null;
     if (kind === 'INVENTORY') {
       const dates = new Set(rows.map((r) => r.cells['盘点基准日*'] ?? r.cells['盘点基准日'] ?? ''));
@@ -183,12 +186,17 @@ export class ImportsService {
         if (r.cells['生效日'] && !from) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DATE_FMT', message: '生效日格式错(YYYY-MM-DD)' });
         if (from && to && to < from) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DATE_ORDER', message: '失效日早于生效日' });
         if (isExclusive && !r.cells['审批单号']) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'WARN', reasonCode: 'NO_APPROVAL', message: '专属价无审批单号(待确认)' });
+        const unit = toPriceUnit(r.cells['计价单位*'] ?? '');
+        if (!unit) {
+          errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'ENUM_INVALID', message: priceUnitErrorMessage(r.cells['计价单位*'] ?? '') });
+          continue;
+        }
         // 同键区间重叠 = 拒后条(字段规范§3: 同(客户,商品,单位,价型,生效日)完全重复拒批; 重叠警告商户裁决)
         if (customer) {
-          const overlap = await this.prisma.customerPrice.findFirst({ where: { customerId: customer.id, productId: product.id, unit: (r.cells['计价单位*'] === '最小单位' ? 'MIN' : 'BASE') as never, validFrom: from ?? undefined } });
+          const overlap = await this.prisma.customerPrice.findFirst({ where: { customerId: customer.id, productId: product.id, unit, validFrom: from ?? undefined } });
           if (overlap) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DB_DUP', message: '同(客户,商品,单位,生效日)价格已存在' });
         } else {
-          const overlap = await this.prisma.price.findFirst({ where: { productId: product.id, unit: (r.cells['计价单位*'] === '最小单位' ? 'MIN' : 'BASE') as never, levelType: PRICE_LEVEL_MAP[levelName] as never, validFrom: from ?? undefined } });
+          const overlap = await this.prisma.price.findFirst({ where: { productId: product.id, unit, levelType: PRICE_LEVEL_MAP[levelName] as never, validFrom: from ?? undefined } });
           if (overlap) errs.push({ rowNo: r.rowNo, rowKey: pCode, level: 'REJECT_ROW', reasonCode: 'DB_DUP', message: '同(商品,单位,价型,生效日)价格已存在' });
         }
       }
@@ -300,7 +308,8 @@ export class ImportsService {
           const pCode = r.cells['商品编码*'];
           const product = await tx.product.findFirst({ where: { skuCode: pCode } });
           if (!product) continue;
-          const unit = (r.cells['计价单位*'] === '最小单位' ? 'MIN' : 'BASE') as never;
+          const unit = toPriceUnit(r.cells['计价单位*'] ?? '');
+          if (!unit) continue;
           const level = PRICE_LEVEL_MAP[r.cells['价格类型*']] as never;
           const price = new Prisma.Decimal(num(r.cells['价格*'] ?? '0') ?? 0);
           const validFrom = parseDate(r.cells['生效日'] ?? '') ?? new Date();

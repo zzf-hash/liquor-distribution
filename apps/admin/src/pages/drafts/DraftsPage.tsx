@@ -7,6 +7,7 @@ import {
   Alert, App as AntApp, Badge, Button, Card, Drawer, Empty, Input, InputNumber, List,
   Modal, Popconfirm, Select, Space, Spin, Table, Tabs, Tag, Tooltip, Typography,
 } from 'antd';
+import { priceUnitErrorMessage, toPriceUnit } from '@liquor/shared';
 import { aliasesApi, customersApi, draftsApi, productsApi } from '../../services/api';
 import type {
   AliasEntryDTO, AliasKindDTO, CustomerDTO, DraftItemDTO, DraftSourceDTO,
@@ -311,12 +312,20 @@ function DraftEditDrawer({
       message.warning('无可转单行：请先为商品行匹配商品（黄色未匹配行不会转单）');
       return;
     }
-    const lines = matched.map((i) => ({
-      productId: i.productId as string,
-      qty: Number(i.qty),
-      unit: (i.unit === '瓶' || i.unit === '个' ? 'MIN' : 'BASE') as 'BASE' | 'MIN',
-      priceOverride: i.unitPrice ?? undefined,
-    }));
+    const lines: Array<{ productId: string; qty: number; unit: 'BASE' | 'MIN'; priceOverride?: number }> = [];
+    for (const i of matched) {
+      const unit = toPriceUnit(i.unit);
+      if (!unit) {
+        message.error(priceUnitErrorMessage(i.unit));
+        return;
+      }
+      lines.push({
+        productId: i.productId as string,
+        qty: Number(i.qty),
+        unit,
+        priceOverride: i.unitPrice ?? undefined,
+      });
+    }
     modal.confirm({
       title: `确认转单？${d.draftNo}`,
       width: 560,
