@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { openAppPage } from '../../../services/navigation'
+import { previewGiftLines } from '../../../services/gift-preview'
+import type { GiftPreviewLine, GiftRule } from '../../../services/gift-preview'
 import {
   UNIT_LABELS,
   cartQty,
@@ -10,6 +12,7 @@ import {
   labelOf,
   loadCart,
   ordersApi,
+  promotionsApi,
   saveCart,
   toNum,
 } from '../../../services/api'
@@ -22,6 +25,8 @@ import './index.scss'
  */
 export default function CustomerCartPage() {
   const [cart, setCart] = useState<CartItem[]>([])
+  const [rules, setRules] = useState<GiftRule[]>([])
+  const [giftNote, setGiftNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   useDidShow(() => {
@@ -30,9 +35,25 @@ export default function CustomerCartPage() {
       return
     }
     setCart(loadCart())
+    promotionsApi.active()
+      .then((rows) => {
+        setRules(Array.isArray(rows) ? rows : [])
+        setGiftNote('')
+      })
+      .catch(() => {
+        setRules([])
+        setGiftNote('赠品预览暂时不可用，提交后仍由服务端计算。')
+      })
   })
 
   const total = cart.reduce((s, it) => s + toNum(it.price) * it.qty, 0)
+  const gifts: GiftPreviewLine[] = previewGiftLines(
+    cart.map((it) => ({ productId: it.productId, unit: it.unit, qty: it.qty })),
+    rules,
+  )
+  const giftText = gifts.length
+    ? `预计赠品：${gifts.map((g) => `${g.name} ${g.qty}${labelOf(UNIT_LABELS, g.unit)}`).join('、')}。赠品由服务端写入，这里不另提交。`
+    : giftNote || '当前没有命中的买赠。'
 
   function changeQty(idx: number, delta: number) {
     const next = cart.map((c) => ({ ...c }))
@@ -51,7 +72,7 @@ export default function CustomerCartPage() {
     try {
       const confirm = await Taro.showModal({
         title: '确认提交订单',
-        content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。提交后商家会尽快确认安排送货。`,
+        content: `共 ${cartQty(cart)} 件商品，合计约 ${fmtMoney(total)}。${giftText}提交后商家会尽快确认安排送货。`,
         confirmText: '提交订单',
         cancelText: '再看看',
       })
@@ -108,6 +129,7 @@ export default function CustomerCartPage() {
             </View>
           </View>
         ))}
+        <Text className='cart__tip'>{giftText}</Text>
         <Text className='cart__tip'>减到 0 即移除该商品；金额为参考，成交价以商家核算为准</Text>
       </View>
 

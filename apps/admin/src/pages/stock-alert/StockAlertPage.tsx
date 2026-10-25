@@ -87,7 +87,7 @@ function ReportTab(): JSX.Element {
         <Statistic title="预警商品" value={s?.low ?? 0} valueStyle={{ color: '#fa8c16' }} />
         <Statistic title="缺货商品" value={s?.out ?? 0} valueStyle={{ color: '#cf1322' }} />
         <Statistic title="在售SKU" value={s?.totalSkus ?? 0} />
-        <Statistic title="库存货值(成本)" value={s ? fmtMoney(s.totalValue) : '—'} prefix="¥" />
+        <Statistic title="库存货值(成本)" value={s ? fmtMoney(s.totalValue) : '—'} />
         <Select
           allowClear
           placeholder="全部状态"
@@ -167,7 +167,7 @@ function ExpiryTab(): JSX.Element {
       <Space style={{ marginBottom: 16 }} wrap>
         <Statistic title="临期批次" value={s?.warning ?? 0} valueStyle={{ color: '#fa8c16' }} />
         <Statistic title="已过期批次" value={s?.expired ?? 0} valueStyle={{ color: '#cf1322' }} />
-        <Statistic title="涉及货值(成本)" value={s ? fmtMoney(s.valueAtRisk) : '—'} prefix="¥" />
+        <Statistic title="涉及货值(成本)" value={s ? fmtMoney(s.valueAtRisk) : '—'} />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
           预警窗口：到期前 {data?.warnDays ?? 30} 天（预警配置 Tab 可调）；已过期批次不可拣货（FEFO 自动排除）
         </Typography.Text>

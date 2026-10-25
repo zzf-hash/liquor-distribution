@@ -36,6 +36,7 @@ export default function ReceivablesPage(): JSX.Element {
   const canWaive = role === 'owner' || role === 'clerk';
   const canWriteOff = role === 'owner';
   const [fundAction, setFundAction] = useState<{ type: 'waive' | 'writeoff'; row: ReceivableDTO } | null>(null);
+  const [remindOpen, setRemindOpen] = useState(false);
 
   useEffect(() => {
     agingApi.get()
@@ -107,6 +108,19 @@ export default function ReceivablesPage(): JSX.Element {
               导出 xlsx
             </Button>
             <Button icon={<SettingOutlined />} onClick={() => setAgingOpen(true)}>账龄档位</Button>
+            <Button
+              onClick={async () => {
+                try {
+                  await downloadApiFile('/payments/export', '收款单');
+                  message.success('收款单已导出');
+                } catch (e) {
+                  message.error(e instanceof Error ? e.message : '导出收款单失败');
+                }
+              }}
+            >
+              导出收款单
+            </Button>
+            <Button onClick={() => setRemindOpen(true)}>到期提醒</Button>
           </Space>
           <ProTable<ReceivableDTO>
             rowKey="id"
@@ -132,6 +146,7 @@ export default function ReceivablesPage(): JSX.Element {
         </Card>
 
         <PendingPaymentsCard refreshKey={payRefreshKey} onChanged={() => setPayRefreshKey((k) => k + 1)} />
+        {role === 'owner' && <ConfirmedPaymentsCard refreshKey={payRefreshKey} onChanged={() => setPayRefreshKey((k) => k + 1)} />}
       </Space>
 
       <PaymentModal
@@ -145,6 +160,7 @@ export default function ReceivablesPage(): JSX.Element {
         onClose={() => setAgingOpen(false)}
         onSaved={() => { setAgingOpen(false); setRefreshKey((k) => k + 1); }}
       />
+      <RemindersModal open={remindOpen} onClose={() => setRemindOpen(false)} />
       <FundActionModal
         state={fundAction}
         onClose={() => setFundAction(null)}
@@ -427,6 +443,97 @@ function PaymentModal({
         </Typography.Text>
       </Space>
     </Modal>
+  );
+}
+
+function RemindersModal({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [rows, setRows] = useState<Array<{ sourceDocNo: string; dueDate: string; open: number; daysLeft: number }>>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    receivablesApi.reminders()
+      .then(setRows)
+      .catch((e) => message.error(e instanceof Error ? e.message : '加载提醒失败'))
+      .finally(() => setLoading(false));
+  }, [open, message]);
+
+  return (
+    <Modal open={open} title="到期提醒" footer={null} onCancel={onClose} width={640}>
+      <Table
+        size="small"
+        rowKey="sourceDocNo"
+        loading={loading}
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '没有即将到期的未结单据' }}
+        columns={[
+          { title: '单据', dataIndex: 'sourceDocNo' },
+          { title: '到期日', dataIndex: 'dueDate', width: 120 },
+          { title: '剩余天数', dataIndex: 'daysLeft', width: 100 },
+          { title: '未结', dataIndex: 'open', width: 120, render: (v: number) => fmtMoney(v) },
+        ]}
+      />
+    </Modal>
+  );
+}
+
+function ConfirmedPaymentsCard({ refreshKey, onChanged }: { refreshKey: number; onChanged: () => void }): JSX.Element {
+  const { message, modal } = AntApp.useApp();
+  const [rows, setRows] = useState<PaymentDTO[]>([]);
+  const [reason, setReason] = useState('');
+  const [target, setTarget] = useState<PaymentDTO | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    receivablesApi.listPayments({ status: 'CONFIRMED' })
+      .then((r) => { if (alive) setRows(r.slice(0, 20)); })
+      .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载已确认收款失败'); });
+    return () => { alive = false; };
+  }, [refreshKey, message]);
+
+  return (
+    <Card size="small" title="已确认收款（老板可冲正，最多 20 笔）">
+      <Table<PaymentDTO>
+        size="small"
+        rowKey="id"
+        dataSource={rows}
+        pagination={false}
+        locale={{ emptyText: '没有已确认收款' }}
+        columns={[
+          { title: '收款单号', dataIndex: 'paymentNo' },
+          { title: '客户', render: (_, r) => r.customer?.name ?? r.customerId },
+          { title: '金额', dataIndex: 'amount', render: (v: PaymentDTO['amount']) => fmtMoney(v) },
+          { title: '操作', width: 80, render: (_, r) => <a onClick={() => { setTarget(r); setReason(''); }}>冲正</a> },
+        ]}
+      />
+      <Modal
+        open={target !== null}
+        title={`冲正 ${target?.paymentNo ?? ''}`}
+        okText="冲正"
+        onCancel={() => setTarget(null)}
+        onOk={() => {
+          if (!target || !reason.trim()) {
+            message.warning('请填写冲正原因');
+            return;
+          }
+          modal.confirm({
+            title: '确认冲正？',
+            content: '冲正会按红字新单处理，不能改原收款。',
+            onOk: async () => {
+              await receivablesApi.reversePayment(target.id, reason.trim());
+              message.success('已冲正');
+              setTarget(null);
+              onChanged();
+            },
+          });
+        }}
+      >
+        <Input.TextArea rows={3} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="冲正原因" />
+      </Modal>
+    </Card>
   );
 }
 

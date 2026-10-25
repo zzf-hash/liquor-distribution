@@ -12,6 +12,7 @@ import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
 import LoginPage from './pages/LoginPage';
 import PagePlaceholder from './pages/PagePlaceholder';
+import SettingsPage from './pages/settings/SettingsPage';
 import OrdersPage from './pages/orders/OrdersPage';
 import DeliveryNotePrint from './pages/orders/DeliveryNotePrint';
 import ApprovalsPage from './pages/approvals/ApprovalsPage';
@@ -53,6 +54,7 @@ const ICONS: Record<string, ReactNode> = {
   FileSyncOutlined: <FileSyncOutlined />,
   AudioOutlined: <AudioOutlined />,
   PayCircleOutlined: <PayCircleOutlined />,
+  AlertOutlined: <AlertOutlined />,
 };
 
 // 业务页面已实施的模块；/settings 仍为路由占位
@@ -74,6 +76,7 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/statements': <StatementsPage />,
   '/reports': <ReportsPage />,
   '/stock-alert': <StockAlertPage />,
+  '/settings': <SettingsPage />,
 };
 
 function Shell(): JSX.Element {

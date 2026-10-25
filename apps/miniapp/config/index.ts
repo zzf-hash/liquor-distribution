@@ -3,8 +3,20 @@ import { defineConfig, type UserConfigExport } from '@tarojs/cli'
 import devConfig from './dev'
 import prodConfig from './prod'
 
+function logMiniappApiHost(): void {
+  const raw = (process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api').trim()
+  let host = '127.0.0.1:3000'
+  try {
+    host = new URL(raw).host || host
+  } catch {
+    host = '(invalid)'
+  }
+  console.log(`[miniapp] build API host: ${host}`)
+}
+
 // https://taro-docs.jd.com/docs/next/config#defineconfig-辅助函数
 export default defineConfig<'vite'>(async (merge) => {
+  logMiniappApiHost()
   const baseConfig: UserConfigExport<'vite'> = {
     projectName: 'miniapp',
     date: '2026-9-24',

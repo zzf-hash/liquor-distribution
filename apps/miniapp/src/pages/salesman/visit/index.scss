@@ -115,10 +115,28 @@
   color: $color-text-sub;
 }
 
+.photo__frame {
+  position: relative;
+  width: 300px;
+  height: 300px;
+}
+
 .photo__img {
   width: 300px;
   height: 300px;
   border-radius: $radius-base;
+}
+
+.photo__mark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 22px;
+  line-height: 1.4;
 }
 
 .photo__ops {

@@ -1,10 +1,11 @@
 // 真接口通道：统一 fetch 封装（{code:0,data} 信封 / 401 跳登录 / 幂等键）+ 各资源类型化方法。
 // 接口契约对齐 apps/api：products/customers/prices(L3 自研) + orders/receivables/payments/imports/users。
+import { apiBase } from './api-base';
 import { clearAuth, getAuth } from './auth';
 import { reportError } from './telemetry';
 import type { Decimalish } from '../utils/format';
 
-const BASE_URL: string = import.meta.env.VITE_API_BASE || '/api';
+const BASE_URL: string = apiBase();
 export { BASE_URL };
 
 export interface ApiEnvelope<T> {
@@ -220,6 +221,7 @@ export interface CustomerDTO {
   type: string;
   contact?: string | null;
   phone: string;
+  licenseNo?: string | null;
   region?: string | null;
   address: string;
   abcLevel?: string | null;
@@ -244,6 +246,7 @@ export interface CustomerInput {
   type?: string;
   contact?: string;
   phone?: string;
+  licenseNo?: string;
   region?: string;
   address?: string;
   abcLevel?: string;
@@ -420,6 +423,10 @@ export const ordersApi = {
   /** 配送前红字冲销一行（POST /orders/:id/lines/:lineId/reverse） */
   reverseLine: (id: string, lineId: string, qty: number, reason: string) =>
     request<OrderDTO>(`/orders/${id}/lines/${lineId}/reverse`, { method: 'POST', body: { qty, reason } }),
+  /** 已确认订单生成拣货单。仓配、老板、内勤。 */
+  outbound: (id: string) => request<Record<string, unknown>>(`/orders/${id}/outbound`, { method: 'POST', body: {} }),
+  /** 已出库订单发运。仓配、老板。 */
+  deliver: (id: string) => request<Record<string, unknown>>(`/orders/${id}/deliver`, { method: 'POST', body: {} }),
 };
 
 // ───────────────────────── 应收 / 收款（P0-T30~T31） ─────────────────────────
@@ -503,6 +510,9 @@ export const receivablesApi = {
       body: { reason },
       idemKey: genIdemKey(),
     }),
+  reminders: () => request<Array<{ sourceDocNo: string; dueDate: string; open: number; daysLeft: number }>>('/receivables/reminders'),
+  reversePayment: (id: string, reason: string) =>
+    request<Record<string, unknown>>(`/payments/${id}/reverse`, { method: 'POST', body: { reason } }),
 };
 
 // ───────────────────────── 数据导入（P0-T13 / P0-07） ─────────────────────────
@@ -557,6 +567,15 @@ export const importsApi = {
     }),
 };
 
+export const dailyTasksApi = {
+  reminders: () => request<Record<string, unknown>>('/daily-tasks/reminders/run', { method: 'POST', body: {} }),
+  statements: (period?: string) =>
+    request<Record<string, unknown>>(`/daily-tasks/statements/run${period ? `?period=${encodeURIComponent(period)}` : ''}`, { method: 'POST', body: {} }),
+  archive: () => request<Record<string, unknown>>('/daily-tasks/archive/run', { method: 'POST', body: {} }),
+  capAccrue: (period?: string) =>
+    request<Record<string, unknown>>(`/daily-tasks/cap-accrue/run${period ? `?period=${encodeURIComponent(period)}` : ''}`, { method: 'POST', body: {} }),
+};
+
 // ───────────────────────── 员工（业务员下拉用） ─────────────────────────
 
 export interface UserDTO {
@@ -570,6 +589,9 @@ export interface UserDTO {
 
 export const usersApi = {
   list: () => request<UserDTO[]>('/users'),
+  create: (input: { username: string; password: string; name: string; role: UserDTO['role']; phone?: string }) =>
+    request<Pick<UserDTO, 'id' | 'username' | 'name' | 'role'>>('/users', { method: 'POST', body: input }),
+  disable: (id: string) => request<{ ok: boolean }>(`/users/${id}/disable`, { method: 'POST', body: {} }),
   /** 归属业务员下拉；接口不可用时静默降级为空（REP 自建后端自动挂自己） */
   listReps: async (): Promise<UserDTO[]> => {
     try {
@@ -800,6 +822,7 @@ export interface PriceChangeDTO {
   reason: string;
   stockImpact?: StockImpactDTO | null;
   customerSync: boolean;
+  customerSyncResult?: { customers: number; delta?: number } | null;
   status: PriceChangeStatusDTO;
   approvalId?: string | null;
   effectuatedAt?: string | null;

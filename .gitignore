@@ -8,5 +8,6 @@ dist-h5/
 .swc/
 project.private.config.json
 apps/api/.env
+apps/miniapp/.env
 logs/
 .github/workflows/

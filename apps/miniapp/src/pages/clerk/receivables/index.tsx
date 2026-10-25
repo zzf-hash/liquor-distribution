@@ -9,7 +9,6 @@ import {
   fmtMoney,
   getToken,
   receivablesApi,
-  toNum,
 } from '../../../services/api'
 import type { ArBucket, CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
@@ -49,8 +48,13 @@ function tabLabel(labels: Record<ArBucket, string>, key: string): string {
  * 应收台账（P1 全员端，内勤）：GET /receivables?bucket= 分档 tab（未到期/逾期4档/争议）；
  * 行显示 未结 open / 到期日 / 账龄，列表顺序即 FIFO 核销顺序（最早到期在前）。
  */
+const PAGE_SIZE = 50
+
 export default function ClerkReceivablesPage() {
   const [tab, setTab] = useState('')
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+  const [openTotal, setOpenTotal] = useState<number | null>(null)
   const [items, setItems] = useState<CustomerReceivableDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -67,12 +71,19 @@ export default function ClerkReceivablesPage() {
     agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
   })
 
-  async function load(bucket?: string) {
+  async function load(bucket?: string, nextPage = 1) {
     setLoading(true)
     setError('')
     try {
-      const res = await receivablesApi.list((bucket ?? tab) || undefined)
+      const res = await receivablesApi.list({
+        bucket: (bucket ?? tab) || undefined,
+        page: nextPage,
+        pageSize: PAGE_SIZE,
+      })
       setItems(res.items ?? [])
+      setTotal(res.total ?? res.items?.length ?? 0)
+      setOpenTotal(typeof res.openTotal === 'number' ? res.openTotal : null)
+      setPage(nextPage)
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载应收台账失败')
     } finally {
@@ -83,10 +94,10 @@ export default function ClerkReceivablesPage() {
   function switchTab(next: string) {
     if (tab === next) return
     setTab(next)
-    void load(next)
+    void load(next, 1)
   }
 
-  const openTotal = items.reduce((s, r) => s + toNum(r.open), 0)
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   return (
     <View className='page'>
@@ -118,8 +129,9 @@ export default function ClerkReceivablesPage() {
         <>
           <View className='card'>
             <Text className='card__title'>
-              未结合计（{tabLabel(bucketLabels, tab)}） {fmtMoney(openTotal)} · 共 {items.length} 单
+              未结合计（{tabLabel(bucketLabels, tab)}） {openTotal === null ? '—' : fmtMoney(openTotal)} · 共 {total} 单
             </Text>
+            <Text className='ar__note'>合计是筛选后的全部未结，不是本页相加。第 {page}/{pageCount} 页，本页 {items.length} 单。</Text>
             <Text className='ar__note'>按到期先后排序，收款按「先到期先结」核销</Text>
           </View>
           {items.length === 0 ? (
@@ -150,6 +162,12 @@ export default function ClerkReceivablesPage() {
               </View>
             ))
           )}
+          {pageCount > 1 ? (
+            <View className='tabs'>
+              <Button className='tabs__btn' disabled={page <= 1} onClick={() => { void load(tab, page - 1) }}>上一页</Button>
+              <Button className='tabs__btn' disabled={page >= pageCount} onClick={() => { void load(tab, page + 1) }}>下一页</Button>
+            </View>
+          ) : null}
         </>
       )}
       <RoleTabBar />
