@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { sequential } from '../../prisma/relation-read';
 import { AuditService } from '../../audit/audit.service';
 import { IdempotencyService } from '../../audit/idempotency.service';
 import { ApprovalsService } from '../approvals/approvals.service';
@@ -173,7 +174,7 @@ export class PurchasesService {
     const page = Math.max(1, q.page ?? 1);
     const pageSize = Math.min(100, Math.max(1, q.pageSize ?? 20));
     const where = { status: q.status as never };
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total] = await sequential([
       this.prisma.purchaseOrder.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, include: { lines: { include: { product: { select: { name: true, skuCode: true } } } } } }),
       this.prisma.purchaseOrder.count({ where }),
     ]);

@@ -28,7 +28,7 @@ function normalizeRole(raw: unknown): Role {
   return ROLES.includes(r) ? r : 'clerk';
 }
 
-export async function login(username: string, password: string): Promise<AuthUser> {
+export async function login(username: string, password: string, tenantCode?: string): Promise<AuthUser> {
   if (USE_MOCK) {
     await new Promise((r) => setTimeout(r, 300)); // 模拟网络延迟
     const hit = MOCK_USERS.find((u) => u.username === username && u.password === password);
@@ -40,7 +40,7 @@ export async function login(username: string, password: string): Promise<AuthUse
   const res = await fetch(`${API_BASE}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, ...(tenantCode?.trim() ? { tenantCode: tenantCode.trim() } : {}) }),
   });
   let body: { code?: number; message?: string; data?: { token: string; user?: { username?: string; name?: string; role?: string } } } | null = null;
   try {

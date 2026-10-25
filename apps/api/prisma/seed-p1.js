@@ -1,9 +1,21 @@
 // P1 seed 补丁: 审批样例数据 + SystemConfig 默认键 (由 seed.ts 之后运行; qwen3.8-27b 生成+主agent修正)
 // 用法: node prisma/seed-p1.js  (需已跑过 seed)
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+
+function seedUrl(url) {
+  if (!url) return url;
+  if (/[?&]connection_limit=/.test(url)) return url;
+  // 会话级 bypass 必须钉在同一条连接上, 否则下一条查询换连接后策略又把它挡住。
+  return `${url}${url.includes('?') ? '&' : '?'}connection_limit=1`;
+}
+
+const prisma = process.env.DATABASE_URL
+  ? new PrismaClient({ datasources: { db: { url: seedUrl(process.env.DATABASE_URL) } } })
+  : new PrismaClient();
 
 async function main() {
+  // 种子没有租户上下文。is_local=false 只对本进程这一条连接有效, 进程结束即断开。
+  await prisma.$queryRawUnsafe(`SELECT set_config('app.rls_bypass', 'on', false)`);
   const tenant = await prisma.tenant.findUnique({ where: { code: 'TENANT-DEMO' } });
   if (!tenant) throw new Error('先跑 pnpm seed (缺 TENANT-DEMO)');
   const [owner, clerk, rep1] = await Promise.all([

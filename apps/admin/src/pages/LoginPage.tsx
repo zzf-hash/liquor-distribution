@@ -11,10 +11,10 @@ export default function LoginPage(): JSX.Element {
   const { message } = AntApp.useApp();
   const [loading, setLoading] = useState(false);
 
-  const onFinish = async (values: { username: string; password: string }) => {
+  const onFinish = async (values: { username: string; password: string; tenantCode?: string }) => {
     setLoading(true);
     try {
-      const user = await login(values.username, values.password);
+      const user = await login(values.username, values.password, values.tenantCode);
       saveAuth(user);
       message.success(`欢迎，${user.name}`);
       navigate('/', { replace: true });
@@ -43,6 +43,9 @@ export default function LoginPage(): JSX.Element {
           />
         )}
         <Form onFinish={onFinish} initialValues={{ username: 'clerk', password: '123456' }}>
+          <Form.Item name="tenantCode">
+            <Input placeholder="租户编码（同名账号时必填）" size="large" />
+          </Form.Item>
           <Form.Item name="username" rules={[{ required: true, message: '请输入账号' }]}>
             <Input prefix={<UserOutlined />} placeholder="账号" size="large" />
           </Form.Item>
