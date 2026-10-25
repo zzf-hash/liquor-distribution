@@ -1,6 +1,6 @@
 // 回包装（P1-T04）：有单回填（签收联动）+ F11 无单回收 + 押金退付，台账 append-only。
 // 押金=品类 cfg 单价×数量（后端落账为准）；押金余额=Σ(回收+回填)−Σ(退付)。
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PageContainer, ProTable } from '@ant-design/pro-components';
 import type { ProColumns } from '@ant-design/pro-components';
 import {
@@ -9,6 +9,8 @@ import {
 } from 'antd';
 import { DownloadOutlined } from '@ant-design/icons';
 import { customersApi, packagesApi } from '../../services/api';
+import { rememberIdemKey } from '../../services/idempotency';
+import type { IdemSlot } from '../../services/idempotency';
 import type { CustomerDTO, PackageRecordDTO, PackageSummaryDTO } from '../../services/api';
 import { PACKAGE_TYPE_META } from '../../constants/labels';
 import { fmtDateTime, fmtMoney, toNum } from '../../utils/format';
@@ -269,6 +271,7 @@ function PackageRecordModal({
   const [customerRows, setCustomerRows] = useState<PackageRecordDTO[]>([]);
   const [rowsLoading, setRowsLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const idemRef = useRef<IdemSlot | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -313,13 +316,15 @@ function PackageRecordModal({
     }
     setSubmitting(true);
     try {
-      const res = await packagesApi.create({
+      const payload = {
         customerId,
         category: category.trim(),
         qty,
         type: mode,
         note: note.trim() || undefined,
-      });
+      };
+      const res = await packagesApi.create(payload, rememberIdemKey(idemRef, payload));
+      idemRef.current = null;
       const label = PACKAGE_TYPE_META[mode]?.label ?? mode;
       message.success(
         `${label}已登记：${category.trim()} × ${qty}`

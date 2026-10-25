@@ -2,6 +2,8 @@ import { useRef, useState } from 'react'
 import { Button, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { markAsrUnavailable, readAsrUnavailable, shouldFallbackVoiceToText } from '../../../config/asr-fallback'
+import { rememberIdemKey } from '../../../services/idempotency'
+import type { IdemSlot } from '../../../services/idempotency'
 import { LOGIN_PAGE, draftsApi, fmtDateTime, getToken, toNum } from '../../../services/api'
 import RoleTabBar from '../../../components/RoleTabBar'
 import type { RepDraftDTO } from '../../../services/api'
@@ -46,6 +48,7 @@ export default function SalesmanVoiceOrderPage() {
   const [result, setResult] = useState<RepDraftDTO | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const rmRef = useRef<ReturnType<typeof Taro.getRecorderManager> | null>(null)
+  const idemRef = useRef<IdemSlot | null>(null)
 
   useDidShow(() => {
     if (!getToken()) {
@@ -68,11 +71,13 @@ export default function SalesmanVoiceOrderPage() {
     setTranscribing(true)
     try {
       const audioBase64 = await audioToBase64(res.tempFilePath)
-      const draft = await draftsApi.createVoice({
+      const payload = {
         audioBase64,
-        audioFormat: 'mp3',
-        rawText: text.trim() || undefined, // 手敲文字非空时优先人工文本(兜底红线)
-      })
+        audioFormat: 'mp3' as const,
+        rawText: text.trim() || undefined,
+      }
+      const draft = await draftsApi.createVoice(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       setResult(draft)
       setRecordedSec(Math.round(Number(res.duration) / 1000))
       setText('')
@@ -134,7 +139,9 @@ export default function SalesmanVoiceOrderPage() {
     }
     setSubmitting(true)
     try {
-      const res = await draftsApi.create({ source: mode === 'voice' ? 'VOICE' : 'TEXT', text: text.trim() })
+      const payload = { source: mode === 'voice' ? 'VOICE' as const : 'TEXT' as const, text: text.trim() }
+      const res = await draftsApi.create(payload, rememberIdemKey(idemRef, payload))
+      idemRef.current = null
       setResult(res)
       setText('')
       setRecordedSec(0)
