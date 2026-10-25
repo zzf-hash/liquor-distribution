@@ -12,6 +12,9 @@ class CreateDraftDto {
   @IsEnum(['VOICE', 'PHOTO', 'TEXT']) source!: 'VOICE' | 'PHOTO' | 'TEXT';
   @IsOptional() @IsString() text?: string;
   @IsOptional() @IsString() photoUrl?: string;
+  /** C组 M12-1: 录音 base64(weapp RecorderManager, ≤60s) → 腾讯云 ASR 转写 → qwen 解析 */
+  @IsOptional() @IsString() audioBase64?: string;
+  @IsOptional() @IsEnum(['mp3', 'wav', 'm4a', 'aac']) audioFormat?: 'mp3' | 'wav' | 'm4a' | 'aac';
 }
 
 class DraftItemDto {

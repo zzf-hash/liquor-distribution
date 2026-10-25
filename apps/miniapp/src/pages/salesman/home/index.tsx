@@ -12,6 +12,7 @@ const TILES: Array<{ icon: string; title: string; desc: string; url: string }> =
   { icon: '👥', title: '我的客户', desc: '名下客户·搜索·电话', url: '/pages/salesman/customers/index' },
   { icon: '💰', title: '收款上报', desc: '代收货款·内勤确认', url: '/pages/salesman/payment-report/index' },
   { icon: '📈', title: '我的绩效', desc: '回款·新客·拜访·提成', url: '/pages/salesman/performance/index' },
+  { icon: '🍾', title: '瓶盖回收', desc: '回收登记·兑付开瓶费', url: '/pages/salesman/cap-recycle/index' },
 ]
 
 /** 业务员宫格首页：拜访打卡/语音下单/代下单/我的客户/收款上报/我的绩效 */

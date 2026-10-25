@@ -190,7 +190,7 @@ async function main() {
     let totalSettled = 0;
     let openBalance = 0;
     for (const ar of ars) {
-      let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0;
+      let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0; let feeOffset = 0;
       let settledInPeriod = 0;
       for (const l of ar.ledger) {
         const amt = Number(l.amount);
@@ -200,9 +200,10 @@ async function main() {
         else if (l.direction === 'WAIVE') waived += amt;
         else if (l.direction === 'WRITEOFF') writtenOff += amt;
         else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
+        else if (l.direction === 'FEE_OFFSET') feeOffset += amt;
         else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
       }
-      const open = Math.max(0, Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay);
+      const open = Math.max(0, Number(ar.total) - settled - waived - writtenOff - returnCredit - feeOffset - revNoPay);
       openBalance += open;
       const generatedInPeriod = ar.generatedAt >= start && ar.generatedAt <= end;
       if (generatedInPeriod || settledInPeriod > 0.0001) {
@@ -218,11 +219,33 @@ async function main() {
     });
   }
 
-  // ─── ⑦ 返利方案(3%, 1%-50% 新口径) / 拜访 / 语音草稿 / 待确认收款 ───
+  // ─── ⑦ 返利方案(3%, 1%-50% 新口径) / 坎级方案 / 随单赠规则 / 拜访 / 语音草稿 / 待确认收款 ───
   if (!(await prisma.rebateScheme.findFirst({ where: { tenantId: T, note: '演示返利方案' } }))) {
     await prisma.rebateScheme.create({
       data: { tenantId: T, customerId: c2.id, type: 'C', rate: 0.03, note: '演示返利方案(定扣货款3%)', validTo: dateOnly('2026-12-31'), createdById: owner.id },
     });
+  }
+  // C组: 坎级阶梯方案(月回款≥1万→2%, ≥5万→5%; 未达1万无返利)——C0004
+  {
+    const c4 = await cust('C0004');
+    if (c4 && !(await prisma.rebateScheme.findFirst({ where: { tenantId: T, note: { contains: '演示坎级' } } }))) {
+      await prisma.rebateScheme.create({
+        data: {
+          tenantId: T, customerId: c4.id, type: 'B', rate: 0.05,
+          tiers: [{ minAmount: 10000, rate: 0.02 }, { minAmount: 50000, rate: 0.05 }],
+          note: '演示坎级返利(≥1万2%, ≥5万5%)', createdById: owner.id,
+        },
+      });
+    }
+  }
+  // C组: 随单赠规则——青岛啤酒 买10箱送1箱(下单管线自动挂赠品行)
+  {
+    const p3row = await prisma.product.findFirst({ where: { tenantId: T, skuCode: 'SKU0003' } });
+    if (p3row && !(await prisma.promotion.findFirst({ where: { tenantId: T, productId: p3row.id } }))) {
+      await prisma.promotion.create({
+        data: { tenantId: T, productId: p3row.id, buyQty: 10, giftQty: 1, unit: 'BASE', note: '演示: 买10箱送1箱', createdById: owner.id },
+      });
+    }
   }
   if (!(await prisma.visit.findFirst({ where: { tenantId: T, notes: '演示拜访' } }))) {
     await prisma.visit.createMany({
@@ -256,7 +279,71 @@ async function main() {
     });
   }
 
-  console.log('✓ 演示数据完成: 账龄四档/到期提醒/归档候选/临期批次/LOW动销/今日签收订单/待审单/SENT对账单/返利3%/拜访/语音草稿/待确认收款');
+  // ─── ⑧ B组费用域: 开瓶费政策/回收单/费用台账/冲抵流水 ───
+  // 政策: 青岛=回瓶盖兑付(0.5/瓶); 雪花=不回瓶盖自动计提(0.3/瓶×80%)
+  const policyDefs = [
+    { p: p3, perBottleFee: 0.5, requireCap: true, noCapRate: 1 },
+    { p: p4, perBottleFee: 0.3, requireCap: false, noCapRate: 0.8 },
+  ];
+  for (const d of policyDefs) {
+    await prisma.capFeePolicy.upsert({
+      where: { productId: d.p.id },
+      update: {},
+      create: { tenantId: T, productId: d.p.id, perBottleFee: d.perBottleFee, requireCap: d.requireCap, noCapRate: d.noCapRate, createdById: owner.id },
+    });
+  }
+  // 回收单: C0003 待出纳确认(青岛瓶盖200个=¥100, 确认后生成费用单进审批)
+  if (!(await prisma.capRecycleOrder.findFirst({ where: { tenantId: T, note: '演示: 待确认瓶盖回收' } }))) {
+    await prisma.capRecycleOrder.create({
+      data: {
+        tenantId: T, recycleNo: `GAI-DEMO-${Date.now().toString().slice(-6)}`, customerId: c3.id,
+        status: 'PENDING_CONFIRM',
+        lines: [{ productId: p3.id, productName: p3.name, qty: 200, perBottleFee: 0.5, amount: 100 }],
+        totalAmount: 100, note: '演示: 待确认瓶盖回收', createdById: rep1.id,
+      },
+    });
+  }
+  // 费用台账: 上月油费(已付) + 办公(已付) + 陈列费(已冲抵, 带 FEE_OFFSET 流水) + 本月办公(待审批+审批待办)
+  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15));
+  const mkExpense = async (no, data) => {
+    if (await prisma.expense.findUnique({ where: { tenantId_expenseNo: { tenantId: T, expenseNo: no } } })) return;
+    await prisma.expense.create({ data: { tenantId: T, expenseNo: no, createdById: clerk.id, ...data } });
+  };
+  await mkExpense('FY-DEMO-0001', { category: 'FUEL_TOLL', title: '上月配送油费·路桥(演示)', amount: 360, payee: '中石化', occurredAt: lastMonth, payMode: 'CASH', status: 'PAID', paidAt: lastMonth, paidById: clerk.id, note: '演示: 已付运营费' });
+  await mkExpense('FY-DEMO-0002', { category: 'OFFICE', title: '上月办公用品(演示)', amount: 150, payee: '文具批发', occurredAt: lastMonth, payMode: 'CASH', status: 'PAID', paidAt: lastMonth, paidById: clerk.id, note: '演示: M4-3 办公费用' });
+  await mkExpense('FY-DEMO-0003', {
+    category: 'DISPLAY', title: '王五超市端架陈列费(演示)', amount: 500, customerId: c2.id,
+    occurredAt: lastMonth, payMode: 'AR_OFFSET', status: 'PAID', paidAt: dayOffset(-1), paidById: clerk.id,
+    note: '演示: 陈列费冲抵货款', source: 'MANUAL',
+  });
+  // 上面的冲抵落 FEE_OFFSET 流水: 打在 C0002 最早未结单(初0003)上
+  {
+    const ar3 = await prisma.receivable.findUnique({ where: { tenantId_sourceType_sourceDocNo: { tenantId: T, sourceType: 'INITIAL', sourceDocNo: '初0003' } } });
+    const exp3 = await prisma.expense.findUnique({ where: { tenantId_expenseNo: { tenantId: T, expenseNo: 'FY-DEMO-0003' } } });
+    if (ar3 && exp3 && !(await prisma.receivableLedger.findFirst({ where: { tenantId: T, direction: 'FEE_OFFSET' } }))) {
+      await prisma.receivableLedger.create({
+        data: { tenantId: T, receivableId: ar3.id, direction: 'FEE_OFFSET', amount: 500, note: `费用冲抵 ${exp3.expenseNo}: ${exp3.title}`, createdBy: clerk.id, createdAt: dayOffset(-1) },
+      });
+    }
+  }
+  {
+    // 本月办公费用: 待审批 + 审批中心待办(EXPENSE 线, ≤2000 出纳可批)
+    await mkExpense('FY-DEMO-0004', { category: 'OFFICE', title: '本月仓库耗材(演示)', amount: 800, payee: '包装材料行', payMode: 'CASH', status: 'PENDING_APPROVAL', note: '演示: EXPENSE 审批线待办' });
+    const exp4 = await prisma.expense.findUnique({ where: { tenantId_expenseNo: { tenantId: T, expenseNo: 'FY-DEMO-0004' } } });
+    if (exp4 && !(await prisma.approvalRecord.findFirst({ where: { tenantId: T, entityId: exp4.id, line: 'EXPENSE' } }))) {
+      const ap = await prisma.approvalRecord.create({
+        data: {
+          tenantId: T, line: 'EXPENSE', entityType: 'EXPENSE', entityId: exp4.id,
+          title: `费用单 ${exp4.expenseNo} 办公费用·本月仓库耗材(演示)`, amount: 800,
+          reason: '演示: EXPENSE 审批线待办', payload: { expenseNo: exp4.expenseNo, category: 'OFFICE', payMode: 'CASH' },
+          applicantId: clerk.id, status: 'PENDING',
+        },
+      });
+      await prisma.expense.update({ where: { id: exp4.id }, data: { approvalId: ap.id } });
+    }
+  }
+
+  console.log('✓ 演示数据完成: 账龄四档/到期提醒/归档候选/临期批次/LOW动销/今日签收订单/待审单/SENT对账单/返利3%/拜访/语音草稿/待确认收款 + B组(开瓶费政策/回收待确认/费用台账四笔/FEE_OFFSET冲抵/EXPENSE审批待办)');
 }
 
 main().catch((e) => { console.error(e); process.exit(1); }).finally(() => prisma.$disconnect());

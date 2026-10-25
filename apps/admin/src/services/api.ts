@@ -601,6 +601,9 @@ export const approvalsApi = {
   /** 审批人金额路由（≤2000 内勤 / >2000 或低于成本老板）由后端强制，前端只提示 */
   decide: (id: string, action: 'approve' | 'reject', opinion: string) =>
     request<ApprovalRecordDTO>(`/approvals/${id}/decide`, { method: 'POST', body: { action, opinion } }),
+  /** C组: 批量决定（批量调价等一单一审批场景）；逐单走后端全套校验，单条失败不拖垮 */
+  bulkDecide: (ids: string[], action: 'approve' | 'reject', opinion: string) =>
+    request<{ applied: number; failed: Array<{ id: string; error: string }> }>('/approvals/bulk-decide', { method: 'POST', body: { ids, action, opinion } }),
 };
 
 // ───────────────────────── 特单（P1-T02，F8 全员下单+婚宴宴席） ─────────────────────────
@@ -805,12 +808,21 @@ export const priceChangesApi = {
       method: 'POST',
       body: {},
     }),
-  /** APPROVED → EFFECTIVE：插入新价格版本行（D08 只新增版本不覆盖历史） */
+  /** APPROVED → EFFECTIVE：插入新价格版本行（D08 只新增版本不覆盖历史）；customerSync=true 时同步平移客户专属价 */
   effectuate: (id: string) =>
-    request<{ id: string; status: PriceChangeStatusDTO; priceRowId: string }>(`/price-changes/${id}/effectuate`, {
+    request<{ id: string; status: PriceChangeStatusDTO; priceRowId: string; customerSyncResult?: { customers: number; delta: number } | null }>(`/price-changes/${id}/effectuate`, {
       method: 'POST',
       body: {},
     }),
+  /** C组 M2-7 一键批量调价：逐单创建+提审（共用批次号） */
+  createBatch: (input: { items: Array<{ productId: string; unit?: PriceUnitDTO; levelType: string; newPrice: number }>; effectiveDate: string; reason: string; customerSync?: boolean }) =>
+    request<{ batchNo: string; count: number; items: Array<{ id: string; productId: string; oldPrice: number; newPrice: number; approvalId: string }> }>('/price-changes/batch', { method: 'POST', body: input }),
+  /** C组: 批次列表（一键调价工作台） */
+  listBatches: () =>
+    request<Array<{ batchNo: string; createdAt: string; total: number; draft: number; pending: number; approved: number; effective: number; rejected: number; items: Array<{ id: string; approvalId: string | null; product: string; skuCode: string; levelType: string; oldPrice: number; newPrice: number; status: string; customerSync: boolean; customerSyncResult?: { customers: number } | null }> }>>('/price-changes/batch'),
+  /** C组: 批量生效（该批次全部已批单一次落价） */
+  effectuateBatch: (batchNo: string) =>
+    request<{ batchNo: string; applied: number; failed: Array<{ id: string; error: string }> }>(`/price-changes/batch/${encodeURIComponent(batchNo)}/effectuate`, { method: 'POST', body: {} }),
 };
 
 // ───────────────────────── 回包装（P1-T04，F11 + 押金台账） ─────────────────────────
@@ -1014,7 +1026,13 @@ export const stocktakesApi = {
 // ───────────────────────── 优惠返利（P1-T08，D02 b/c 互斥·月末核算货补/票折） ─────────────────────────
 
 export type RebateTypeDTO = 'B' | 'C';
-export type RebateSettleTypeDTO = 'GOODS' | 'INVOICE';
+export type RebateSettleTypeDTO = 'GOODS' | 'INVOICE' | 'CASH';
+
+/** 坎级阶梯（C组 M3-2）：月累计基数取最高命中档 */
+export interface RebateTierDTO {
+  minAmount: number;
+  rate: number;
+}
 
 export interface RebateSchemeDTO {
   id: string;
@@ -1022,7 +1040,8 @@ export interface RebateSchemeDTO {
   /** 列表接口附带 */
   customer?: { code: string; name: string } | null;
   type: RebateTypeDTO;
-  rate: Decimalish; // 0.05-0.50
+  rate: Decimalish; // 单一费率(无坎级时)
+  tiers?: Array<{ minAmount: Decimalish; rate: Decimalish }> | null;
   note?: string | null;
   validFrom: string;
   validTo?: string | null;
@@ -1064,17 +1083,46 @@ export const rebatesApi = {
   listSchemes: (params: { customerId?: string }) =>
     request<RebateSchemeDTO[]>(`/rebates/schemes${qs(params)}`),
   /** 同客户已有生效中方案 → 409（D02 b/c 互斥），前端捕获展示；生效起始=创建当天（无 validFrom 入参） */
-  createScheme: (input: { customerId: string; type: RebateTypeDTO; rate: number; validTo?: string; note?: string }) =>
+  createScheme: (input: { customerId: string; type: RebateTypeDTO; rate: number; tiers?: RebateTierDTO[]; validTo?: string; note?: string }) =>
     request<RebateSchemeDTO>('/rebates/schemes', { method: 'POST', body: input }),
   closeScheme: (id: string) =>
     request<{ id: string; closed: boolean }>(`/rebates/schemes/${id}/close`, { method: 'POST', body: {} }),
   previewSettlement: (input: { customerId: string; period: string }) =>
     request<RebateSettlementPreviewDTO>('/rebates/settlements/preview', { method: 'POST', body: input }),
-  /** GOODS=货补（走随单赠下单）/ INVOICE=票折（REBATE_OFFSET 冲应收）；资金动作加幂等键防重放 */
+  /** GOODS=货补（走随单赠下单）/ INVOICE=票折（REBATE_OFFSET 冲应收）/ CASH=现金（REBATE 费用单）；资金动作加幂等键防重放 */
   createSettlement: (input: { customerId: string; period: string; settleType: RebateSettleTypeDTO; note?: string }) =>
     request<RebateSettlementDTO>('/rebates/settlements', { method: 'POST', body: input, idemKey: genIdemKey() }),
   listSettlements: (params: { period?: string }) =>
     request<RebateSettlementDTO[]>(`/rebates/settlements${qs(params)}`),
+};
+
+// ───────────────────────── 随单赠·买N送M（C组 M3-1） ─────────────────────────
+
+export interface PromotionDTO {
+  id: string;
+  kind: 'BUY_N_GET_M';
+  productId: string;
+  productName: string;
+  skuCode: string;
+  giftProductId: string | null;
+  giftProductName: string;
+  buyQty: number;
+  giftQty: number;
+  unit: 'BASE' | 'MIN';
+  unitLabel: string;
+  validFrom: string;
+  validTo?: string | null;
+  closedAt?: string | null;
+  note?: string | null;
+  active: boolean;
+}
+
+export const promotionsApi = {
+  list: (active?: boolean) => request<PromotionDTO[]>(`/promotions${active ? '?active=1' : ''}`),
+  create: (input: { productId: string; giftProductId?: string; buyQty: number; giftQty: number; unit?: 'BASE' | 'MIN'; validTo?: string; note?: string }) =>
+    request<PromotionDTO>('/promotions', { method: 'POST', body: input }),
+  close: (id: string, reason: string) =>
+    request<{ id: string; closed: boolean }>(`/promotions/${id}/close`, { method: 'POST', body: { reason } }),
 };
 
 // ───────────────────────── 对账中心（P1-T10，月结对账·差异四类） ─────────────────────────
@@ -1200,9 +1248,29 @@ export interface InventoryReportDTO {
   generatedAt?: string;
 }
 
+/** C组 M10-2 毛利分析行 */
+export interface GrossProfitRowDTO {
+  key: string;
+  name: string;
+  revenue: number;
+  cost: number;
+  profit: number;
+  margin: number | null;
+}
+
+export interface GrossProfitDTO {
+  month: string;
+  dimension: 'category' | 'customer' | 'rep' | 'product';
+  rows: GrossProfitRowDTO[];
+  totals: { revenue: number; cost: number; profit: number; margin: number | null; orderCount: number };
+  caliber: string;
+}
+
 export const reportsApi = {
   monthly: (month: string) => request<MonthlyReportDTO>(`/reports/monthly${qs({ month })}`),
   inventory: () => request<InventoryReportDTO>('/reports/inventory'),
+  grossProfit: (month: string, dimension: string) =>
+    request<GrossProfitDTO>(`/reports/gross-profit${qs({ month, dimension })}`),
 };
 
 // ───────────────────────── 绩效工资（P1-T09，D5 回款70/拜访20/新客10·可复算） ─────────────────────────

@@ -35,7 +35,7 @@ export class StatementsService {
     let totalCharged = 0; let totalSettled = 0; let openBalance = 0;
     for (const ar of ars) {
       const generatedInPeriod = ar.generatedAt >= start && ar.generatedAt <= end;
-      let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0;
+      let settled = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let revNoPay = 0; let feeOffset = 0;
       let settledInPeriod = 0;
       for (const l of ar.ledger) {
         const amt = Number(l.amount);
@@ -45,9 +45,10 @@ export class StatementsService {
         else if (l.direction === 'WAIVE') waived += amt;
         else if (l.direction === 'WRITEOFF') writtenOff += amt;
         else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
+        else if (l.direction === 'FEE_OFFSET') feeOffset += amt; // B组: 费用冲抵核减未结, 不进核销口径
         else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
       }
-      const open = Math.max(0, Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay);
+      const open = Math.max(0, Number(ar.total) - settled - waived - writtenOff - returnCredit - feeOffset - revNoPay);
       openBalance += open;
       // 明细行: 期间内生成的单 + 期间内有核销动作的旧单(否则客户对不上"当期核销"数字的来源)
       if (generatedInPeriod || settledInPeriod > 0.0001) {

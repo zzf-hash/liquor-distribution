@@ -6,13 +6,15 @@ import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 import { SYSTEM_USER } from '../stock-alert/stock-alert.controller';
 import { StatementsModule } from '../statements/statements.controller';
+import { CapFeesModule } from '../cap-fees/cap-fees.controller';
 import { DailyTasksService } from './daily-tasks.service';
 
 // ═══════════════ 每日自动化任务: 手动触发端点 + 定时器 ═══════════════
 // POST /daily-tasks/reminders/run            到期提醒+逾期摘要推送(演示可反复跑, 幂等)
 // POST /daily-tasks/statements/run?period=   月结对账单生成+推送(默认上月; 已存在跳过)
 // POST /daily-tasks/archive/run              已结满6个月自动归档
-// 定时: 每日 08:10 Asia/Shanghai(=UTC 00:10) 跑提醒+归档; 每月 1 日追加跑上月对账单。
+// POST /daily-tasks/cap-accrue/run?period=   开瓶费月度自动计提(不回瓶盖模式, 默认上月)
+// 定时: 每日 08:10 Asia/Shanghai(=UTC 00:10) 跑提醒+归档; 每月 1 日追加跑上月对账单+开瓶费计提。
 
 @Controller('daily-tasks')
 @Roles('OWNER', 'CLERK')
@@ -32,6 +34,11 @@ export class DailyTasksController {
   @Post('archive/run')
   async runArchive(@CurrentUser() user: AuthUser): Promise<unknown> {
     return this.svc.runAutoArchive(user);
+  }
+
+  @Post('cap-accrue/run')
+  async runCapAccrual(@CurrentUser() user: AuthUser, @Query('period') period?: string): Promise<unknown> {
+    return this.svc.runCapAccrual(user, period);
   }
 }
 
@@ -78,8 +85,12 @@ export class DailyTasksTimer implements OnApplicationBootstrap, OnModuleDestroy 
           const rem = await this.svc.runDueReminders(sys);
           const arch = await this.svc.runAutoArchive(sys);
           let stmt: unknown = null;
-          if (runMonthly) stmt = await this.svc.runMonthlyStatements(sys);
-          this.logger.log(`tenant ${tenant.code}: reminders=${rem.dueSoonCount} archived=${arch.archived}${runMonthly ? ` statements=${JSON.stringify(stmt)}` : ''}`);
+          let capAccrual: unknown = null;
+          if (runMonthly) {
+            stmt = await this.svc.runMonthlyStatements(sys);
+            capAccrual = await this.svc.runCapAccrual(sys);
+          }
+          this.logger.log(`tenant ${tenant.code}: reminders=${rem.dueSoonCount} archived=${arch.archived}${runMonthly ? ` statements=${JSON.stringify(stmt)} capAccrual=${JSON.stringify(capAccrual)}` : ''}`);
         });
       } catch (e) {
         this.logger.error(`tenant ${tenant.code} daily tasks failed: ${String(e).slice(0, 300)}`);
@@ -89,7 +100,7 @@ export class DailyTasksTimer implements OnApplicationBootstrap, OnModuleDestroy 
 }
 
 @Module({
-  imports: [StatementsModule],
+  imports: [StatementsModule, CapFeesModule],
   controllers: [DailyTasksController],
   providers: [DailyTasksService, DailyTasksTimer],
   exports: [DailyTasksService],

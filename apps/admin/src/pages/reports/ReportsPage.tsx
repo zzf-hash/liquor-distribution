@@ -5,12 +5,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { PageContainer, ProCard } from '@ant-design/pro-components';
 import {
-  Alert, Button, Card, Col, Empty, Progress, Row, Select, Space,
+  Alert, App as AntApp, Button, Card, Col, Empty, Progress, Row, Select, Space,
   Statistic, Table, Tabs, Tag, Typography,
 } from 'antd';
 import { reportsApi } from '../../services/api';
 import type {
-  InventoryReportDTO, InventoryReportItemDTO, MonthlyReportDTO,
+  GrossProfitDTO, GrossProfitRowDTO, InventoryReportDTO, InventoryReportItemDTO, MonthlyReportDTO,
   MonthlyRepRowDTO, MonthlyTopProductDTO,
 } from '../../services/api';
 import { PRODUCT_CATEGORY_LABELS } from '../../constants/labels';
@@ -36,18 +36,100 @@ function exportCsv(filename: string, rows: Array<Array<string | number>>): void 
 
 export default function ReportsPage(): JSX.Element {
   return (
-    <PageContainer title="一键报表" subTitle="四问看板 · 月度报表 · 库存报表（口径与台账一致）">
+    <PageContainer title="一键报表" subTitle="四问看板 · 月度报表 · 毛利分析 · 库存报表（口径与台账一致）">
       <Card>
         <Tabs
           defaultActiveKey="four"
           items={[
             { key: 'four', label: '四问看板', children: <FourQuestionsBoard /> },
             { key: 'monthly', label: '月度报表', children: <MonthlyTab /> },
+            { key: 'gross', label: '毛利分析', children: <GrossProfitTab /> },
             { key: 'inventory', label: '库存报表', children: <InventoryTab /> },
           ]}
         />
       </Card>
     </PageContainer>
+  );
+}
+
+// ───────────────────────── Tab3 毛利分析（C组 M10-2：收入×批次成本，四维） ─────────────────────────
+
+type GrossDimension = 'category' | 'customer' | 'rep' | 'product';
+
+function GrossProfitTab(): JSX.Element {
+  const { message } = AntApp.useApp();
+  const [month, setMonth] = useState<string>(recentMonths(1)[0]);
+  const [dimension, setDimension] = useState<GrossDimension>('category');
+  const [data, setData] = useState<GrossProfitDTO | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = useCallback(async (m: string, d: GrossDimension): Promise<void> => {
+    setLoading(true);
+    try {
+      setData(await reportsApi.grossProfit(m, d));
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '加载毛利分析失败');
+    } finally {
+      setLoading(false);
+    }
+  }, [message]);
+
+  useEffect(() => { void load(month, dimension); }, [load, month, dimension]);
+
+  const t = data?.totals;
+  const doExport = (): void => {
+    exportCsv(`毛利分析-${data?.dimension ?? dimension}-${month}`, [
+      ['维度项', '收入', '成本', '毛利', '毛利率(%)'],
+      ...(data?.rows ?? []).map((r) => [r.name, r.revenue, r.cost, r.profit, r.margin ?? '']),
+    ]);
+  };
+
+  return (
+    <div>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Select style={{ width: 120 }} value={month} onChange={setMonth} options={recentMonths(12).map((m) => ({ value: m, label: m }))} />
+        <Select
+          style={{ width: 130 }}
+          value={dimension}
+          onChange={(v) => setDimension(v as GrossDimension)}
+          options={[
+            { value: 'category', label: '按品类' },
+            { value: 'customer', label: '按客户' },
+            { value: 'rep', label: '按业务员' },
+            { value: 'product', label: '按单品' },
+          ]}
+        />
+        <Button onClick={doExport} disabled={!data?.rows?.length}>导出 CSV</Button>
+      </Space>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Statistic title="收入(实收口径)" value={fmtMoney(t?.revenue)} />
+        <Statistic title="销售成本" value={fmtMoney(t?.cost)} />
+        <Statistic title="毛利" value={fmtMoney(t?.profit)} valueStyle={{ color: (t?.profit ?? 0) >= 0 ? '#389e0d' : '#cf1322' }} />
+        <Statistic title="毛利率" value={t?.margin !== null && t?.margin !== undefined ? `${t.margin}%` : '—'} />
+        <Statistic title="签收订单" value={t?.orderCount ?? 0} />
+      </Space>
+      <Table<GrossProfitRowDTO>
+        rowKey="key"
+        size="small"
+        loading={loading}
+        dataSource={data?.rows ?? []}
+        pagination={{ pageSize: 50, showSizeChanger: false }}
+        locale={{ emptyText: `${month} 暂无签收数据` }}
+        columns={[
+          { title: data?.dimension === 'category' ? '品类' : data?.dimension === 'customer' ? '客户' : data?.dimension === 'rep' ? '业务员' : '单品', dataIndex: 'name' },
+          { title: '收入', dataIndex: 'revenue', width: 120, align: 'right' as const, render: (v: number) => fmtMoney(v) },
+          { title: '成本', dataIndex: 'cost', width: 120, align: 'right' as const, render: (v: number) => fmtMoney(v) },
+          {
+            title: '毛利', dataIndex: 'profit', width: 120, align: 'right' as const,
+            render: (v: number) => <span style={{ color: v >= 0 ? '#389e0d' : '#cf1322', fontWeight: 600 }}>{fmtMoney(v)}</span>,
+          },
+          { title: '毛利率', dataIndex: 'margin', width: 100, align: 'right' as const, render: (v: number | null) => (v === null ? '—' : `${v}%`) },
+        ]}
+      />
+      <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+        {data?.caliber}
+      </Typography.Paragraph>
+    </div>
   );
 }
 

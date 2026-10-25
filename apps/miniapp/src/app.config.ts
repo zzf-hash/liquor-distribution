@@ -14,7 +14,7 @@ export const CUSTOMER_PAGES = [
   'pages/customer/statements/index',
 ] as const
 
-// 业务员端页面（P1-T12/T13 + P1 全员端补齐 home/customers/order-create/payment-report/performance）
+// 业务员端页面（P1-T12/T13 + P1 全员端补齐 home/customers/order-create/payment-report/performance + B组瓶盖回收）
 export const SALESMAN_PAGES = [
   'pages/salesman/home/index',
   'pages/salesman/visit/index',
@@ -23,6 +23,7 @@ export const SALESMAN_PAGES = [
   'pages/salesman/order-create/index',
   'pages/salesman/payment-report/index',
   'pages/salesman/performance/index',
+  'pages/salesman/cap-recycle/index',
 ] as const
 
 // 内勤端页面（P1 全员端）：订单池/收款/应收

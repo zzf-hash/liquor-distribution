@@ -6,7 +6,7 @@ import {
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
   RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
   GiftOutlined, MoneyCollectOutlined, FileSyncOutlined, AudioOutlined,
-  AlertOutlined,
+  AlertOutlined, PayCircleOutlined,
 } from '@ant-design/icons';
 import { Button, Result } from 'antd';
 import type { ReactNode } from 'react';
@@ -23,6 +23,7 @@ import PackagesPage from './pages/packages/PackagesPage';
 import PurchasesPage from './pages/purchases/PurchasesPage';
 import StocktakesPage from './pages/stocktakes/StocktakesPage';
 import RebatesPage from './pages/rebates/RebatesPage';
+import ExpensesPage from './pages/expenses/ExpensesPage';
 import PayrollPage from './pages/payroll/PayrollPage';
 import MasterDataPage from './pages/master-data/MasterDataPage';
 import ReceivablesPage from './pages/receivables/ReceivablesPage';
@@ -51,6 +52,7 @@ const ICONS: Record<string, ReactNode> = {
   MoneyCollectOutlined: <MoneyCollectOutlined />,
   FileSyncOutlined: <FileSyncOutlined />,
   AudioOutlined: <AudioOutlined />,
+  PayCircleOutlined: <PayCircleOutlined />,
 };
 
 // 业务页面已实施的模块；/settings 仍为路由占位
@@ -65,6 +67,7 @@ const PAGE_BY_PATH: Record<string, JSX.Element> = {
   '/purchases': <PurchasesPage />,
   '/stocktakes': <StocktakesPage />,
   '/rebates': <RebatesPage />,
+  '/expenses': <ExpensesPage />,
   '/payroll': <PayrollPage />,
   '/master-data': <MasterDataPage />,
   '/receivables': <ReceivablesPage />,

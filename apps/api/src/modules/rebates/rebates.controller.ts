@@ -1,14 +1,21 @@
 import { Body, Controller, Get, Injectable, Module, Param, Post, Query } from '@nestjs/common';
-import { IsEnum, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsArray, IsEnum, IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { RebatesService } from './rebates.service';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
 
+class TierDto {
+  @IsNumber() minAmount!: number;
+  @IsNumber() rate!: number;
+}
+
 class CreateSchemeDto {
   @IsString() customerId!: string;
   @IsEnum(['B', 'C']) type!: 'B' | 'C';
   @IsNumber() rate!: number;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => TierDto) tiers?: TierDto[];
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsString() validTo?: string;
 }
@@ -16,7 +23,7 @@ class CreateSchemeDto {
 class SettleDto {
   @IsString() customerId!: string;
   @IsString() period!: string;
-  @IsEnum(['GOODS', 'INVOICE']) settleType!: 'GOODS' | 'INVOICE';
+  @IsEnum(['GOODS', 'INVOICE', 'CASH']) settleType!: 'GOODS' | 'INVOICE' | 'CASH';
   @IsOptional() @IsString() note?: string;
 }
 

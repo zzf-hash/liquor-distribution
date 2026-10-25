@@ -27,5 +27,9 @@ RUN rm -f node_modules/@liquor/shared
 COPY --from=build /app/packages/shared ./node_modules/@liquor/shared
 COPY --from=build /app/apps/api/dist ./dist
 COPY --from=build /app/apps/api/prisma ./prisma
+# main.ts 直接 import { json, urlencoded } from 'express'(非直接依赖, pnpm 严格模式不提升):
+# 从根 store 链一份到运行时 node_modules, 避免 MODULE_NOT_FOUND
+RUN EXPRESS_DIR=$(ls -d /app/node_modules/.pnpm/express@*/node_modules/express | head -1) && \
+    ln -sfn "$EXPRESS_DIR" /app/apps/api/node_modules/express
 EXPOSE 3000
 CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main.js"]

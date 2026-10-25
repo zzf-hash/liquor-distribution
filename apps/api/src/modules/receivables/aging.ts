@@ -59,19 +59,21 @@ export function agingBucketLabels(cfg: AgingConfig): Record<AgingBucket, string>
   };
 }
 
-/** B4 统一开账口径(与 ReceivablesService.arOpen 同式): settled/open 从流水投影 */
+/** B4 统一开账口径(与 ReceivablesService.arOpen 同式): settled/open 从流水投影
+ *  FEE_OFFSET(陈列/进店/开瓶费冲抵)与 WAIVE 同类: 核减 open 但不计回款口径 */
 export function arOpenOf(
   total: number,
   ledger: Array<{ direction: string; amount: unknown; paymentId: string | null }>,
 ): { settled: number; open: number } {
-  let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
+  let settled = 0; let reversalNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0; let feeOffset = 0;
   for (const l of ledger) {
     const amt = Number(l.amount);
     if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
     else if (l.direction === 'WAIVE') waived += amt;
     else if (l.direction === 'WRITEOFF') writtenOff += amt;
     else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
+    else if (l.direction === 'FEE_OFFSET') feeOffset += amt;
     else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else reversalNoPay += amt; }
   }
-  return { settled, open: Math.max(0, total - settled - waived - writtenOff - returnCredit - reversalNoPay) };
+  return { settled, open: Math.max(0, total - settled - waived - writtenOff - returnCredit - feeOffset - reversalNoPay) };
 }
