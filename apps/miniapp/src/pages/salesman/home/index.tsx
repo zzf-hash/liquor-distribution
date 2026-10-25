@@ -3,7 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
-import { LOGIN_PAGE, clearSession, fmtMoney, getToken, getUserId, getUserName, performanceApi } from '../../../services/api'
+import { LOGIN_PAGE, fmtMoney, getToken, getUserId, getUserName, performanceApi, signOut } from '../../../services/api'
 import type { PerfItemDTO } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
@@ -47,8 +47,7 @@ export default function SalesmanHomePage() {
   })
 
   function logout() {
-    clearSession()
-    Taro.reLaunch({ url: LOGIN_PAGE })
+    void signOut()
   }
 
   return (

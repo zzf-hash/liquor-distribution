@@ -28,17 +28,11 @@ export default defineConfig<'vite'>(async (merge) => {
       828: 1.81 / 2
     },
     sourceRoot: 'src',
-    // 客户包：weapp=dist（project.config.json 的 miniprogramRoot），h5=dist-h5。
-    // 员工包：dist-staff / dist-h5-staff，避免两次构建互相覆盖。
-    outputRoot: process.env.TARO_ENV === 'h5'
-      ? (process.env.TARO_APP_ROLE === 'staff' ? 'dist-h5-staff' : 'dist-h5')
-      : (process.env.TARO_APP_ROLE === 'staff' ? 'dist-staff' : 'dist'),
+    // 客户和员工同一个包。weapp=dist（project.config.json 的 miniprogramRoot），h5=dist-h5。
+    outputRoot: process.env.TARO_ENV === 'h5' ? 'dist-h5' : 'dist',
     plugins: [],
-    // 无论环境变量是否为空都写入。空值默认 customer。
-    // 漏写时 weapp 的 common.js 会留下 process.env，小程序没有 process，加载即 ReferenceError。
-    // 接口地址同样写成字面量，避免 common.js 里再剩一处 process.env。
+    // 接口地址写成字面量。漏写时 weapp 的 common.js 会留下 process.env，小程序没有 process，加载即白屏。
     defineConstants: {
-      'process.env.TARO_APP_ROLE': JSON.stringify((process.env.TARO_APP_ROLE || 'customer').trim() || 'customer'),
       'process.env.TARO_APP_API_BASE': JSON.stringify((process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api').trim() || 'http://127.0.0.1:3000/api'),
     },
     copy: {

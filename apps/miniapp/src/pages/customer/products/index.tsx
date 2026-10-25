@@ -1,20 +1,21 @@
 import { useEffect, useState } from 'react'
 import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import { APP_ROLE } from '../../../config/app-role'
 import Icon from '../../../components/Icon'
-import { loggedOutLoginPage } from '../../../services/package-login-gate'
+import RoleTabBar from '../../../components/RoleTabBar'
 import TabsScroll from '../../../components/TabsScroll'
 import {
   UNIT_LABELS,
   cartKeyOf,
   cartQty,
   fmtMoney,
+  LOGIN_PAGE,
   getToken,
   labelOf,
   loadCart,
   saveCart,
   shopApi,
+  signOut,
   toNum,
 } from '../../../services/api'
 import { redirectIfStaffOnCustomerPage } from '../../../services/customer-page-redirect'
@@ -37,7 +38,7 @@ export default function CustomerProductsPage() {
 
   useDidShow(() => {
     if (!getToken()) {
-      Taro.reLaunch({ url: loggedOutLoginPage(APP_ROLE) })
+      Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     if (redirectIfStaffOnCustomerPage('pages/customer/products/index')) return
@@ -107,6 +108,7 @@ export default function CustomerProductsPage() {
           <Text className='page-head__title'>选酒下单</Text>
           <Text className='page-head__sub'>价格为参考价，以商家确认为准</Text>
         </View>
+        <Text className='grid-home__out' onClick={() => { void signOut() }}>退出登录</Text>
       </View>
 
       <View className={`plist__search ${focus ? 'plist__search--focus' : ''}`}>
@@ -204,6 +206,7 @@ export default function CustomerProductsPage() {
           <Text className='btn-label'>去结算</Text>
         </Button>
       </View>
+      <RoleTabBar />
     </View>
   )
 }
