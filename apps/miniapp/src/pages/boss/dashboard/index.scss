@@ -8,23 +8,48 @@
 }
 
 // 欠款分档条：单条堆叠横条（flex=金额权重），下方图例行
+.dash__hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+
+  .card__title {
+    margin-bottom: 0;
+  }
+}
+
+.dash__links {
+  display: flex;
+  gap: $space-sm;
+  margin-top: $space-md;
+
+  .btn-primary,
+  .btn-ghost {
+    flex: 1;
+  }
+}
+
 .bar {
   display: flex;
-  height: 40px;
-  border-radius: 8px;
+  height: 20px;
+  gap: 4px;
+  margin: $space-md 0 $space-sm;
+  border-radius: $radius-pill;
   overflow: hidden;
-  background: rgba(138, 127, 122, 0.12);
+  background: transparent;
 }
 
 .bar__seg {
   min-width: 8px;
+  border-radius: $radius-pill;
 
-  &--info { background: $color-info; }
-  &--warn { background: rgba(138, 90, 0, 0.75); }
-  &--warn2 { background: $color-warn; }
-  &--danger2 { background: rgba(160, 34, 40, 0.7); }
-  &--danger { background: $color-danger; }
-  &--muted { background: $color-text-sub; }
+  &--not_due { background: $color-aging-not-due; }
+  &--b1 { background: $color-aging-d1-30; }
+  &--b2 { background: $color-aging-d31-50; }
+  &--b3 { background: $color-aging-d51-90; }
+  &--b4 { background: $color-aging-d90plus; }
+  &--disputed { background: $color-aging-dispute; }
 }
 
 .bar__legend {
@@ -44,12 +69,12 @@
   border-radius: 6px;
   flex-shrink: 0;
 
-  &--info { background: $color-info; }
-  &--warn { background: rgba(138, 90, 0, 0.75); }
-  &--warn2 { background: $color-warn; }
-  &--danger2 { background: rgba(160, 34, 40, 0.7); }
-  &--danger { background: $color-danger; }
-  &--muted { background: $color-text-sub; }
+  &--not_due { background: $color-aging-not-due; }
+  &--b1 { background: $color-aging-d1-30; }
+  &--b2 { background: $color-aging-d31-50; }
+  &--b3 { background: $color-aging-d51-90; }
+  &--b4 { background: $color-aging-d90plus; }
+  &--disputed { background: $color-aging-dispute; }
 }
 
 .bar__label {
@@ -72,7 +97,7 @@
   padding: 14px 0;
 
   & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
+    border-top: $border-width solid $color-neutral-line;
   }
 }
 
@@ -88,9 +113,9 @@
   border-radius: 50%;
   flex-shrink: 0;
 
-  &--top {
-    color: #fff;
-    background: $color-primary;
+  &--gold {
+    color: $color-brand-gold-text;
+    background: $color-brand-gold-light;
     font-weight: 700;
   }
 }
@@ -121,6 +146,8 @@
 
 .dash__stock {
   font-size: $font-sub;
-  color: $color-danger;
   font-weight: 600;
+
+  &--bad { color: $color-functional-danger-text; }
+  &--warn { color: $color-functional-warning-text; }
 }

@@ -1,32 +1,128 @@
-/**
- * 全局设计令牌（task d0974541, 计划书§2.1易用性红线）
- *
- * 触控规范：designWidth=750，样式里写 px（等于设计稿值）。
- * 44px 物理触控 = 88px（本工程计量），全部按钮/可点卡片必须 ≥ $touch-min。
- * 颜色/字号仅此一处定义，页面一律引用变量，禁止散落魔法值。
- */
+// 精炼酒红（方向 B）设计令牌 —— 由 tokens.json 生成，颜色只在此定义一处
+// 尺寸为 750 设计稿 px，Taro 会按 designWidth=750 自动换算
 
-// —— 触控与间距（红线：触控 ≥ 88px 计量值 = 44px 物理） ——
-$touch-min: 88px;          // 任何可点元素最小高度
-$gap-base: 24px;
-$gap-lg: 32px;
-$radius-base: 16px;
+// 颜色 · brand
+$color-brand-primary: #7A1F2B;
+$color-brand-primary-pressed: #5E1520;
+$color-brand-primary-light: #F5E9EB;
+$color-brand-primary-hero-end: #5E1520;
+$color-brand-gold: #C9A46A;
+$color-brand-gold-text: #7D5E2C;
+$color-brand-gold-light: #F7EFE2;
 
-// —— 主色（酒类深红） ——
-$color-primary: #8b1e24;
-$color-primary-pressed: #6f1418;
-$color-bg: #f7f5f2;
-$color-card: #ffffff;
-$color-text: #2b2422;
-$color-text-sub: #8a7f7a;
+// 颜色 · neutral
+$color-neutral-bg: #F7F4F1;
+$color-neutral-card: #FFFFFF;
+$color-neutral-fill: #F1ECE8;
+$color-neutral-text: #2B2422;
+$color-neutral-text-sub: #6B5F5A;
+$color-neutral-text-disabled: #B3A9A4;
+$color-neutral-line: #ECE6E1;
+$color-neutral-line-strong: #D9D0CA;
+$color-neutral-mask: rgba(43,36,34,0.55);
+$color-neutral-white: #FFFFFF;
+$color-on-brand: rgba(255, 255, 255, 0.8);
+$color-on-brand-fill: rgba(255, 255, 255, 0.12);
 
-// —— 字号（≥30px 计量 = 15px 物理，老年可读下限） ——
-$font-title: 40px;
-$font-body: 32px;
+// 颜色 · functional
+$color-functional-success: #2E7D32;
+$color-functional-success-text: #276A2B;
+$color-functional-success-light: #E8F3E9;
+$color-functional-warning: #B26A00;
+$color-functional-warning-text: #8A5300;
+$color-functional-warning-light: #FBF0E0;
+$color-functional-danger: #D93025;
+$color-functional-danger-text: #B3261E;
+$color-functional-danger-light: #FCEAE8;
+$color-functional-info: #3A6EA5;
+$color-functional-info-text: #3A6EA5;
+$color-functional-info-light: #E8EFF7;
+
+// 颜色 · aging
+$color-aging-not-due: #3A6EA5;
+$color-aging-d1-30: #B26A00;
+$color-aging-d31-50: #C98A2B;
+$color-aging-d51-90: #E57368;
+$color-aging-d90plus: #D93025;
+$color-aging-dispute: #6B5F5A;
+
+// 兼容旧变量名（迁移期保留，逐步替换）
+$color-primary: $color-brand-primary;
+$color-primary-pressed: $color-brand-primary-pressed;
+$color-bg: $color-neutral-bg;
+$color-card: $color-neutral-card;
+$color-text: $color-neutral-text;
+$color-text-sub: $color-neutral-text-sub;
+$color-ok: $color-functional-success;
+$color-warn: $color-functional-warning;
+$color-danger: $color-functional-danger;
+$color-info: $color-functional-info;
+
+$font-family: "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+$font-family-num: "DIN Alternate", "DIN", "Roboto Mono", monospace;
+$font-display: 48px;
+$font-h1: 44px;
+$font-h2: 34px;
+$font-nav: 34px;
+$font-body-lg: 32px;
+$font-body: 30px;
 $font-sub: 28px;
+$font-caption: 24px;
+$font-tabbar: 22px;
+$font-amount-lg: 48px;
+$font-amount: 36px;
+$weight-regular: 400;
+$weight-medium: 500;
+$weight-semibold: 600;
+$weight-bold: 700;
+$line-height-tight: 1.25;
+$line-height-base: 1.5;
+$line-height-loose: 1.7;
 
-// —— 语义色（P1 全员端：状态角标/看板分档，沿用 admin 语义 蓝进行/绿成功/橙警示/红风险/灰终态） ——
-$color-info: #2f6db5;
-$color-ok: #2e6b34;
-$color-warn: #8a5a00;
-$color-danger: #a02228;
+$space-xxs: 8px;
+$space-xs: 12px;
+$space-sm: 16px;
+$space-md: 24px;
+$space-lg: 32px;
+$space-xl: 40px;
+$space-xxl: 48px;
+$space-page: 32px;
+$radius-xs: 8px;
+$radius-sm: 20px;
+$radius-md: 28px;
+$radius-lg: 40px;
+$radius-pill: 999px;
+$shadow-card: 0 4px 16px rgba(80,30,30,0.06);
+$shadow-float: 0 8px 32px rgba(80,30,30,0.12);
+$shadow-none: none;
+$border-width: 2px;
+$border-hairline: 1px;
+$border-color: #ECE6E1;
+$border-focus: #7A1F2B;
+$border-entry-emphasis: 4px;
+$size-touch-min: 88px;
+$size-btn-lg: 88px;
+$size-btn-md: 72px;
+$size-btn-sm: 60px;
+$size-nav-bar: 88px;
+$size-tab-bar: 112px;
+$size-icon: 44px;
+$size-icon-sm: 36px;
+$size-icon-box: 96px;
+$size-tag: 44px;
+$size-chip: 60px;
+$size-input: 88px;
+$size-stepper: 60px;
+
+$font-title: $font-h1;
+$touch-min: $size-touch-min;
+$gap-base: $space-md;
+$gap-lg: $space-lg;
+$radius-base: $radius-md;
+
+// 常用混入
+@mixin num { font-family: $font-family-num; font-variant-numeric: tabular-nums; }
+@mixin card { background: $color-neutral-card; border-radius: $radius-md; box-shadow: $shadow-card; padding: $space-lg; }
+@mixin tag($fg, $bg) { display: inline-flex; align-items: center; height: $size-tag; padding: 0 $space-sm; border-radius: $radius-pill; font-size: $font-caption; font-weight: $weight-medium; color: $fg; background: $bg; }
+@mixin fade-right($bg: $color-neutral-bg) { position: relative; &::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 96px; pointer-events: none; background: linear-gradient(90deg, rgba(247,244,241,0), $bg); } }
+@mixin press { &:active { opacity: .85; } }

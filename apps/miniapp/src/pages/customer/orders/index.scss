@@ -63,28 +63,28 @@
 }
 
 .tag--info {
-  color: $color-primary;
-  background: rgba(139, 30, 36, 0.08);
+  color: $color-functional-info-text;
+  background: $color-functional-info-light;
 }
 
 .tag--warn {
-  color: #8a5a00;
-  background: rgba(138, 90, 0, 0.1);
+  color: $color-functional-warning-text;
+  background: $color-functional-warning-light;
 }
 
 .tag--ok {
-  color: #2e6b34;
-  background: rgba(46, 107, 52, 0.1);
+  color: $color-functional-success-text;
+  background: $color-functional-success-light;
 }
 
 .tag--danger {
-  color: #a02228;
-  background: rgba(160, 34, 40, 0.1);
+  color: $color-functional-danger-text;
+  background: $color-functional-danger-light;
 }
 
 .tag--muted {
   color: $color-text-sub;
-  background: rgba(138, 127, 122, 0.12);
+  background: $color-neutral-fill;
 }
 
 // 空态/错误态
@@ -109,10 +109,10 @@
   width: 100%;
   font-size: $font-body;
   font-weight: 600;
-  color: #fff;
+  color: $color-neutral-white;
   background: $color-primary;
   border: none;
-  border-radius: $radius-base;
+  border-radius: $radius-pill;
 
   &::after {
     border: none;

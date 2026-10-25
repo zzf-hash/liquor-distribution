@@ -3,6 +3,7 @@ import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import { readRouteQuery } from '../../../services/route-param'
 import {
   LOGIN_PAGE,
   fmtDate,
@@ -32,10 +33,8 @@ export default function WarehouseOutboundPage() {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
-    const pages = Taro.getCurrentPages()
-    const cur = pages[pages.length - 1]
-    const q = (cur as { options?: Record<string, string> })?.options ?? {}
-    const paramNo = decodeURIComponent(q.no ?? '')
+    const q = readRouteQuery()
+    const paramNo = q.no ?? ''
     if (paramNo && paramNo !== no) {
       setNo(paramNo)
       void load(paramNo)
@@ -66,7 +65,7 @@ export default function WarehouseOutboundPage() {
       title: `复核确认出库 ${ob.outboundNo}`,
       content: '确认按上述 FIFO 批次完成拣货并复核无误？出库后写入库存流水，不可撤销。',
       confirmText: '确认出库',
-      confirmColor: '#8b1e24',
+      confirmColor: '#7A1F2B',
       success: (res) => {
         if (res.confirm) void doConfirm()
       },

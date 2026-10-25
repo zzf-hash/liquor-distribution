@@ -156,9 +156,9 @@
 
 .signpad__canvas {
   width: 100%;
-  height: 300px;
+  height: 480px;
   background: $color-bg;
-  border: 1px dashed rgba(138, 127, 122, 0.4);
+  border: $border-width dashed $color-neutral-line-strong;
   border-radius: $radius-base;
   box-sizing: border-box;
 }

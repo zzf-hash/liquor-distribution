@@ -29,9 +29,11 @@
 }
 
 .od__total {
-  font-size: $font-title;
+  font-size: $font-amount-lg;
   font-weight: 700;
-  color: $color-primary;
+  color: $color-text;
+  font-family: $font-family-num;
+  font-variant-numeric: tabular-nums;
 }
 
 .od__cancel-reason {
@@ -60,7 +62,7 @@
   padding: 12px 0;
 
   & + & {
-    border-top: 1px solid rgba(138, 127, 122, 0.15);
+    border-top: $border-width solid $color-neutral-line;
   }
 
   &--reversal {

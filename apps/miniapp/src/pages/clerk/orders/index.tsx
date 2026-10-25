@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Text, View } from '@tarojs/components'
+import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
@@ -69,17 +69,20 @@ export default function ClerkOrdersPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
       </View>
 
-      <View className='tabs'>
-        {TABS.map((t) => (
-          <Button
-            key={t.key}
-            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
-            onClick={() => switchTab(t.key)}
-          >
-            {t.label}
-          </Button>
-        ))}
-      </View>
+      <ScrollView scrollX scrollWithAnimation scrollIntoView={`tab-${tab}`} className='tabs-scroll' showScrollbar={false}>
+        <View className='tabs'>
+          {TABS.map((t) => (
+            <Button
+              id={`tab-${t.key}`}
+              key={t.key}
+              className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
+              onClick={() => switchTab(t.key)}
+            >
+              {t.label}
+            </Button>
+          ))}
+        </View>
+      </ScrollView>
 
       {error ? (
         <View className='state'>
@@ -90,7 +93,10 @@ export default function ClerkOrdersPage() {
         <Text className='tip'>正在加载订单…</Text>
       ) : items.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>该状态下暂无订单</Text>
+          <Text className='state__title'>这个状态下没有订单</Text>
+          <Text className='state__txt'>
+            {TABS.find((t) => t.key === tab)?.label ?? '当前'}的订单会显示在这里
+          </Text>
         </View>
       ) : (
         items.map((o) => (

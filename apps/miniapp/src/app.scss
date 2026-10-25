@@ -1,0 +1,7 @@
+@use './styles/tokens' as *;
+
+page {
+  background: $color-neutral-bg;
+  color: $color-neutral-text;
+  font-family: $font-family;
+}

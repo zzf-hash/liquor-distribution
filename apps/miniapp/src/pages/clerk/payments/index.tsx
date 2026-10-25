@@ -99,7 +99,7 @@ export default function ClerkPaymentsPage() {
       title: `确认销账 ${p.paymentNo}`,
       content: `${p.customer?.name ?? ''} ${fmtMoney(p.amount)}（${p.method ?? '未填方式'}）。确认后按先到期先结逐单核销，不可撤销。`,
       confirmText: '确认销账',
-      confirmColor: '#8b1e24',
+      confirmColor: '#7A1F2B',
       success: (res) => {
         if (!res.confirm) return
         void doConfirm(p.id)

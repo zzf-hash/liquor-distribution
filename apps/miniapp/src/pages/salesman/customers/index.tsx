@@ -84,7 +84,7 @@ export default function SalesmanCustomersPage() {
           <View key={c.id} className='card ccard' onClick={() => call(c.phone)}>
             <View className='ccard__row'>
               <Text className='ccard__name'>{c.name}</Text>
-              <Text className='ccard__call'>📞 拨号</Text>
+              <Text className='ccard__call'>拨号</Text>
             </View>
             <View className='ccard__row'>
               <Text className='ccard__meta'>

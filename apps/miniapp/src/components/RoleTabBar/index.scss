@@ -1,5 +1,7 @@
+@use '../../styles/tokens' as *;
+
 .role-tab__spacer {
-  height: 56px;
+  height: $size-tab-bar;
 }
 
 .role-tab__bar {
@@ -9,9 +11,9 @@
   bottom: 0;
   z-index: 20;
   display: flex;
-  height: 56px;
-  background: #ffffff;
-  border-top: 1px solid #eee;
+  height: $size-tab-bar;
+  background: $color-card;
+  border-top: $border-width solid $color-neutral-line;
   padding-bottom: env(safe-area-inset-bottom);
   box-sizing: content-box;
 }
@@ -19,16 +21,19 @@
 .role-tab__item {
   flex: 1;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 4px;
 }
 
 .role-tab__text {
-  font-size: 13px;
-  color: #8a7f7a;
+  font-size: $font-tabbar;
+  color: $color-text-sub;
+  line-height: 1.2;
 }
 
 .role-tab__item--on .role-tab__text {
-  color: #8b1e24;
-  font-weight: 600;
+  color: $color-primary;
+  font-weight: $weight-semibold;
 }

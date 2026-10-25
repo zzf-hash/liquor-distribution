@@ -1,188 +1,113 @@
-@use '../../../styles/tokens' as *;
+@use '../../../styles/shared' as *;
 
 .plist {
   min-height: 100vh;
   background: $color-bg;
-  padding: $gap-base;
+  padding: $space-page;
+  padding-bottom: 180px;
   box-sizing: border-box;
 }
 
-// 顶部：搜索框 + 购物车入口（都守 $touch-min 触控红线）
-.plist__bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: $gap-base;
-  margin-bottom: $gap-base;
-}
-
 .plist__search {
-  flex: 1;
-  min-height: $touch-min;
-  padding: 0 32px;
-  font-size: $font-body;
-  color: $color-text;
-  background: $color-card;
-  border-radius: $radius-base;
-}
-
-.bar-btn {
   display: flex;
   align-items: center;
-  justify-content: center;
-  min-width: 200px;
-  min-height: $touch-min;
-  padding: 0 24px;
-  font-size: $font-sub;
-  color: $color-primary;
+  gap: $space-xs;
+  min-height: $size-input;
+  margin-bottom: $space-md;
+  padding: 0 $space-lg;
   background: $color-card;
-  border: none;
-  border-radius: $radius-base;
-  line-height: 1.2;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
 
-  &::after {
-    border: none;
+  &--focus {
+    border-color: $border-focus;
+    box-shadow: 0 0 0 6px $color-brand-primary-light;
   }
+}
 
-  &:active {
-    background: $color-primary-pressed;
-    color: #fff;
-  }
+.plist__input {
+  flex: 1;
+  min-height: $size-input;
+  font-size: $font-body;
+  color: $color-text;
+  background: transparent;
 }
 
 .plist__body {
   display: flex;
   flex-direction: column;
-  gap: $gap-base;
+  gap: $space-lg;
 }
 
-.plist__tip {
-  display: block;
-  padding: 16px 8px;
-  font-size: $font-sub;
-  color: $color-text-sub;
-  text-align: center;
-}
-
-// 商品卡
 .pcard {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: $gap-base;
+  gap: $space-md;
+  padding: $space-lg;
   background: $color-card;
-  border-radius: $radius-base;
+  border-radius: $radius-md;
+  box-shadow: $shadow-card;
+}
+
+.pcard__pic {
+  width: 128px;
+  height: 144px;
+  border-radius: $radius-sm;
+  background: $color-neutral-bg;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .pcard__info {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
 }
 
 .pcard__name {
-  font-size: $font-body;
-  font-weight: 600;
+  display: block;
+  font-size: $font-body-lg;
+  font-weight: $weight-semibold;
   color: $color-text;
 }
 
 .pcard__spec {
-  margin-top: 8px;
-  font-size: $font-sub;
+  display: block;
+  margin-top: $space-xxs;
+  font-size: 26px;
   color: $color-text-sub;
+}
+
+.pcard__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  margin-top: $space-sm;
 }
 
 .pcard__price {
-  margin-top: 12px;
-  font-size: $font-title;
-  font-weight: 700;
-  color: $color-primary;
+  font-size: $font-amount;
+  font-weight: $weight-bold;
+  color: $color-text;
+  @include num;
 }
 
-.pcard__ptype {
-  margin-left: 8px;
-  font-size: $font-sub;
-  font-weight: 400;
+.pcard__unit {
+  font-size: $font-caption;
+  font-weight: $weight-regular;
   color: $color-text-sub;
 }
 
-// 步进器：按钮 88px 见方（触控红线），数值不小于正文字号
-.stepper {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: $gap-base;
+.pcard__add {
+  min-width: 120px;
 }
 
-.stepper__btn {
-  width: $touch-min;
-  height: $touch-min;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: $font-title;
-  line-height: 1;
-  color: $color-text;
-  background: $color-bg;
-  border: none;
-  border-radius: $radius-base;
-  padding: 0;
-
-  &::after {
-    border: none;
-  }
-}
-
-.stepper__btn--plus {
-  color: #fff;
-  background: $color-primary;
-
-  &:active {
-    background: $color-primary-pressed;
-  }
-}
-
-.stepper__num {
-  min-width: 56px;
-  text-align: center;
-  font-size: $font-body;
-  font-weight: 600;
-  color: $color-text;
-}
-
-// 空态/错误态
-.state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: $gap-base;
-  padding: 96px $gap-base;
-}
-
-.state__txt {
-  font-size: $font-body;
-  color: $color-text-sub;
-  text-align: center;
-}
-
-.btn-primary {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: $touch-min;
-  width: 100%;
-  font-size: $font-body;
-  font-weight: 600;
-  color: #fff;
-  background: $color-primary;
-  border: none;
-  border-radius: $radius-base;
-
-  &::after {
-    border: none;
-  }
-
-  &:active {
-    background: $color-primary-pressed;
-  }
+.plist .settle {
+  position: fixed;
+  left: $space-page;
+  right: $space-page;
+  bottom: calc(#{$space-sm} + env(safe-area-inset-bottom));
 }

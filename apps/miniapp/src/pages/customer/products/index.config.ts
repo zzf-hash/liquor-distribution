@@ -1,3 +1,3 @@
 export default definePageConfig({
-  navigationBarTitleText: '选酒下单',
+  navigationBarTitleText: '订货',
 })

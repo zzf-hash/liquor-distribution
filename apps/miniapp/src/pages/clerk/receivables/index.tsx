@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Text, View } from '@tarojs/components'
+import { Button, ScrollView, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
@@ -37,11 +37,11 @@ function tabsOf(_labels: Record<ArBucket, string>): Array<{ key: string; label: 
   ]
 }
 
-function tabLabel(labels: Record<ArBucket, string>, key: string): string {
+function displayBucket(labels: Record<ArBucket, string>, key: string): string {
   if (!key) return '全部'
-  if (key === 'disputed') return '争议'
-  const text = labels[key as ArBucket] ?? key
-  return text.replace('逾期', '')
+  if (key === 'disputed') return '争议款'
+  const raw = labels[key as ArBucket] ?? key
+  return raw.replace(/^逾期(?=\d)/, '逾期 ').replace(/天/, ' 天').replace(/\s+/g, ' ').trim()
 }
 
 /**
@@ -106,17 +106,20 @@ export default function ClerkReceivablesPage() {
         <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
       </View>
 
-      <View className='tabs'>
-        {tabs.map((t) => (
-          <Button
-            key={t.key || 'all'}
-            className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
-            onClick={() => switchTab(t.key)}
-          >
-            {t.label}
-          </Button>
-        ))}
-      </View>
+      <ScrollView scrollX scrollWithAnimation scrollIntoView={`ar-${tab || 'all'}`} className='tabs-scroll' showScrollbar={false}>
+        <View className='tabs'>
+          {tabs.map((t) => (
+            <Button
+              id={`ar-${t.key || 'all'}`}
+              key={t.key || 'all'}
+              className={`tabs__btn ${tab === t.key ? 'tabs__btn--on' : ''}`}
+              onClick={() => switchTab(t.key)}
+            >
+              {displayBucket(bucketLabels, t.key)}
+            </Button>
+          ))}
+        </View>
+      </ScrollView>
 
       {error ? (
         <View className='state'>
@@ -128,9 +131,11 @@ export default function ClerkReceivablesPage() {
       ) : (
         <>
           <View className='card'>
-            <Text className='card__title'>
-              未结合计（{tabLabel(bucketLabels, tab)}） {openTotal === null ? '—' : fmtMoney(openTotal)} · 共 {total} 单
+            <Text className='card__title'>未结合计 · {displayBucket(bucketLabels, tab)}</Text>
+            <Text className={`num num--lg ${tab && tab !== 'not_due' && tab !== 'disputed' ? 'num--danger' : ''}`}>
+              {openTotal === null ? '—' : fmtMoney(openTotal)}
             </Text>
+            <Text className='ar__note'>共 {total} 单</Text>
             <Text className='ar__note'>合计是筛选后的全部未结，不是本页相加。第 {page}/{pageCount} 页，本页 {items.length} 单。</Text>
             <Text className='ar__note'>按到期先后排序，收款按「先到期先结」核销</Text>
           </View>
@@ -143,7 +148,7 @@ export default function ClerkReceivablesPage() {
               <View key={r.id} className='card arcard'>
                 <View className='arcard__row'>
                   <Text className='arcard__doc'>{r.sourceDocNo}</Text>
-                  <Text className='arcard__open'>未结 {fmtMoney(r.open)}</Text>
+                  <Text className={`arcard__open num ${r.daysOverdue > 0 ? 'num--danger' : ''}`}>未结 {fmtMoney(r.open)}</Text>
                 </View>
                 <View className='arcard__row'>
                   <Text className='arcard__cust'>{r.customerName}</Text>
