@@ -321,7 +321,7 @@ export default function WarehouseSignPage() {
 
   if (error) {
     return (
-      <View className='page'>
+      <View className='page sign-page'>
         <View className='state'>
           <Text className='state__txt'>{error}</Text>
           <Button className='btn-primary' onClick={() => Taro.navigateBack()}>返回</Button>
@@ -331,14 +331,14 @@ export default function WarehouseSignPage() {
   }
   if (loading || !order) {
     return (
-      <View className='page'>
+      <View className='page sign-page'>
         <Text className='tip'>正在加载订单…</Text>
       </View>
     )
   }
 
   return (
-    <View className='page'>
+    <View className='page sign-page'>
       <View className='topbar'>
         <Text className='topbar__title'>签收 {order.orderNo || orderNo}</Text>
       </View>
@@ -393,7 +393,7 @@ export default function WarehouseSignPage() {
           </View>
         </Picker>
         <View className='frow'>
-          <Text className='frow__label'>签收人</Text>
+          <Text className='frow__label frow__label--field'>签收人</Text>
           <Input
             className='sign__ipt'
             placeholder='客户签收人姓名'

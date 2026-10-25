@@ -536,8 +536,16 @@ taro-button-core.tabs__btn {
 }
 
 taro-button-core.mini-grid__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
   width: 100%;
   max-width: 100%;
+  height: auto;
+  padding: 0;
+  overflow: visible;
+  line-height: 1.2;
 }
 
 taro-button-core.task-card {
@@ -886,10 +894,14 @@ taro-button-core.task-card {
   &::after { border: none; }
 
   .tile__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: $size-icon-box;
     height: $size-icon-box;
     margin: 0;
     flex-shrink: 0;
+    overflow: visible;
   }
 }
 
