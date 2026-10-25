@@ -33,11 +33,11 @@ export class PromotionsController {
 
   @Get()
   @Roles('OWNER', 'CLERK', 'REP', 'WAREHOUSE', 'CUSTOMER')
-  async list(@Query('active') active?: string): Promise<unknown> {
+  async list(@CurrentUser() user: AuthUser, @Query('active') active?: string): Promise<unknown> {
     const now = new Date();
     const where = active === '1'
-      ? { closedAt: null, validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] }
-      : undefined;
+      ? { tenantId: user.tenantId, closedAt: null, validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] }
+      : { tenantId: user.tenantId };
     const rows = await this.prisma.promotion.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -77,7 +77,7 @@ export class PromotionsController {
   @Post(':id/close')
   @Roles('OWNER', 'CLERK')
   async close(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: ReasonDto): Promise<unknown> {
-    const claimed = await this.prisma.promotion.updateMany({ where: { id, closedAt: null }, data: { closedAt: new Date(), note: dto.reason } });
+    const claimed = await this.prisma.promotion.updateMany({ where: { id, tenantId: user.tenantId, closedAt: null }, data: { closedAt: new Date(), note: dto.reason } });
     if (claimed.count === 0) throw new NotFoundException('规则不存在或已关闭');
     await this.audit.log({ user, action: 'PROMOTION_CLOSE', entityType: 'Promotion', entityId: id, after: { reason: dto.reason } });
     return { id, closed: true };

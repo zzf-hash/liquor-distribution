@@ -82,9 +82,12 @@ export class AuditService {
 
   /** 哈希链校验: 重放全链验证 rowHash 连续性(每日对账 job / 人工核查用) */
   async verifyChain(tenantId: string): Promise<{ ok: boolean; brokenAt?: string }> {
-    const rows = await rawClient.auditLog.findMany({
-      where: { tenantId },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    const rows = await rawClient.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      return tx.auditLog.findMany({
+        where: { tenantId },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      });
     });
     let prev = 'GENESIS';
     for (const r of rows) {
@@ -99,6 +102,8 @@ export class AuditService {
     const { Prisma } = await import('@prisma/client');
     await rawClient.$transaction(
       async (tx) => {
+        // rawClient 不走扩展层, 这里自行把租户放进本事务, 否则 FORCE RLS 下非超级用户插不进 AuditLog。
+        await tx.$queryRaw`SELECT set_config('app.tenant_id', ${entry.user.tenantId}, true)`;
         // 链尾加锁, 防并发分叉 (FOR UPDATE)
         // 列名必须与 schema 一致: 本仓 Prisma 用 camelCase 映射且不设 @map,
         // PG 物理列是 "rowHash"/"tenantId"/"createdAt"(与 0_init 迁移一致)。

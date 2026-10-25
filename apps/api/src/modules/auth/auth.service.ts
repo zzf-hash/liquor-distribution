@@ -1,8 +1,9 @@
-import { HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService, AuditAction } from '../../audit/audit.service';
+import { rlsBypassContext, tenantContext } from '../../prisma/tenant-context';
 
 export interface LoginResult {
   token: string;
@@ -35,14 +36,18 @@ export class AuthService {
     private readonly audit: AuditService,
   ) {}
 
-  async login(username: string, password: string, ip?: string): Promise<LoginResult> {
-    const limitKey = `${ip ?? '-'}|${username}`;
+  async login(username: string, password: string, ip?: string, tenantCode?: string): Promise<LoginResult> {
+    const code = tenantCode?.trim() || undefined;
+    const limitKey = `${ip ?? '-'}|${code ?? '-'}|${username}`;
     pruneLoginFails();
     const hits = loginFails.get(limitKey);
     if (hits && hits.count >= LOGIN_MAX_FAILS && Date.now() - hits.firstAt < LOGIN_WINDOW_MS) {
       throw new HttpException('登录尝试次数过多, 请 15 分钟后再试', HttpStatus.TOO_MANY_REQUESTS);
     }
-    const user = await this.prisma.user.findFirst({ where: { username } });
+    // 唯一约束是 (tenantId, username), 不能用不带排序的 findFirst: 同名账号会互相遮挡。
+    // 带租户编码 → tenantId_username。不带编码时仅当用户名全局唯一才放行(旧客户端兼容);
+    // 多个租户撞名则要求补编码, 不猜其中一个。
+    const user = await this.findLoginUser(username, code);
     const fail = async (): Promise<never> => {
       const cur = loginFails.get(limitKey);
       if (!cur || Date.now() - cur.firstAt >= LOGIN_WINDOW_MS) loginFails.set(limitKey, { count: 1, firstAt: Date.now() });
@@ -73,6 +78,22 @@ export class AuthService {
       token,
       user: { id: user.id, username: user.username, name: user.name, role: user.role, dataScope: user.dataScope },
     };
+  }
+
+  private async findLoginUser(username: string, tenantCode?: string) {
+    if (tenantCode) {
+      const tenant = await this.prisma.tenant.findUnique({ where: { code: tenantCode } });
+      if (!tenant) return null;
+      // 回调必须是 async: Prisma 查询是惰性的, 同步 return 出去后 ALS 已退出, 扩展层读不到租户。
+      return tenantContext.run({ tenantId: tenant.id }, async () => this.prisma.user.findUnique({
+        where: { tenantId_username: { tenantId: tenant.id, username } },
+      }));
+    }
+    // 跨租户数用户名: 此时还没有租户, 必须显式 bypass, 否则 FORCE RLS 下非超级用户读不到 User。
+    const matches = await rlsBypassContext.run(true, async () => this.prisma.user.findMany({ where: { username } }));
+    if (matches.length === 1) return matches[0];
+    if (matches.length === 0) return null;
+    throw new BadRequestException('该用户名存在于多个租户, 请填写租户编码');
   }
 
   /** B1: 吊销该用户全部令牌(登出/禁用/改密/改角色时调用) */

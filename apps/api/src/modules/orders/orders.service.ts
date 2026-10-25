@@ -216,6 +216,7 @@ export class OrdersService {
     // C组 M3-1 随单赠(买N送M): 规则命中的行自动追加 0 价赠品行(计入库存预检, 不占信用)
     const promoRules = await this.prisma.promotion.findMany({
       where: {
+        tenantId: user.tenantId,
         productId: { in: productIds }, closedAt: null, validFrom: { lte: new Date() },
         OR: [{ validTo: null }, { validTo: { gte: new Date() } }],
       },

@@ -1,14 +1,25 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Injectable, OnModuleDestroy, OnModuleInit, ForbiddenException } from '@nestjs/common';
 import { PrismaClient, Prisma } from '@prisma/client';
-import { tenantContext } from './tenant-context';
+import { tenantContext, rlsBypassContext } from './tenant-context';
+import { TENANT_MODELS } from './tenant-models';
+
+export { TENANT_MODELS } from './tenant-models';
 
 // ── 安全基线执行层 (docs/M0/安全评审-01.md) ──────────────────────────────
 // B2/B3/B4 append-only 与写一次模型: 应用层禁 update/delete(裸 SQL 由 DB 层
 //    REVOKE + RLS 兜底, 见 prisma/migrations/0_init/migration.sql 末尾)
 // B5 租户强制注入: 业务表查询自动补 where.tenantId, 写入自动补 data.tenantId
-//    (忘写 where 也不会跨租户泄漏; PostgreSQL RLS 为第二层防线)
+//    (忘写 where 也不会跨租户泄漏; PostgreSQL RLS 为第二层防线, 20261025000000_enable_rls 启用)
 // 实现注: Prisma6 已移除 $use 中间件, 用 $extends + 接口合并注入 Nest:
 //    构造器返回扩展客户端实例, interface PrismaService extends typeof 合并类型。
+//
+// RLS 接线(事务局部, 不把租户留在连接池上):
+//   有租户上下文时, 每条语句所在事务先 SELECT set_config('app.tenant_id', id, true)。
+//   显式 rlsBypassContext 时再 set_config('app.rls_bypass','on', true)——只给登录前的
+//   用户名探测和 seed。DailyTasksTimer / 库存日切先读无策略的 Tenant, 再
+//   tenantContext.run 逐租户执行, 走 app.tenant_id, 不开 bypass。
+//   单条查询包进交互事务; 已有的 $transaction(回调或批量)在入口处设置, 避免拆掉原子性。
 
 const APPEND_ONLY_MODELS = new Set<string>([
   'AuditLog', // B2
@@ -24,22 +35,6 @@ const APPEND_ONLY_MODELS = new Set<string>([
 const WRITE_ONCE_MODELS = new Set<string>([
   'OrderLine', // B3: 只允许 create(红字冲销走新行), 禁一切 update/delete
   'ReturnLine', // R4: 退货数量只增——行 append-only, 增量走追加行
-]);
-
-// B5: 带 tenantId 的业务模型(查询/写入强制注入)。
-// 2026-10 安全审查: 清单曾漏一半模型, 导致 statements/rebates/visits/special-orders/
-// purchases/stocktakes/drafts 等查询跨租户泄漏——清单必须与 schema 全量对齐。
-// 生成方式: 取 prisma/schema.prisma 中所有带 tenantId 字段的模型(Tenant 自身除外)。
-const TENANT_MODELS = new Set<string>([
-  'User', 'Product', 'Price', 'CustomerPrice', 'Customer', 'BatchStock',
-  'InventoryLedger', 'SalesOrder', 'OrderLine', 'ApprovalRecord', 'Outbound',
-  'OutboundLine', 'SignatureRecord', 'Receivable', 'Payment', 'ReceivableLedger',
-  'SpecialOrder', 'SpecialOrderLine', 'ReturnOrder', 'ReturnLine',
-  'PriceChangeRequest', 'PackageRecord', 'PurchaseOrder', 'PurchaseLine',
-  'Stocktake', 'StocktakeLine', 'RebateScheme', 'RebateSettlement', 'Payroll',
-  'Statement', 'DisputeItem', 'Visit', 'OrderDraft', 'AliasEntry',
-  'AuditLog', 'ImportBatch', 'ImportRowError', 'IdempotencyRecord', 'SystemConfig',
-  'DailyStockReport', 'RestockRequest',
 ]);
 
 // 接受 where 的动作统一注入(含 findUnique 系——此前豁免是跨租户 IDOR 根源:
@@ -85,22 +80,107 @@ function applyGuards(params: Record<string, unknown>, ctx: Ctx): Record<string, 
   return params;
 }
 
-const extendedClient = new PrismaClient().$extends({
+// 已经处在「我们包过的」RLS 事务里, 内层查询不要再套一层(否则批量事务被拆开)。
+const inRlsTx = new AsyncLocalStorage<true>();
+
+type RlsQueryParams = {
+  model?: string;
+  operation: string;
+  args: any;
+  query: (args: any) => Prisma.PrismaPromise<unknown>;
+  __internalParams?: { transaction?: { kind?: string } };
+};
+
+type TxClient = Prisma.TransactionClient;
+
+function needsRlsGuc(): boolean {
+  return Boolean(tenantContext.getStore()?.tenantId || rlsBypassContext.getStore());
+}
+
+async function applyRlsGuc(tx: TxClient): Promise<void> {
+  const tenantId = tenantContext.getStore()?.tenantId;
+  // is_local=true: 只活在当前事务, 连接归还池子后不会把租户带给下一个请求。
+  if (tenantId) await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+  if (rlsBypassContext.getStore()) await tx.$queryRaw`SELECT set_config('app.rls_bypass', 'on', true)`;
+}
+
+function delegateKey(model: string): string {
+  return model.charAt(0).toLowerCase() + model.slice(1);
+}
+
+const baseClient = new PrismaClient();
+
+// 先声明, $extends 回调在首次查询时才读到赋值后的原方法。
+// auth-guards 单测把 PrismaClient mock 成没有 $transaction 的桩, 这里不能无条件 bind。
+let originalTransaction: PrismaClient['$transaction'] = (typeof baseClient.$transaction === 'function'
+  ? baseClient.$transaction.bind(baseClient)
+  : async () => {
+      throw new Error('Prisma $transaction unavailable');
+    }) as PrismaClient['$transaction'];
+
+const extendedClient = baseClient.$extends({
   name: 'security-baseline',
   query: {
     $allModels: {
-      async $allOperations({ model, operation, args, query }) {
+      async $allOperations(params: RlsQueryParams) {
+        const { model, operation, query } = params;
+        const args = params.args ?? {};
         // Prisma6: applyGuards 原地改 args 后把 args 原样传回 query()。
         // 不能把 {model,action,args} 整个回传——model/action 会被当作未知参数报
         // PrismaClientValidationError (Unknown argument `model`)
-        applyGuards({ model, action: operation, args: args ?? {} }, tenantContext.getStore());
-        return query(args as never);
+        applyGuards({ model, action: operation, args }, tenantContext.getStore());
+        const txKind = params.__internalParams?.transaction?.kind;
+        const insidePrismaTx = txKind === 'batch' || txKind === 'itx';
+        if (!model || !needsRlsGuc() || inRlsTx.getStore() || insidePrismaTx) {
+          return query(args);
+        }
+        // 单条查询: 包进交互事务, 先设 GUC 再在同一连接上执行。
+        return inRlsTx.run(true, () => originalTransaction(async (tx) => {
+          await applyRlsGuc(tx);
+          const key = delegateKey(model);
+          const delegate = (tx as unknown as Record<string, Record<string, (a: unknown) => Promise<unknown>>>)[key];
+          if (!delegate || typeof delegate[operation] !== 'function') {
+            throw new Error(`RLS 事务包装找不到 ${model}.${operation}`);
+          }
+          return delegate[operation](args);
+        }));
       },
     },
   },
 });
 
 type ExtendedClient = typeof extendedClient;
+
+function installRlsTransaction(client: ExtendedClient): void {
+  const current = (client as unknown as { $transaction?: PrismaClient['$transaction'] }).$transaction;
+  if (typeof current !== 'function') return;
+  originalTransaction = current.bind(client) as PrismaClient['$transaction'];
+  const patched = ((arg: unknown, opts?: unknown) => {
+    if (!needsRlsGuc() || inRlsTx.getStore()) {
+      return (originalTransaction as (a: unknown, o?: unknown) => Promise<unknown>)(arg, opts);
+    }
+    if (typeof arg === 'function') {
+      return originalTransaction(async (tx) => {
+        await applyRlsGuc(tx);
+        return inRlsTx.run(true, () => (arg as (tx: TxClient) => Promise<unknown>)(tx));
+      }, opts as never);
+    }
+    if (Array.isArray(arg)) {
+      const tenantId = tenantContext.getStore()?.tenantId;
+      const prefix: Prisma.PrismaPromise<unknown>[] = [];
+      if (tenantId) prefix.push(client.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+      if (rlsBypassContext.getStore()) prefix.push(client.$queryRaw`SELECT set_config('app.rls_bypass', 'on', true)`);
+      return inRlsTx.run(true, async () => {
+        const result = await (originalTransaction as (queries: unknown[], o?: unknown) => Promise<unknown[]>)([...prefix, ...arg], opts);
+        return result.slice(prefix.length);
+      });
+    }
+    return (originalTransaction as (a: unknown, o?: unknown) => Promise<unknown>)(arg, opts);
+  }) as PrismaClient['$transaction'];
+  Object.defineProperty(client, '$transaction', { value: patched, writable: true, configurable: true });
+}
+
+installRlsTransaction(extendedClient);
 
 // 接口合并: 类 + 接口同名, 消费方拿到完整扩展客户端类型
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -129,7 +209,7 @@ export class PrismaService implements OnModuleInit, OnModuleDestroy {
   }
 }
 
-// 审计专用原始访问(哈希链 FOR UPDATE 查询, 不经扩展层)
+// 审计专用原始访问(哈希链 FOR UPDATE 查询, 不经扩展层; 调用方在事务内自行 set_config)
 export const rawClient = new PrismaClient();
 
 export type { Prisma };

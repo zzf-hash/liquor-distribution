@@ -7,7 +7,17 @@
 //   ④ 已签收订单(今日销售看板) + 待确认订单(审单演示) + 待确认收款(F9②演示)
 //   ⑤ 返利方案(3%, 落在 1%-50% 新口径) + 拜访记录 + 语音转单草稿(qwen 解析结果)
 const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
+
+function seedUrl(url) {
+  if (!url) return url;
+  if (/[?&]connection_limit=/.test(url)) return url;
+  // 会话级 bypass 必须钉在同一条连接上, 否则下一条查询换连接后策略又把它挡住。
+  return `${url}${url.includes('?') ? '&' : '?'}connection_limit=1`;
+}
+
+const prisma = process.env.DATABASE_URL
+  ? new PrismaClient({ datasources: { db: { url: seedUrl(process.env.DATABASE_URL) } } })
+  : new PrismaClient();
 
 const DAY = 24 * 3600 * 1000;
 const now = new Date();
@@ -15,6 +25,8 @@ const dayOffset = (n) => new Date(now.getTime() + n * DAY);
 const dateOnly = (d) => new Date(`${d}T10:00:00.000Z`);
 
 async function main() {
+  // 种子没有租户上下文。is_local=false 只对本进程这一条连接有效, 进程结束即断开。
+  await prisma.$queryRawUnsafe(`SELECT set_config('app.rls_bypass', 'on', false)`);
   const tenant = await prisma.tenant.findUnique({ where: { code: 'TENANT-DEMO' } });
   if (!tenant) throw new Error('先跑 pnpm seed (缺 TENANT-DEMO)');
   const T = tenant.id;

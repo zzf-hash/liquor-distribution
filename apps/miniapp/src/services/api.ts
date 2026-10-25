@@ -201,8 +201,11 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 // ───────────────────────── 登录（P0 账密演示，正式微信登录后续版本） ─────────────────────────
 
 export const authApi = {
-  login: (username: string, password: string) =>
-    request<LoginResult>('/auth/login', { method: 'POST', body: { username, password } }),
+  login: (username: string, password: string, tenantCode?: string) =>
+    request<LoginResult>('/auth/login', {
+      method: 'POST',
+      body: { username, password, ...(tenantCode?.trim() ? { tenantCode: tenantCode.trim() } : {}) },
+    }),
 }
 
 // ───────────────────────── 商品（GET /shop/products，专属价已解析） ─────────────────────────
