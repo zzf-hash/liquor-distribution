@@ -3,7 +3,7 @@
  * 应用连接沿用超级用户(与官方 postgres 镜像的 POSTGRES_USER 一致), RLS 对它不生效;
  * 行级策略用 SET ROLE 到非超级用户 liquor_rls_probe 验证。
  */
-import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, HttpException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
@@ -319,17 +319,46 @@ describe('租户隔离 / RLS / 登录', () => {
     expect(audits.length).toBeGreaterThan(0);
   });
 
-  it('口令错误不暴露禁用; 口令正确才回账号已禁用, 失败审计不写空 userId', async () => {
-    await expect(auth.login(`disabled-${nonce}`, 'password-wrong', '10.2.0.1', tenantA.code)).rejects.toThrow('用户名或密码错误');
-    await expect(auth.login(`disabled-${nonce}`, 'password-d', '10.2.0.2', tenantA.code)).rejects.toThrow('账号已禁用');
+  it('禁用账号无论口令对错响应都相同, 失败审计不写空 userId', async () => {
+    const capture = async (password: string, ip: string) => {
+      try {
+        await auth.login(`disabled-${nonce}`, password, ip, tenantA.code);
+        throw new Error('登录应当失败');
+      } catch (e) {
+        return e;
+      }
+    };
+    const bodyOf = (e: unknown) => {
+      expect(e).toBeInstanceOf(HttpException);
+      const err = e as HttpException;
+      return { status: err.getStatus(), body: err.getResponse() };
+    };
+    const wrong = await capture('password-wrong', '10.2.0.9');
+    const right = await capture('password-d', '10.2.0.9');
+    expect(bodyOf(wrong)).toEqual(bodyOf(right));
+    expect((wrong as UnauthorizedException).getStatus()).toBe(401);
+    expect((wrong as UnauthorizedException).message).toBe('用户名或密码错误');
+
+    for (let i = 0; i < 10; i += 1) {
+      const attempt = await capture(i % 2 === 0 ? 'password-wrong' : 'password-d', '10.2.1.1');
+      expect(bodyOf(attempt)).toEqual({ status: 401, body: (wrong as UnauthorizedException).getResponse() });
+    }
+    const blockedRight = await capture('password-d', '10.2.1.1');
+    const blockedWrong = await capture('password-wrong', '10.2.1.1');
+    expect(bodyOf(blockedRight)).toEqual(bodyOf(blockedWrong));
+    expect((blockedRight as HttpException).getStatus()).toBe(429);
+
     await expect(auth.login(`missing-${nonce}`, 'password-a', '10.2.0.3', tenantA.code)).rejects.toThrow('用户名或密码错误');
     await expect(auth.login('shared', 'password-wrong', '10.2.0.4', tenantA.code)).rejects.toThrow('用户名或密码错误');
 
     const disabledRows = await rawClient.auditLog.findMany({
-      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: `disabled-${nonce}` },
+      where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: `disabled-${nonce}`, ip: '10.2.0.9' },
+      orderBy: { createdAt: 'asc' },
     });
-    expect(disabledRows.length).toBeGreaterThanOrEqual(2);
+    expect(disabledRows).toHaveLength(2);
     expect(disabledRows.every((row) => row.userId === userDisabled.id)).toBe(true);
+    const reasons = disabledRows.map((row) => (row.after as { reason?: string } | null)?.reason ?? null);
+    expect(reasons.sort()).toEqual(['DISABLED', null].sort());
 
     const missingRows = await rawClient.auditLog.findMany({
       where: { tenantId: tenantA.id, action: 'LOGIN_FAIL', username: `missing-${nonce}` },

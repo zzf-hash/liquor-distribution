@@ -23,6 +23,7 @@ export function stableStringify(v: unknown): string {
 // B2: 审计流水 DB 层 append-only + 每租户哈希链
 //   - 应用层: 本服务只 INSERT; PrismaService 禁 update/delete; DB 层 REVOKE(见 migration)
 //   - 哈希链: rowHash = sha256(prevRowHash ‖ tenantId ‖ action ‖ entityType ‖ entityId ‖ before ‖ after ‖ ts)
+//     userId 不进哈希。系统任务写 null 与历史行(有 userId)同一套算法, verifyChain 不用分支。
 //     prevRowHash 取链尾。并发用 pg_advisory_xact_lock(按租户), 不锁行:
 //     AuditLog 对业务账号 REVOKE 了 UPDATE, FOR UPDATE 会 42501。
 //     改任一历史行都会使后续校验失败 → 内部人改库可检测
@@ -132,8 +133,10 @@ export class AuditService {
 
   private async append(entry: AuditEntry): Promise<void> {
     const tenantId = entry.user.tenantId;
-    // 空串会撞 AuditLog_userId_fkey(登录失败当时还不知道用户)。没有用户就写 null。
-    const userId = entry.user.id ? entry.user.id : null;
+    // userId 外键指向 User。空串(还不知道是谁)和定时任务的 id='system'(表里没有这行)都写成 null,
+    // username 原样保留(系统任务是 'system')。列在 0_init 里已是可空 TEXT, 不必再迁移。
+    // null 不进 rowHash(见 hash), 插在已有链中间也不会让后续校验失败。
+    const userId = entry.user.id && entry.user.id !== 'system' ? entry.user.id : null;
     await this.db.$transaction(async (tx) => {
       // rawClient 不走扩展层, 这里自行把租户放进本事务, 否则 FORCE RLS 下非超级用户插不进 AuditLog。
       await tx.$queryRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;

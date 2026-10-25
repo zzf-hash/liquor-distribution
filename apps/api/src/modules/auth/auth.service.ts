@@ -49,24 +49,17 @@ export class AuthService {
     // 多个租户撞名则要求补编码, 不猜其中一个。
     const located = await this.findLoginUser(username, code);
     const user = located.user;
-    // 先对口令。禁用账号配错口令也回「用户名或密码错误」, 避免用文案确认账号存在。
-    // 口令正确但已禁用才回「账号已禁用」: 调用方已经证明知道口令, 需要知道为什么进不去,
-    // 这次不计入口令失败次数(不是猜口令)。
+    // 先对口令。找不到用户、口令错误、账号已禁用, 都回同一条 401「用户名或密码错误」,
+    // 并计入同一限流窗口。否则第 10 次错口令是 429、口令正确却仍是 401, 响应还能区分账号状态。
+    // 真实原因只进审计(after.reason=DISABLED), 不进响应。已签发令牌的禁用检查仍在 AuthGuard。
     const passwordOk = Boolean(user?.passwordHash) && await bcrypt.compare(password, user!.passwordHash!);
-    if (!user || !passwordOk) {
+    const disabled = Boolean(user && passwordOk && user.status === 'DISABLED');
+    if (!user || !passwordOk || disabled) {
       const cur = loginFails.get(limitKey);
       if (!cur || Date.now() - cur.firstAt >= LOGIN_WINDOW_MS) loginFails.set(limitKey, { count: 1, firstAt: Date.now() });
       else cur.count += 1;
-      await this.auditLoginFail(username, ip, user, located.tenantId);
+      await this.auditLoginFail(username, ip, user, located.tenantId, disabled ? 'DISABLED' : undefined);
       throw new UnauthorizedException('用户名或密码错误');
-    }
-    if (user.status === 'DISABLED') {
-      await this.audit.log({
-        user: { id: user.id, tenantId: user.tenantId, username: user.username, role: user.role },
-        action: AuditAction.LOGIN_FAIL, entityType: 'User', entityId: user.id, ip,
-        after: { reason: 'DISABLED' },
-      });
-      throw new UnauthorizedException('账号已禁用');
     }
     loginFails.delete(limitKey); // 成功登录清零失败计数
 
@@ -92,6 +85,7 @@ export class AuthService {
     ip: string | undefined,
     user: { id: string; tenantId: string; username: string; role: string } | null,
     tenantId: string | null,
+    reason?: string,
   ): Promise<void> {
     // 没有租户就没有可挂的 AuditLog(tenantId 外键)。有用户必须写真实 id, 空串会撞 userId 外键。
     const tid = user?.tenantId ?? tenantId;
@@ -99,6 +93,7 @@ export class AuthService {
     await this.audit.log({
       user: { id: user?.id ?? '', tenantId: tid, username: user?.username ?? username, role: user?.role ?? '-' },
       action: AuditAction.LOGIN_FAIL, entityType: 'User', entityId: user?.id, ip,
+      after: reason ? { reason } : undefined,
     });
   }
 

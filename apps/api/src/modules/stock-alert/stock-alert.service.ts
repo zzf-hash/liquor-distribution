@@ -9,6 +9,11 @@ import { ApprovalsService } from '../approvals/approvals.service';
 import { PurchasesService } from '../purchases/purchases.service';
 import type { AuthUser } from '../../common/current-user.decorator';
 
+/** 系统任务身份(日切 / 每日任务无登录态)。User 表没有 id=system, 写审计时 userId 置 null, username 仍记 system。 */
+export function SYSTEM_USER(tenantId: string): AuthUser {
+  return { id: 'system', tenantId, username: 'system', name: '系统', role: 'OWNER', dataScope: 'ALL', aud: 'staff' };
+}
+
 // ═══════════════ P2 库存预警 + 自动报货 (每日库存报表/动态阈值/内勤确认制) ═══════════════
 // 口径: 库存 = InventoryLedger 流水投影(B4, 不另立账); 净销 = 近N日 OUT 流水(REJECT_RETURN/RETURN_IN/ADJUST 视为回冲)
 // 动态阈值 = ceil(窗口日均净销 × 安全天数); 窗口默认10日(SystemConfig inventory_alert_config 可改, 商品级 product.alert 覆盖)
@@ -283,8 +288,8 @@ export class StockAlertService {
     });
     for (const r of stale) {
       try {
-        const sys = { id: 'system', tenantId: r.tenantId, username: 'system', name: '系统', role: 'OWNER', dataScope: 'ALL', aud: 'staff' } as AuthUser;
-        await this.confirm(sys, r.id, {}); // 走与内勤完全相同的确认链路(审计记 SYSTEM)
+        const sys = SYSTEM_USER(r.tenantId);
+        await this.confirm(sys, r.id, {}); // 走与内勤完全相同的确认链路(审计 username=system, userId=null)
         this.logger.log(`restock ${r.requestId} auto-submitted after 24h pending`);
       } catch (e) {
         this.logger.warn(`restock ${r.requestId} auto-submit failed: ${String(e).slice(0, 200)}`); // 常见: 供应商为空 → 留待人工

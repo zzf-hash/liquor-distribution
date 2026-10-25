@@ -10,6 +10,8 @@ import { rlsRoleContext, tenantContext } from '../src/prisma/tenant-context';
 import { AuditService } from '../src/audit/audit.service';
 import { PromotionsController } from '../src/modules/promotions/promotions.controller';
 import { CapFeesService } from '../src/modules/cap-fees/cap-fees.service';
+import { DailyTasksService } from '../src/modules/daily-tasks/daily-tasks.service';
+import { StockAlertService, SYSTEM_USER } from '../src/modules/stock-alert/stock-alert.service';
 import type { AuthUser } from '../src/common/current-user.decorator';
 
 const nonce = `lq1f${Date.now().toString(36)}`;
@@ -142,6 +144,7 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
     if (tenantA && tenantB) {
       const ids = [tenantA.id, tenantB.id];
       await rawClient.auditLog.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
+      await rawClient.dailyStockReport.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.orderLine.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.salesOrder.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
       await rawClient.capRecycleOrder.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => undefined);
@@ -233,6 +236,35 @@ describe('业务账号审计链 / 跨租户必填关联', () => {
     expect(after).toBe(before);
     expect(errors.some((line) => line.includes('audit append failed'))).toBe(true);
     expect(alerts.some((line) => line.includes('审计写入失败'))).toBe(true);
+  });
+
+  it('liquor_app 跑定时任务时系统审计写入 userId 为空, 没有 23503, 链仍连续', async () => {
+    const errors: string[] = [];
+    const spy = jest.spyOn(Logger.prototype, 'error').mockImplementation((message: unknown) => {
+      errors.push(String(message));
+    });
+    const notify = { send: async () => false };
+    const audit = new AuditService(notify as never).bindClient(appClient);
+    const daily = new DailyTasksService(prisma, audit, notify as never, {} as never, {} as never);
+    const stock = new StockAlertService(prisma, audit, notify as never, {} as never, {} as never);
+    const actor = SYSTEM_USER(tenantA.id);
+    try {
+      const reminders = await rlsRoleContext.run('liquor_app', () => tenantContext.run({ tenantId: tenantA.id }, () => daily.runDueReminders(actor)));
+      expect(reminders).toMatchObject({ dueSoonCount: 0, notified: false });
+      const scan = await rlsRoleContext.run('liquor_app', () => tenantContext.run({ tenantId: tenantA.id }, () => stock.runScan(actor, { createRestocks: true })));
+      expect(scan.rows).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors.filter((line) => line.includes('23503') || line.includes('audit append failed'))).toEqual([]);
+
+    const rows = await rawClient.auditLog.findMany({
+      where: { tenantId: tenantA.id, username: 'system', action: { in: ['AR_REMINDER_RUN', 'STOCK_REPORT_RUN'] } },
+      orderBy: { action: 'asc' },
+    });
+    expect(rows.map((row) => row.action)).toEqual(['AR_REMINDER_RUN', 'STOCK_REPORT_RUN']);
+    expect(rows.every((row) => row.userId === null && row.username === 'system')).toBe(true);
+    await expect(audit.verifyChain(tenantA.id)).resolves.toEqual({ ok: true });
   });
 
   it('跨租户必填关联不把列表打成 500: 跳过该行, 详情按不存在', async () => {
