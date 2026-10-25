@@ -5,7 +5,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { arOpenOf } from '../receivables/aging';
+import { centsToDecimal, toCents } from '../../common/money';
+import { isUniqueViolation } from '../../common/prisma-error';
 import type { AuthUser } from '../../common/current-user.decorator';
+
+type ExpenseWriter = Pick<PrismaService, 'expense' | 'approvalRecord'>;
 
 // ═══════════════ B组 费用域: 统一费用台账(M4-3 办公费用 / M10-3 运营费用 / M3-5 陈列进店费) ═══════════════
 // 流程: 创建(PENDING_APPROVAL) → EXPENSE 审批线(D01 金额路由: ≤阈值出纳可批, >阈值老板)
@@ -95,33 +99,83 @@ export class ExpensesService {
     return updated;
   }
 
-  /** 系统直入 APPROVED(开瓶费月度自动计提: "系统自动扣减"不走人工审批, 但付款/冲抵仍由出纳执行) */
+  /** 系统直入 APPROVED(开瓶费月度自动计提: "系统自动扣减"不走人工审批, 但付款/冲抵仍由出纳执行)
+   *  db 传入事务客户端时与计提锁同事务。source 唯一冲突不改单号重试（那是另一张单，不是撞号）。 */
   async createSystemApproved(user: AuthUser, dto: {
     category: 'CAP_FEE' | 'DISPLAY' | 'ENTRY'; title: string; amount: number; customerId: string;
     payMode: 'CASH' | 'AR_OFFSET'; occurredAt?: Date; note?: string; source: string;
-  }): Promise<{ id: string; expenseNo: string }> {
+  }, db: ExpenseWriter = this.prisma): Promise<{ id: string; expenseNo: string }> {
     const fyDay = dayjs().format('YYYYMMDD');
-    let expense: Awaited<ReturnType<typeof this.prisma.expense.create>> | null = null;
+    let expense: { id: string; expenseNo: string } | null = null;
     for (let attempt = 0; attempt < 5 && !expense; attempt++) {
-      const seq = (await this.prisma.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+      const seq = (await db.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
       try {
-        expense = await this.prisma.expense.create({
+        expense = await db.expense.create({
           data: {
             tenantId: user.tenantId,
             expenseNo: `FY${fyDay}-${String(seq).padStart(4, '0')}`,
-            category: dto.category, title: dto.title, amount: new Prisma.Decimal(dto.amount),
+            category: dto.category, title: dto.title, amount: centsToDecimal(toCents(dto.amount)),
             customerId: dto.customerId, payMode: dto.payMode, status: 'APPROVED',
             occurredAt: dto.occurredAt ?? new Date(), note: dto.note, source: dto.source,
             createdById: user.id,
           },
         });
       } catch (e) {
+        if (isUniqueViolation(e, 'source') || isUniqueViolation(e, 'cap_source')) throw e;
         if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
         throw e;
       }
     }
     if (!expense) throw new ConflictException('单号生成冲突, 请重试');
     return { id: expense.id, expenseNo: expense.expenseNo };
+  }
+
+  /** 瓶盖回收确认：在调用方事务里先占状态、再写费用单和审批（LQ1-008）。通知在提交后另发。 */
+  async createLinkedInTx(tx: ExpenseWriter, user: AuthUser, dto: {
+    category: 'CAP_FEE'; title: string; amount: Prisma.Decimal | number; customerId: string;
+    payMode: 'CASH' | 'AR_OFFSET'; note?: string; source: string;
+    customerName?: string;
+  }): Promise<{ id: string; expenseNo: string; approvalId: string }> {
+    const fyDay = dayjs().format('YYYYMMDD');
+    const amount = dto.amount instanceof Prisma.Decimal ? dto.amount : centsToDecimal(toCents(dto.amount));
+    let expense: { id: string; expenseNo: string; payMode: string } | null = null;
+    for (let attempt = 0; attempt < 5 && !expense; attempt++) {
+      const seq = (await tx.expense.count({ where: { expenseNo: { startsWith: `FY${fyDay}` } } })) + 1 + attempt;
+      try {
+        expense = await tx.expense.create({
+          data: {
+            tenantId: user.tenantId,
+            expenseNo: `FY${fyDay}-${String(seq).padStart(4, '0')}`,
+            category: dto.category, title: dto.title, amount,
+            customerId: dto.customerId, payMode: dto.payMode, status: 'PENDING_APPROVAL',
+            occurredAt: new Date(), note: dto.note, source: dto.source, createdById: user.id,
+          },
+        });
+      } catch (e) {
+        if (isUniqueViolation(e, 'source') || isUniqueViolation(e, 'cap_source')) {
+          throw new ConflictException('该回收单已生成费用单');
+        }
+        if ((e as { code?: string }).code === 'P2002' && attempt < 4) continue;
+        throw e;
+      }
+    }
+    if (!expense) throw new ConflictException('单号生成冲突, 请重试');
+    const approval = await tx.approvalRecord.create({
+      data: {
+        tenantId: user.tenantId, line: 'EXPENSE', entityType: 'EXPENSE', entityId: expense.id,
+        title: `费用单 ${expense.expenseNo} ${EXPENSE_CATEGORY_LABELS[dto.category]}·${dto.title}`,
+        amount, reason: dto.note?.trim() || dto.title,
+        payload: { expenseNo: expense.expenseNo, category: dto.category, payMode: expense.payMode, customerName: dto.customerName } as never,
+        applicantId: user.id, status: 'PENDING',
+      },
+    });
+    await tx.expense.update({ where: { id: expense.id }, data: { approvalId: approval.id } });
+    return { id: expense.id, expenseNo: expense.expenseNo, approvalId: approval.id };
+  }
+
+  async announceLinked(user: AuthUser, input: { title: string; amount: number; expenseId: string; expenseNo: string; category: string; payMode: string; customerId: string; approvalId: string }): Promise<void> {
+    await this.audit.log({ user, action: 'EXPENSE_CREATE', entityType: 'Expense', entityId: input.expenseId, after: { expenseNo: input.expenseNo, category: input.category, amount: input.amount, payMode: input.payMode, customerId: input.customerId, approvalId: input.approvalId } });
+    await this.approvals.announcePending(user, { title: input.title, amount: input.amount, line: 'EXPENSE' });
   }
 
   async list(user: AuthUser, q: { category?: string; status?: string; customerId?: string; month?: string; page?: number; pageSize?: number }): Promise<unknown> {

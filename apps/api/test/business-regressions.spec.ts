@@ -20,7 +20,7 @@ describe('business regression guards', () => {
           ],
         }]),
       },
-      salesOrder: { aggregate: jest.fn().mockResolvedValue({ _sum: { totalAmount: new Prisma.Decimal(0) } }) },
+      salesOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const service = new OrdersService(prisma as never, audit, idem);
 

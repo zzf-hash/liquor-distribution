@@ -1,10 +1,13 @@
 import { Controller, Get, Injectable, Module, Query } from '@nestjs/common';
 import { ConflictException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Roles } from '../../common/roles.guard';
 import { CurrentUser } from '../../common/current-user.decorator';
 import type { AuthUser } from '../../common/current-user.decorator';
+import { centsToNumber, toCents } from '../../common/money';
+import { assembleGrossProfit, fallbackCostCents, GROSS_PROFIT_CALIBER, marginPercent, type CustomerErosion, type GrossRowIn } from './gross-profit';
 
 // ═══════════════ P1-T11 一键报表 (口径与台账一致: 流水投影, 不另立账) ═══════════════
 // 月报表: 销售(签收口径)/回款/退货/采购 + 品类/业务员/Top商品 维度
@@ -109,82 +112,142 @@ export class ReportsController {
         outbounds: { include: { lines: { include: { batch: { select: { unitCost: true } } } } } },
       },
     });
-    // 行 → 成本: 出库行按批次成本×数量聚合; 无出库回退商品最新 COST 价(按行数量折最小单位)
-    const costPriceFallback = new Map<string, number>();
+    // 行 → 成本: 出库行按批次成本×数量(分); 无出库回退 BASE 或 MIN 成本价，按行单位换算（LQ1-006）
+    const baseCost = new Map<string, number>();
+    const minCost = new Map<string, number>();
     {
       const rows = await this.prisma.price.findMany({
-        where: { tenantId: user.tenantId, levelType: 'COST', unit: 'MIN', validFrom: { lte: new Date() } },
+        where: { tenantId: user.tenantId, levelType: 'COST', unit: { in: ['BASE', 'MIN'] }, validFrom: { lte: new Date() } },
         orderBy: { validFrom: 'desc' },
       });
-      for (const r of rows) if (!costPriceFallback.has(r.productId)) costPriceFallback.set(r.productId, Number(r.price));
+      for (const r of rows) {
+        const map = r.unit === 'BASE' ? baseCost : minCost;
+        if (!map.has(r.productId)) map.set(r.productId, toCents(r.price));
+      }
     }
-    const agg = new Map<string, { key: string; name: string; revenue: number; cost: number }>();
-    const bump = (key: string, name: string, revenue: number, cost: number) => {
-      const cur = agg.get(key) ?? { key, name, revenue: 0, cost: 0 };
-      cur.revenue += revenue; cur.cost += cost;
+    const agg = new Map<string, GrossRowIn>();
+    const bump = (key: string, name: string, revenueCents: number, costCents: number, costKnown: boolean) => {
+      const cur = agg.get(key) ?? { key, name, revenueCents: 0, costCents: 0, costKnown: true };
+      cur.revenueCents += revenueCents;
+      cur.costCents += costCents;
+      if (!costKnown) cur.costKnown = false;
       agg.set(key, cur);
     };
-    let totalRevenue = 0; let totalCost = 0;
     const repIds = new Set<string>();
     for (const o of orders) {
       if (o.salespersonId) repIds.add(o.salespersonId);
-      // 出库行成本按 orderLineId 归集
       const costByLine = new Map<string, number>();
       for (const ob of o.outbounds) {
         for (const ol of ob.lines) {
-          costByLine.set(ol.orderLineId, (costByLine.get(ol.orderLineId) ?? 0) + Number(ol.qty) * Number(ol.batch.unitCost));
+          const cents = new Prisma.Decimal(ol.qty).mul(ol.batch.unitCost).mul(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+          costByLine.set(ol.orderLineId, (costByLine.get(ol.orderLineId) ?? 0) + cents);
         }
       }
-      const reversed = new Map<string, number>();
-      for (const line of o.lines) if (line.reversalOfId) reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? 0) + Number(line.qty));
+      const reversed = new Map<string, Prisma.Decimal>();
+      for (const line of o.lines) {
+        if (line.reversalOfId) reversed.set(line.reversalOfId, (reversed.get(line.reversalOfId) ?? new Prisma.Decimal(0)).add(line.qty));
+      }
       const actualLines = Array.isArray(o.signature?.actualLines) ? o.signature.actualLines as Array<{ orderLineId: string; actualQty: number }> : [];
-      const ratioByLine = new Map<string, number>(); // 实收/净量(部分拒收按比例折收入与成本)
+      const ratioByLine = new Map<string, Prisma.Decimal>();
       for (const l of o.lines) {
         if (l.reversalOfId) continue;
-        const netQty = Number(l.qty) + (reversed.get(l.id) ?? 0);
-        const actual = actualLines.length ? Number(actualLines.find((x) => x.orderLineId === l.id)?.actualQty ?? 0) : netQty;
-        ratioByLine.set(l.id, netQty > 0 ? Math.max(0, Math.min(netQty, actual)) / netQty : 0);
+        const netQty = new Prisma.Decimal(l.qty).add(reversed.get(l.id) ?? 0);
+        const actual = actualLines.length ? new Prisma.Decimal(actualLines.find((x) => x.orderLineId === l.id)?.actualQty ?? 0) : netQty;
+        const accepted = Prisma.Decimal.max(0, Prisma.Decimal.min(netQty, actual));
+        ratioByLine.set(l.id, netQty.gt(0) ? accepted.div(netQty) : new Prisma.Decimal(0));
       }
       const customerName = o.customerName;
       for (const l of o.lines) {
         if (l.reversalOfId) continue;
-        const ratio = ratioByLine.get(l.id) ?? 0;
-        const revenue = Number((Number(l.amount) * ratio).toFixed(2));
-        let cost = Number(((costByLine.get(l.id) ?? 0) * ratio).toFixed(2));
-        if (!costByLine.has(l.id)) {
-          // 无出库批次记录(历史单/数据迁移): 回退最新成本价 × 折最小单位数量
-          const qtyMin = Number(l.qty) * (l.unit === 'BASE' ? l.conversionRate : 1) * ratio;
-          const unitCostMin = (costPriceFallback.get(l.productId) ?? 0) / (Number(l.conversionRate) || 1);
-          cost = Number((qtyMin * unitCostMin).toFixed(2));
+        const ratio = ratioByLine.get(l.id) ?? new Prisma.Decimal(0);
+        const revenueCents = new Prisma.Decimal(l.amount).mul(ratio).mul(100).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+        let costCents = 0;
+        let costKnown = true;
+        if (costByLine.has(l.id)) {
+          costCents = new Prisma.Decimal(costByLine.get(l.id)!).mul(ratio).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
+        } else {
+          const fallback = fallbackCostCents({
+            qty: l.qty, unit: l.unit, conversionRate: l.conversionRate, ratio,
+            quote: { baseCents: baseCost.get(l.productId) ?? null, minCents: minCost.get(l.productId) ?? null },
+          });
+          if (fallback === null) { costKnown = false; costCents = 0; }
+          else costCents = fallback;
         }
-        totalRevenue += revenue; totalCost += cost;
-        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenue, cost);
-        else if (dim === 'customer') bump(o.customerId, customerName, revenue, cost);
-        else if (dim === 'product') bump(l.productId, l.productName, revenue, cost);
-        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenue, cost);
+        if (dim === 'category') bump(String(l.product?.category ?? 'QITA'), String(l.product?.category ?? 'QITA'), revenueCents, costCents, costKnown);
+        else if (dim === 'customer') bump(o.customerId, customerName, revenueCents, costCents, costKnown);
+        else if (dim === 'product') bump(l.productId, l.productName, revenueCents, costCents, costKnown);
+        else if (dim === 'rep') bump(o.salespersonId ?? 'NONE', o.salespersonId ?? '未归属', revenueCents, costCents, costKnown);
       }
+    }
+    const [ledgers, cashRebates] = await this.prisma.$transaction([
+      this.prisma.receivableLedger.findMany({
+        where: { tenantId: user.tenantId, direction: { in: ['REBATE_OFFSET', 'FEE_OFFSET'] }, createdAt: { gte: start, lte: end } },
+        select: { direction: true, amount: true, receivable: { select: { customerId: true } } },
+      }),
+      this.prisma.expense.findMany({
+        where: { tenantId: user.tenantId, category: 'REBATE', status: { in: ['APPROVED', 'PAID'] }, occurredAt: { gte: start, lte: end } },
+        select: { amount: true, customerId: true },
+      }),
+    ]);
+    const erosionMap = new Map<string, CustomerErosion>();
+    const touch = (customerId: string): CustomerErosion => {
+      const cur = erosionMap.get(customerId) ?? { customerId, rebateCents: 0, feeCents: 0 };
+      erosionMap.set(customerId, cur);
+      return cur;
+    };
+    for (const l of ledgers) {
+      const row = touch(l.receivable.customerId);
+      if (l.direction === 'REBATE_OFFSET') row.rebateCents += toCents(l.amount);
+      else row.feeCents += toCents(l.amount);
+    }
+    for (const e of cashRebates) {
+      if (!e.customerId) continue;
+      touch(e.customerId).rebateCents += toCents(e.amount);
     }
     const reps = repIds.size ? await this.prisma.user.findMany({ where: { id: { in: [...repIds] } }, select: { id: true, name: true } }) : [];
     const repName = (id: string) => reps.find((u) => u.id === id)?.name ?? '未归属';
     const CATEGORY_LABELS: Record<string, string> = { BAIJIU: '白酒', PIJIU: '啤酒', HONGJIU: '红酒', YANGJIU: '洋酒', YINLIAO: '饮料', QITA: '其他' };
-    const rows = [...agg.values()].map((r) => {
-      const profit = Number((r.revenue - r.cost).toFixed(2));
-      return {
-        ...r,
-        name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
-        revenue: Number(r.revenue.toFixed(2)), cost: Number(r.cost.toFixed(2)),
-        profit, margin: r.revenue > 0 ? Number(((profit / r.revenue) * 100).toFixed(1)) : null,
-      };
-    }).sort((a, b) => b.profit - a.profit);
-    const totalProfit = Number((totalRevenue - totalCost).toFixed(2));
+    const named = [...agg.values()].map((r) => ({
+      ...r,
+      name: dim === 'rep' ? repName(r.key) : dim === 'category' ? (CATEGORY_LABELS[r.key] ?? r.key) : r.name,
+    }));
+    const missingCustomerIds = [...erosionMap.keys()].filter((id) => !named.some((r) => r.key === id));
+    const extraCustomers = dim === 'customer' && missingCustomerIds.length
+      ? await this.prisma.customer.findMany({ where: { id: { in: missingCustomerIds } }, select: { id: true, name: true } })
+      : [];
+    const customerNames = new Map(extraCustomers.map((c) => [c.id, c.name]));
+    const assembled = assembleGrossProfit({
+      dimension: dim as 'category' | 'customer' | 'rep' | 'product',
+      rows: named,
+      erosions: [...erosionMap.values()],
+      customerNames,
+    });
+    const yuanRow = (r: typeof assembled.rows[number]) => ({
+      key: r.key,
+      name: r.name,
+      revenue: centsToNumber(r.revenueCents),
+      cost: centsToNumber(r.costCents),
+      profitBeforeErosion: centsToNumber(r.profitBeforeCents),
+      rebateErosion: centsToNumber(r.rebateCents),
+      feeErosion: centsToNumber(r.feeCents),
+      profit: centsToNumber(r.profitCents),
+      margin: r.margin,
+    });
+    const rows = assembled.rows.map(yuanRow).sort((a, b) => b.profit - a.profit);
+    const t = assembled.totals;
     return {
       month, dimension: dim, rows,
       totals: {
-        revenue: Number(totalRevenue.toFixed(2)), cost: Number(totalCost.toFixed(2)), profit: totalProfit,
-        margin: totalRevenue > 0 ? Number(((totalProfit / totalRevenue) * 100).toFixed(1)) : null,
+        revenue: centsToNumber(t.revenueCents),
+        cost: centsToNumber(t.costCents),
+        profitBeforeErosion: centsToNumber(t.profitBeforeCents),
+        rebateErosion: centsToNumber(t.rebateCents),
+        feeErosion: centsToNumber(t.feeCents),
+        profit: centsToNumber(t.profitCents),
+        margin: marginPercent(t.profitCents, t.revenueCents, t.costKnown),
         orderCount: orders.length,
       },
-      caliber: '收入=期间签收实收口径(拒收部分剔除); 成本=出库批次成本(无记录回退最新成本价); 赠品行收入0成本照计(促销侵蚀如实反映)',
+      caliber: GROSS_PROFIT_CALIBER,
     };
   }
 }

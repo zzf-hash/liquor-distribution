@@ -4,6 +4,8 @@ import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
 import { ExpensesService } from '../expenses/expenses.service';
+import { centsToNumber, toCents } from '../../common/money';
+import { isUniqueViolation } from '../../common/prisma-error';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ B组 开瓶费引擎 (M3-4 回/不回瓶盖两态 + M7-7 瓶盖回收兑付) ═══════════════
@@ -128,28 +130,48 @@ export class CapFeesService {
     return { items, total, page, pageSize };
   }
 
-  /** 出纳确认 → 生成 CAP_FEE 费用单(进 EXPENSE 审批线; 兑付方式可指定, 默认冲抵货款) */
+  /** 出纳确认 → 同一事务里先抢 PENDING_CONFIRM，再生成 CAP_FEE 费用单（LQ1-008）。 */
   async confirmRecycle(user: AuthUser, id: string, dto: { payMode?: 'CASH' | 'AR_OFFSET'; note?: string }): Promise<unknown> {
     if (user.role !== 'CLERK' && user.role !== 'OWNER') throw new ForbiddenException('仅内勤出纳/老板可确认回收兑付');
-    const order = await this.prisma.capRecycleOrder.findUnique({ where: { id }, include: { customer: true } });
-    if (!order) throw new NotFoundException('回收单不存在');
-    if (order.status !== 'PENDING_CONFIRM') throw new ConflictException(`仅待确认可兑付(当前 ${order.status})`);
-    const expense = (await this.expenses.create(user, {
-      category: 'CAP_FEE',
-      title: `开瓶费兑付 ${order.recycleNo}(${order.customer.name})`,
-      amount: Number(order.totalAmount),
-      customerId: order.customerId,
-      payMode: dto.payMode ?? 'AR_OFFSET',
-      note: `${order.note ? `${order.note} | ` : ''}瓶盖回收兑付, 明细: ${(order.lines as Array<{ productName: string; qty: number }>).map((l) => `${l.productName}×${l.qty}`).join('; ')}`,
-      source: `CAP_RECYCLE:${order.recycleNo}`,
-    })) as { id: string; expenseNo: string; approvalId: string | null };
-    const claimed = await this.prisma.capRecycleOrder.updateMany({
-      where: { id, status: 'PENDING_CONFIRM' },
-      data: { status: 'CONFIRMED', expenseId: expense.id, confirmedById: user.id, confirmedAt: new Date() },
+    const payMode = dto.payMode ?? 'AR_OFFSET';
+    const confirmed = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.capRecycleOrder.updateMany({
+        where: { id, status: 'PENDING_CONFIRM' },
+        data: { status: 'CONFIRMED', confirmedById: user.id, confirmedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        const exists = await tx.capRecycleOrder.findUnique({ where: { id }, select: { status: true } });
+        if (!exists) throw new NotFoundException('回收单不存在');
+        throw new ConflictException(`仅待确认可兑付(当前 ${exists.status})`);
+      }
+      const order = await tx.capRecycleOrder.findUnique({ where: { id }, include: { customer: true } });
+      if (!order) throw new NotFoundException('回收单不存在');
+      const note = `${order.note ? `${order.note} | ` : ''}${dto.note ? `${dto.note} | ` : ''}瓶盖回收兑付, 明细: ${(order.lines as Array<{ productName: string; qty: number }>).map((l) => `${l.productName}×${l.qty}`).join('; ')}`;
+      const expense = await this.expenses.createLinkedInTx(tx, user, {
+        category: 'CAP_FEE',
+        title: `开瓶费兑付 ${order.recycleNo}(${order.customer.name})`,
+        amount: order.totalAmount,
+        customerId: order.customerId,
+        payMode,
+        note,
+        source: `CAP_RECYCLE:${order.recycleNo}`,
+        customerName: order.customer.name,
+      });
+      await tx.capRecycleOrder.update({ where: { id }, data: { expenseId: expense.id } });
+      return { recycleNo: order.recycleNo, customerId: order.customerId, expense, amount: centsToNumber(toCents(order.totalAmount)), title: `开瓶费兑付 ${order.recycleNo}(${order.customer.name})` };
     });
-    if (claimed.count === 0) throw new ConflictException('回收单状态已变化, 请刷新后重试');
-    await this.audit.log({ user, action: 'CAP_RECYCLE_CONFIRM', entityType: 'CapRecycleOrder', entityId: id, after: { recycleNo: order.recycleNo, expenseNo: expense.expenseNo, amount: Number(order.totalAmount), payMode: dto.payMode ?? 'AR_OFFSET' } });
-    return { recycleNo: order.recycleNo, status: 'CONFIRMED', expenseNo: expense.expenseNo, approvalId: expense.approvalId };
+    await this.expenses.announceLinked(user, {
+      title: `费用单 ${confirmed.expense.expenseNo} 开瓶费·${confirmed.title}`,
+      amount: confirmed.amount,
+      expenseId: confirmed.expense.id,
+      expenseNo: confirmed.expense.expenseNo,
+      category: 'CAP_FEE',
+      payMode,
+      customerId: confirmed.customerId,
+      approvalId: confirmed.expense.approvalId,
+    });
+    await this.audit.log({ user, action: 'CAP_RECYCLE_CONFIRM', entityType: 'CapRecycleOrder', entityId: id, after: { recycleNo: confirmed.recycleNo, expenseNo: confirmed.expense.expenseNo, amount: confirmed.amount, payMode } });
+    return { recycleNo: confirmed.recycleNo, status: 'CONFIRMED', expenseNo: confirmed.expense.expenseNo, approvalId: confirmed.expense.approvalId };
   }
 
   async cancelRecycle(user: AuthUser, id: string, reason: string): Promise<unknown> {
@@ -201,22 +223,37 @@ export class CapFeesService {
       list.push({ productName: p.product.name, bottles: Math.trunc(qty), perBottleFee: Number(p.perBottleFee), rate: Number(p.noCapRate), amount });
       byCustomer.set(customerId, list);
     }
-    let expenses = 0; let totalAmount = 0; let skipped = 0;
-    for (const [customerId, lines] of byCustomer) {
-      const source = `CAP_ACCRUAL:${period}:${customerId}`;
-      const dup = await this.prisma.expense.findFirst({ where: { tenantId: actor.tenantId, source } });
-      if (dup) { skipped += 1; continue; }
-      const amount = Number(lines.reduce((s, l) => s + l.amount, 0).toFixed(2));
-      await this.expenses.createSystemApproved(actor, {
-        category: 'CAP_FEE',
-        title: `开瓶费自动计提 ${period}(${lines.map((l) => l.productName).join('/')})`,
-        amount, customerId, payMode: 'AR_OFFSET', occurredAt: end,
-        note: `不回瓶盖自动扣减: ${lines.map((l) => `${l.productName} ${l.bottles}瓶×¥${l.perBottleFee}×${l.rate}`).join('; ')}`,
-        source,
+    let expenses = 0; let totalCents = 0; let skipped = 0;
+    // LQ1-019: 瓶数按签收行累计，不扣退货。B 组清单写明「退货不回算」，Q2 未关闭，此处不改口径。
+    // LQ1-020: 事务咨询锁 + source 部分唯一索引。冲突视为该客户已计提。
+    if (byCustomer.size > 0) {
+      await this.prisma.$transaction(async (tx) => {
+        const lockKey = `cap-accrual:${actor.tenantId}:${period}`;
+        await tx.$queryRaw(Prisma.sql`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`);
+        for (const [customerId, lines] of byCustomer) {
+          const source = `CAP_ACCRUAL:${period}:${customerId}`;
+          const dup = await tx.expense.findFirst({ where: { tenantId: actor.tenantId, source } });
+          if (dup) { skipped += 1; continue; }
+          const amountCents = lines.reduce((s, l) => s + toCents(l.amount), 0);
+          const amount = centsToNumber(amountCents);
+          try {
+            await this.expenses.createSystemApproved(actor, {
+              category: 'CAP_FEE',
+              title: `开瓶费自动计提 ${period}(${lines.map((l) => l.productName).join('/')})`,
+              amount, customerId, payMode: 'AR_OFFSET', occurredAt: end,
+              note: `不回瓶盖自动扣减: ${lines.map((l) => `${l.productName} ${l.bottles}瓶×¥${l.perBottleFee}×${l.rate}`).join('; ')}`,
+              source,
+            }, tx);
+          } catch (e) {
+            if (isUniqueViolation(e, 'source') || isUniqueViolation(e, 'cap_source')) { skipped += 1; continue; }
+            throw e;
+          }
+          expenses += 1;
+          totalCents += amountCents;
+        }
       });
-      expenses += 1;
-      totalAmount += amount;
     }
+    const totalAmount = centsToNumber(totalCents);
     await this.audit.log({ user: actor, action: 'CAP_FEE_ACCRUE', entityType: 'Expense', entityId: period, after: { period, customers: byCustomer.size, expenses, skipped, totalAmount } });
     return { period, customers: byCustomer.size, expenses, totalAmount, skipped };
   }

@@ -1043,7 +1043,8 @@ model Expense {
   paidById    String?
   paidNote    String?
   note        String?
-  source      String? // MANUAL / CAP_RECYCLE:<recycleNo> / CAP_ACCRUAL:<period> 来源标记
+  source      String? // MANUAL / CAP_RECYCLE:<recycleNo> / CAP_ACCRUAL:<period>:<customerId> 来源标记
+  // CAP_RECYCLE / CAP_ACCRUAL 另有部分唯一索引 Expense_cap_source_uidx（迁移 20261025120000），Prisma schema 无法表达 WHERE 子句
   createdById String
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt

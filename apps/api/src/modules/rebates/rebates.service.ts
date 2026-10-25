@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import dayjs from 'dayjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditService } from '../../audit/audit.service';
+import { centsToDecimal, centsToNumber, percentOfCents, toCents } from '../../common/money';
+import { arOpenCents } from '../receivables/aging';
 import type { AuthUser } from '../../common/current-user.decorator';
 
 // ═══════════════ P1-T08 优惠三式 (D02 冻结口径) ═══════════════
@@ -106,12 +108,17 @@ export class RebatesService {
       where: { customerId, type: 'OUT', createdAt: { gte: start, lte: end } },
       _sum: { depositPaid: true },
     });
-    const payments = Number(payAgg._sum.amount ?? 0);
-    const bottles = Math.abs(Number(pkgAgg._sum.depositPaid ?? 0));
-    const baseAmount = Number(Math.max(0, payments - bottles).toFixed(2));
+    // LQ1-019: 基数仍是确认回款 − 瓶箱押金，不减退货 RETURN_CREDIT、不减收款冲正。
+    // Q2（提货额 vs 回款额）未关闭；B 组清单把开瓶费「退货不回算」标成非缺陷。此处保持原口径。
+    const paymentsCents = toCents(payAgg._sum.amount ?? 0);
+    const bottlesCents = Math.abs(toCents(pkgAgg._sum.depositPaid ?? 0));
+    const baseCents = Math.max(0, paymentsCents - bottlesCents);
+    const payments = centsToNumber(paymentsCents);
+    const bottles = centsToNumber(bottlesCents);
+    const baseAmount = centsToNumber(baseCents);
     // C组 M3-2: 坎级阶梯——基数命中最高档的费率, 未达最低坎=0
     const eff = this.effectiveRate(scheme, baseAmount);
-    const rebateAmount = Number((baseAmount * eff.rate).toFixed(2));
+    const rebateAmount = centsToNumber(percentOfCents(baseCents, eff.rate));
     void user;
     return {
       customerId, period, schemeType: scheme.type, rate: eff.rate, flatRate: Number(scheme.rate),
@@ -166,34 +173,26 @@ export class RebatesService {
       }
       let unapplied = preview.rebateAmount; // GOODS: 货补全额待兑付; CASH: 费用单待付
       if (dto.settleType === 'INVOICE' && preview.rebateAmount > 0) {
-        // 票折: FIFO 冲未结应收(与收款核销同序, D4)
+        // 票折: FIFO 冲未结应收(与收款核销同序, D4)。先锁客户应收，未结含 FEE_OFFSET（LQ1-002）。
+        await tx.$queryRaw(Prisma.sql`SELECT id FROM "Receivable" WHERE "tenantId" = ${user.tenantId} AND "customerId" = ${dto.customerId} AND "disputeFlag" = false ORDER BY id FOR UPDATE`);
         const ars = await tx.receivable.findMany({
           where: { customerId: dto.customerId, disputeFlag: false, archivedAt: null },
           include: { ledger: true },
           orderBy: [{ dueDate: 'asc' }, { generatedAt: 'asc' }],
         });
-        let remain = preview.rebateAmount;
+        let remainCents = toCents(preview.rebateAmount);
         for (const ar of ars) {
-          if (remain <= 0.0001) break;
-          let settled = 0; let revNoPay = 0; let waived = 0; let writtenOff = 0; let returnCredit = 0;
-          for (const l of ar.ledger) {
-            const amt = Number(l.amount);
-            if (l.direction === 'SETTLE' || l.direction === 'REBATE_OFFSET') settled += amt;
-            else if (l.direction === 'WAIVE') waived += amt;
-            else if (l.direction === 'WRITEOFF') writtenOff += amt;
-            else if (l.direction === 'RETURN_CREDIT') returnCredit += amt;
-            else if (l.direction === 'REVERSAL') { if (l.paymentId) settled -= amt; else revNoPay += amt; }
-          }
-          const open = Number(ar.total) - settled - waived - writtenOff - returnCredit - revNoPay;
-          if (open <= 0.0001) continue;
-          const take = Math.min(open, remain);
-          remain -= take;
+          if (remainCents <= 0) break;
+          const { openCents } = arOpenCents(ar.total, ar.ledger);
+          if (openCents <= 0) continue;
+          const take = Math.min(openCents, remainCents);
+          remainCents -= take;
           await tx.receivableLedger.create({
-            data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'REBATE_OFFSET', amount: new Prisma.Decimal(take), note: `返利票折 ${dto.period}: ${dto.note ?? ''}`, createdBy: user.id },
+            data: { tenantId: user.tenantId, receivableId: ar.id, direction: 'REBATE_OFFSET', amount: centsToDecimal(take), note: `返利票折 ${dto.period}: ${dto.note ?? ''}`, createdBy: user.id },
           });
         }
         // P1-12: 未冲完的剩余不再静默蒸发, 返回给调用方并落审计
-        unapplied = Number(remain.toFixed(2));
+        unapplied = centsToNumber(remainCents);
       }
       return { created, unapplied, cashExpenseNo };
     });
@@ -202,7 +201,7 @@ export class RebatesService {
       ? '货补请以随单赠下单兑付(不反改原单, D02)'
       : dto.settleType === 'CASH'
         ? `现金返利费用单 ${cashExpenseNo} 已生成(已批待付), 请到费用中心执行付款`
-        : unapplied > 0.0001 ? `未结应收不足, 返利 ¥${unapplied.toFixed(2)} 未冲减(请联系老板处理)` : undefined;
+        : unapplied > 0 ? `未结应收不足, 返利 ¥${unapplied.toFixed(2)} 未冲减(请联系老板处理)` : undefined;
     return { ...created, unapplied, cashExpenseNo, hint };
   }
 

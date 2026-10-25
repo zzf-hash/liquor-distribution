@@ -44,6 +44,12 @@ export class ApprovalsService {
       },
     });
     await this.audit.log({ user, action: 'APPROVAL_CREATE', entityType: input.entityType, entityId: input.entityId, after: { approvalId: record.id, line: input.line, amount: input.amount } });
+    await this.announcePending(user, { title: input.title, amount: input.amount, line: input.line });
+    return { id: record.id };
+  }
+
+  /** 审批单已在事务里写下之后补发待办通知（失败不阻断）。 */
+  async announcePending(user: AuthUser, input: { title: string; amount?: number; line: string }): Promise<void> {
     const fields: Array<[string, string]> = [
       ['单据', input.title],
       ['金额', input.amount !== undefined ? `¥${input.amount}` : '—'],
@@ -53,7 +59,6 @@ export class ApprovalsService {
     let cardSent = false;
     try { cardSent = await this.notify.sendApprovalCard(input.title, fields, '点击进入后台「审批中心」处理'); } catch { cardSent = false; }
     if (!cardSent) void this.notify.send('审批待办', [...fields.map(([k, v]) => `${k}: ${v}`), '请到后台「审批中心」处理']);
-    return { id: record.id };
   }
 
   /** 24h 超时退回(D01: 不自动通过); 惰性扫描——列表/详情访问时触发(无 cron 依赖)
