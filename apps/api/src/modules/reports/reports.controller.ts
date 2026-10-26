@@ -77,6 +77,85 @@ export class ReportsController {
     };
   }
 
+  /**
+   * 全量库存列表。在库合计与 GET /reports/inventory 同一口径：批次流水 IN−OUT，按商品相加。
+   * 库里没有仓库表，拆开的是批次库位 BatchStock.location。
+   * 预警与四问看板相同：可用 = 在库 − 待确认/已确认占用，低于 low_stock_threshold（缺省 12）。
+   * 不返回单位成本。
+   */
+  @Get('inventory/products')
+  @Roles('OWNER', 'CLERK', 'WAREHOUSE')
+  async inventoryProducts(
+    @CurrentUser() user: AuthUser,
+    @Query('q') q?: string,
+    @Query('page') pageRaw?: string,
+    @Query('pageSize') pageSizeRaw?: string,
+  ): Promise<InventoryProductList> {
+    const page = Math.max(1, Number(pageRaw) || 1);
+    const pageSize = Math.min(50, Math.max(1, Number(pageSizeRaw) || 20));
+    const keyword = (q ?? '').trim();
+    const where: Prisma.ProductWhereInput = { tenantId: user.tenantId };
+    if (keyword) {
+      where.OR = [
+        { name: { contains: keyword, mode: 'insensitive' } },
+        { skuCode: { contains: keyword, mode: 'insensitive' } },
+        { specText: { contains: keyword, mode: 'insensitive' } },
+      ];
+    }
+    const [total, products, cfg] = await Promise.all([
+      this.prisma.product.count({ where }),
+      this.prisma.product.findMany({
+        where,
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: { id: true, skuCode: true, name: true, specText: true, baseUnit: true, minUnit: true, packSize: true },
+      }),
+      this.prisma.systemConfig.findFirst({ where: { tenantId: user.tenantId, key: 'low_stock_threshold' } }),
+    ]);
+    const threshold = lowStockThreshold(cfg?.value);
+    const productIds = products.map((p) => p.id);
+    const [batches, lines] = productIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+        this.prisma.batchStock.findMany({
+          where: { tenantId: user.tenantId, productId: { in: productIds } },
+          select: { productId: true, location: true, ledger: { select: { direction: true, qty: true } } },
+        }),
+        this.prisma.orderLine.findMany({
+          where: {
+            tenantId: user.tenantId,
+            productId: { in: productIds },
+            order: { status: { in: ['PENDING_CONFIRM', 'CONFIRMED'] } },
+          },
+          select: { productId: true, qty: true, unit: true, conversionRate: true },
+        }),
+      ]);
+    const occupied = occupiedByProduct(lines);
+    const items = products.map((product) => {
+      const locations = locationsFromBatches(batches.filter((b) => b.productId === product.id));
+      const onHand = locations.reduce((sum, row) => sum + row.onHand, 0);
+      const held = occupied.get(product.id) ?? 0;
+      const available = onHand - held;
+      return {
+        productId: product.id,
+        skuCode: product.skuCode,
+        name: product.name,
+        specText: product.specText,
+        baseUnit: product.baseUnit,
+        minUnit: product.minUnit,
+        packSize: product.packSize,
+        onHand,
+        locations,
+        occupied: held,
+        available,
+        threshold,
+        alert: available < threshold,
+      };
+    });
+    return { items, total, page, pageSize, threshold, generatedAt: new Date().toISOString() };
+  }
+
   @Get('inventory')
   async inventory(@CurrentUser() user: AuthUser): Promise<unknown> {
     const batches = await this.prisma.batchStock.findMany({
@@ -289,6 +368,73 @@ export class ReportsController {
       caliber: GROSS_PROFIT_CALIBER,
     };
   }
+}
+
+export interface InventoryLocationQty {
+  location: string | null;
+  onHand: number;
+}
+
+export interface InventoryProductRow {
+  productId: string;
+  skuCode: string;
+  name: string;
+  specText: string | null;
+  baseUnit: string;
+  minUnit: string;
+  packSize: number;
+  onHand: number;
+  locations: InventoryLocationQty[];
+  occupied: number;
+  available: number;
+  threshold: number;
+  alert: boolean;
+}
+
+export interface InventoryProductList {
+  items: InventoryProductRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  threshold: number;
+  generatedAt: string;
+}
+
+/** 与四问看板同一条阈值：value.v，否则把 value 本身当数字，都不是数字时用 12。 */
+export function lowStockThreshold(value: unknown, fallback = 12): number {
+  if (value == null) return fallback;
+  const raw = typeof value === 'object' && value !== null && 'v' in value
+    ? (value as { v?: unknown }).v ?? value
+    : value;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** 批次在库 = 流水 IN − OUT。与 GET /reports/inventory 的批次 onHand 相同。 */
+export function ledgerOnHand(ledger: Array<{ direction: string; qty: unknown }>): number {
+  return ledger.reduce((sum, line) => sum + (line.direction === 'IN' ? Number(line.qty ?? 0) : -Number(line.qty ?? 0)), 0);
+}
+
+/** 同一库位的批次在库相加。空库位保持 null，不编仓库名。 */
+export function locationsFromBatches(batches: Array<{ location: string | null; ledger: Array<{ direction: string; qty: unknown }> }>): InventoryLocationQty[] {
+  const grouped = new Map<string, InventoryLocationQty>();
+  for (const batch of batches) {
+    const key = batch.location ?? '';
+    const current = grouped.get(key) ?? { location: batch.location, onHand: 0 };
+    current.onHand += ledgerOnHand(batch.ledger);
+    grouped.set(key, current);
+  }
+  return [...grouped.values()].sort((a, b) => (a.location ?? '\uffff').localeCompare(b.location ?? '\uffff', 'zh'));
+}
+
+/** 占用 = 待确认/已确认订单行折成最小单位。与看板、审单预检同一公式。 */
+export function occupiedByProduct(lines: Array<{ productId: string; qty: unknown; unit: string; conversionRate: number }>): Map<string, number> {
+  const occupied = new Map<string, number>();
+  for (const line of lines) {
+    const qty = Number(line.qty ?? 0) * (line.unit === 'BASE' ? line.conversionRate : 1);
+    occupied.set(line.productId, (occupied.get(line.productId) ?? 0) + qty);
+  }
+  return occupied;
 }
 
 @Module({ controllers: [ReportsController] })

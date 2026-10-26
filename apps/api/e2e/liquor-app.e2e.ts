@@ -218,6 +218,7 @@ describe('liquor_app HTTP e2e', () => {
       '/api/dashboard/four-questions',
       `/api/reports/monthly?month=${month}`,
       '/api/reports/inventory',
+      '/api/reports/inventory/products',
       `/api/reports/gross-profit?month=${month}`,
       `/api/performance?month=${month}`,
       '/api/audit',

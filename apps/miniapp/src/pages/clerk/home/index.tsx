@@ -12,6 +12,7 @@ const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; b
   { icon: 'list', title: '订单池', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
   { icon: 'coin', title: '收款登记', desc: '直录即销账', url: '/pages/clerk/payments/index' },
   { icon: 'wallet', title: '应收台账', desc: '账龄分档', url: '/pages/clerk/receivables/index' },
+  { icon: 'box', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index' },
 ]
 
 /** 内勤工作台：横向主任务卡。订单池角标只读待确认数量。 */

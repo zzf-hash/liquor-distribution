@@ -9,9 +9,10 @@ import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }> = [
-  { icon: 'chart', title: '四问看板', desc: '销售、回款、欠款、库存', url: '/pages/boss/dashboard/index' },
+  { icon: 'chart', title: '四问看板', desc: '销售、回款、欠款、库存预警', url: '/pages/boss/dashboard/index' },
+  { icon: 'box', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index' },
   { icon: 'check', title: '审批中心', desc: '特批、调价、采购', url: '/pages/boss/approvals/index' },
-  { icon: 'box', title: '订单池', desc: '全部订单', url: '/pages/clerk/orders/index' },
+  { icon: 'list', title: '订单池', desc: '全部订单', url: '/pages/clerk/orders/index' },
 ]
 
 /** 老板工作台：看板摘要 + 审批待办数。数字来自已有只读接口。 */

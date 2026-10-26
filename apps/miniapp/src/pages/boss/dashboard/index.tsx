@@ -3,6 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Icon from '../../../components/Icon'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { LOGIN_PAGE, agingApi, dashboardApi, defaultArBucketLabels, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
+import { openAppPage } from '../../../services/navigation'
 import type { ArBucket, FourQuestionsDTO } from '../../../services/api'
 import RoleTabBar from '../../../components/RoleTabBar'
 import './index.scss'
@@ -173,11 +174,13 @@ export default function BossDashboardPage() {
         <View className='card state'>
           <Text className='state__title'>库存充足</Text>
           <Text className='state__txt'>暂时没有低库存预警</Text>
+          <Text className='topbar__link' onClick={() => openAppPage('/pages/boss/inventory/index')}>查看全部</Text>
         </View>
       ) : (
         <View className='card'>
           <View className='dash__hd'>
             <Text className='card__title'>低库存预警</Text>
+            <Text className='topbar__link' onClick={() => openAppPage('/pages/boss/inventory/index')}>查看全部</Text>
             <Text className='tag tag--danger'>{low.length} 项</Text>
           </View>
           {low.map((p) => {
