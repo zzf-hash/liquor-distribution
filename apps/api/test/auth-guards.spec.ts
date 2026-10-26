@@ -31,7 +31,8 @@ jest.mock('@prisma/client', () => {
 
 import { AuthGuard } from '../src/common/auth.guard';
 import { RolesGuard, ROLES_KEY } from '../src/common/roles.guard';
-import { AuthController } from '../src/modules/auth/auth.controller';
+import { validate } from 'class-validator';
+import { AuthController, LogoutDto } from '../src/modules/auth/auth.controller';
 import { AuthService } from '../src/modules/auth/auth.service';
 
 type Req = { path?: string; headers?: Record<string, string>; user?: any };
@@ -190,10 +191,11 @@ describe('RolesGuard (RBAC 角色面 + P1-1 客户/内勤信道分离)', () => {
     expect(() => guard.canActivate(makeContext(req))).toThrow(ForbiddenException);
   });
 
-  it('正常④: 客户令牌调 /api/auth/me 与 /api/auth/logout（无 @Roles 也放行）', () => {
+  it('异常⑤: 没写 @Roles 时，客户调 /api/auth/me 也不再按路径放行', () => {
     const guard = new RolesGuard(makeReflector(undefined));
-    expect(guard.canActivate(makeContext({ path: '/api/auth/me', user: userOf('CUSTOMER', 'customer') }))).toBe(true);
-    expect(guard.canActivate(makeContext({ path: '/api/auth/logout', user: userOf('CUSTOMER', 'customer') }))).toBe(true);
+    expect(() => guard.canActivate(makeContext({ path: '/api/auth/me', user: userOf('CUSTOMER', 'customer') }))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(makeContext({ path: '/api/AUTH/ME', user: userOf('CUSTOMER', 'customer') }))).toThrow(ForbiddenException);
+    expect(() => guard.canActivate(makeContext({ path: '/api/auth/logout', user: userOf('CUSTOMER', 'customer') }))).toThrow(ForbiddenException);
   });
 });
 
@@ -210,6 +212,13 @@ describe('客户 me / logout (PR14-1)', () => {
       getClass: () => AuthController,
     };
   }
+
+  it('me 和 logout 都带五种角色的 @Roles', () => {
+    const reflector = new Reflector();
+    const expected = ['OWNER', 'REP', 'CLERK', 'WAREHOUSE', 'CUSTOMER'];
+    expect(reflector.get<string[]>(ROLES_KEY, AuthController.prototype.me)).toEqual(expected);
+    expect(reflector.get<string[]>(ROLES_KEY, AuthController.prototype.logout)).toEqual(expected);
+  });
 
   it('客户调 me 放行并返回身份（HTTP 200）', async () => {
     const reflector = new Reflector();
@@ -263,5 +272,15 @@ describe('客户 me / logout (PR14-1)', () => {
       status: 401,
       message: '令牌已失效, 请重新登录',
     });
+  });
+
+  it('logout reason 最长 64', async () => {
+    const short = new LogoutDto();
+    short.reason = 'a'.repeat(64);
+    expect(await validate(short)).toEqual([]);
+    const long = new LogoutDto();
+    long.reason = 'a'.repeat(65);
+    const errors = await validate(long);
+    expect(errors.some((error) => error.constraints && 'maxLength' in error.constraints)).toBe(true);
   });
 });

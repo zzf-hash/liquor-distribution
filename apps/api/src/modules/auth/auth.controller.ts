@@ -1,5 +1,5 @@
 import { Body, Controller, Get, HttpCode, Ip, Post } from '@nestjs/common';
-import { IsOptional, IsString, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser } from '../../common/current-user.decorator';
@@ -15,8 +15,9 @@ class LoginDto {
   @IsOptional() @IsString() tenantCode?: string;
 }
 
-class LogoutDto {
-  @IsOptional() @IsString() reason?: string;
+export class LogoutDto {
+  /** 写入审计。客户端可填，最长 64，避免把任意长文本灌进审计表。 */
+  @IsOptional() @IsString() @MaxLength(64) reason?: string;
 }
 
 @Controller('auth')

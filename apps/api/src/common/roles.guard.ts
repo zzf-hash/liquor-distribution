@@ -17,14 +17,12 @@ export class RolesGuard implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    const req = context.switchToHttp().getRequest<{ user?: AuthUser; path?: string; url?: string; originalUrl?: string }>();
+    const req = context.switchToHttp().getRequest<{ user?: AuthUser }>();
     const user = req.user;
-    // 2026-10 安全审查(P1): 无 @Roles 元数据的路由原先无条件放行(fail-open), CUSTOMER token 可达
-    // telemetry/summary、health/notify-status 等内勤接口。信道分离原则(P1-1): 客户信道必须显式
-    // 声明 @Roles('CUSTOMER'), 未声明路由一律对 customer aud 关闭。
-    // auth/me、logout 是已登录用户的本人接口, 五种角色都放行, 否则客户无法校验会话、也无法吊销令牌。
+    // 2026-10 安全审查(P1): 无 @Roles 元数据的路由原先无条件放行(fail-open)。
+    // 客户信道必须显式声明 @Roles('CUSTOMER')。me / logout 也写在方法上，不再按路径放行。
     if (!required || required.length === 0) {
-      if (user?.aud === 'customer' && !isSelfServiceAuth(req)) {
+      if (user?.aud === 'customer') {
         throw new ForbiddenException('客户身份不可调用内勤接口');
       }
       return true;
@@ -38,13 +36,4 @@ export class RolesGuard implements CanActivate {
     }
     return true;
   }
-}
-
-const SELF_SERVICE_AUTH = new Set(['/api/auth/me', '/api/auth/logout', '/auth/me', '/auth/logout']);
-
-/** 本人会话接口。客户信道在未写 @Roles 时也要能读身份、作废令牌。 */
-export function isSelfServiceAuth(req: { path?: string; url?: string; originalUrl?: string }): boolean {
-  const raw = req.path || req.originalUrl || req.url || '';
-  const path = raw.split('?')[0].replace(/\/+$/, '') || '/';
-  return SELF_SERVICE_AUTH.has(path);
 }
