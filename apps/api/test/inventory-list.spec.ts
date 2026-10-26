@@ -4,6 +4,7 @@ import { Reflector } from '@nestjs/core';
 import { ROLES_KEY, RolesGuard } from '../src/common/roles.guard';
 import {
   ReportsController,
+  escapeLikeLiteral,
   ledgerOnHand,
   locationsFromBatches,
   lowStockThreshold,
@@ -160,5 +161,40 @@ describe('inventory product list caliber', () => {
       expect(JSON.stringify(call.where)).toContain('tenant-a');
       expect(JSON.stringify(call.where)).not.toContain('tenant-b');
     }
+  });
+
+  it('escapes percent, underscore and backslash before the contains filter', () => {
+    expect(escapeLikeLiteral('%')).toBe('\\%');
+    expect(escapeLikeLiteral('_')).toBe('\\_');
+    expect(escapeLikeLiteral('\\')).toBe('\\\\');
+    expect(escapeLikeLiteral('100%_a\\b')).toBe('100\\%\\_a\\\\b');
+    expect(escapeLikeLiteral('酱香')).toBe('酱香');
+  });
+
+  it('searches those characters as literals', async () => {
+    const seen: unknown[] = [];
+    const prisma = {
+      product: {
+        count: jest.fn(async ({ where }: { where: unknown }) => {
+          seen.push(where);
+          return 0;
+        }),
+        findMany: jest.fn(async () => []),
+      },
+      systemConfig: { findFirst: jest.fn(async () => null) },
+      batchStock: { findMany: jest.fn() },
+      orderLine: { findMany: jest.fn() },
+    };
+    const ctrl = new ReportsController(prisma as never);
+    await ctrl.inventoryProducts({ tenantId: 'tenant-a', role: 'OWNER' } as never, '%_\\', '1', '20');
+    const literal = '\\%\\_\\\\';
+    expect(seen[0]).toMatchObject({
+      tenantId: 'tenant-a',
+      OR: [
+        { name: { contains: literal, mode: 'insensitive' } },
+        { skuCode: { contains: literal, mode: 'insensitive' } },
+        { specText: { contains: literal, mode: 'insensitive' } },
+      ],
+    });
   });
 });

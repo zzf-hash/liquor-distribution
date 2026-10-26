@@ -15,6 +15,8 @@ import {
   toNum,
 } from '../../../services/api'
 import type { ApprovalItemDTO } from '../../../services/api'
+import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
+import { confirmedRoleForGuard } from '../../../services/session-cache'
 import './index.scss'
 
 type TabKey = 'pending' | 'done'
@@ -54,6 +56,11 @@ export default function BossApprovalsPage() {
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    const home = deniedHomeForConfirmedRole(confirmedRoleForGuard(), '/pages/boss/approvals/index')
+    if (home) {
+      Taro.reLaunch({ url: home })
       return
     }
     void load()

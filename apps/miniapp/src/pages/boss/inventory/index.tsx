@@ -4,6 +4,8 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import RoleTabBar from '../../../components/RoleTabBar'
 import { LOGIN_PAGE, getToken, inventoryApi } from '../../../services/api'
+import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
+import { confirmedRoleForGuard } from '../../../services/session-cache'
 import {
   inventoryPageCount,
   inventorySpecLabel,
@@ -28,11 +30,17 @@ export default function InventoryListPage() {
   const [reload, setReload] = useState(0)
 
   useDidShow(() => {
-    if (!getToken()) Taro.reLaunch({ url: LOGIN_PAGE })
+    if (!getToken()) {
+      Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    const home = deniedHomeForConfirmedRole(confirmedRoleForGuard(), '/pages/boss/inventory/index')
+    if (home) Taro.reLaunch({ url: home })
   })
 
   useEffect(() => {
     if (!getToken()) return
+    if (deniedHomeForConfirmedRole(confirmedRoleForGuard(), '/pages/boss/inventory/index')) return
     let cancelled = false
     setLoading(true)
     setError('')

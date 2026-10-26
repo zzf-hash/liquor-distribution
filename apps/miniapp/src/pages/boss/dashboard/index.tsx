@@ -3,6 +3,8 @@ import { Button, Text, View } from '@tarojs/components'
 import Icon from '../../../components/Icon'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
 import { LOGIN_PAGE, agingApi, dashboardApi, defaultArBucketLabels, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
+import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
+import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import type { ArBucket, FourQuestionsDTO } from '../../../services/api'
 import RoleTabBar from '../../../components/RoleTabBar'
@@ -40,6 +42,11 @@ export default function BossDashboardPage() {
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    const home = deniedHomeForConfirmedRole(confirmedRoleForGuard(), '/pages/boss/dashboard/index')
+    if (home) {
+      Taro.reLaunch({ url: home })
       return
     }
     void load()

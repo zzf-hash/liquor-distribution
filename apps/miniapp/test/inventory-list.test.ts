@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { guardRedirect } from '../src/services/route-guard'
+import { deniedHomeForConfirmedRole, guardRedirect } from '../src/services/route-guard'
 import { ROLE_HOME_PAGE } from '../src/config/role-home'
 import {
   inventoryCardLines,
@@ -67,5 +67,25 @@ describe('inventory list', () => {
     expect(guardRedirect('CLERK', '/pages/boss/inventory/index')).toBeNull()
     expect(guardRedirect('WAREHOUSE', '/pages/boss/inventory/index')).toBeNull()
     expect(guardRedirect('', '/pages/boss/inventory/index')).toBe('/pages/staff/login/index')
+  })
+
+  it('sends a rep who types the inventory url back to the salesman home', () => {
+    expect(guardRedirect('REP', '#/pages/boss/inventory/index')).toBe(ROLE_HOME_PAGE.REP)
+    expect(guardRedirect('REP', '/pages/boss/inventory/index?from=url')).toBe(ROLE_HOME_PAGE.REP)
+    expect(deniedHomeForConfirmedRole('REP', '/pages/boss/inventory/index')).toBe(ROLE_HOME_PAGE.REP)
+    expect(deniedHomeForConfirmedRole('', '/pages/boss/inventory/index')).toBeNull()
+    expect(deniedHomeForConfirmedRole('OWNER', '/pages/boss/inventory/index')).toBeNull()
+  })
+
+  it('matches the other boss pages to the owner and clerk api', () => {
+    for (const route of ['/pages/boss/home/index', '#/pages/boss/dashboard/index', '/pages/boss/approvals/index?x=1']) {
+      expect(guardRedirect('REP', route)).toBe(ROLE_HOME_PAGE.REP)
+      expect(guardRedirect('WAREHOUSE', route)).toBe(ROLE_HOME_PAGE.WAREHOUSE)
+      expect(guardRedirect('OWNER', route)).toBeNull()
+      expect(guardRedirect('CLERK', route)).toBeNull()
+    }
+    expect(guardRedirect('REP', '/pages/salesman/home/index')).toBeNull()
+    expect(guardRedirect('CLERK', '/pages/clerk/orders/index')).toBeNull()
+    expect(guardRedirect('WAREHOUSE', '/pages/warehouse/home/index')).toBeNull()
   })
 })

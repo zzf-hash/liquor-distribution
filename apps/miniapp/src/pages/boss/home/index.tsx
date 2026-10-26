@@ -4,6 +4,8 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
 import { LOGIN_PAGE, approvalsApi, dashboardApi, fmtMoney, getToken, getUserName, signOut } from '../../../services/api'
+import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
+import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
@@ -23,6 +25,11 @@ export default function BossHomePage() {
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
+      return
+    }
+    const home = deniedHomeForConfirmedRole(confirmedRoleForGuard(), '/pages/boss/home/index')
+    if (home) {
+      Taro.reLaunch({ url: home })
       return
     }
     setName(getUserName())

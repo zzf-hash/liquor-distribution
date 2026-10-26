@@ -6,6 +6,25 @@ export const LOGIN_PATH = '/pages/staff/login/index'
 
 const STAFF_ROLES = new Set(['REP', 'CLERK', 'WAREHOUSE', 'OWNER'])
 
+/** 全量库存的接口角色。业务员不在里面。 */
+const INVENTORY_ROLES = new Set(['OWNER', 'CLERK', 'WAREHOUSE'])
+
+/**
+ * 老板首页、看板、审批的接口是 OWNER + CLERK。
+ * 仓管只进库存页，不进这三页。
+ */
+const BOSS_DESK_ROLES = new Set(['OWNER', 'CLERK'])
+
+/**
+ * 比「任意员工」更窄的页面。
+ * 库存单独列出，避免被后面的 pages/boss/ 收成老板和内勤。
+ */
+export function rolesForStaffPage(path: string): ReadonlySet<string> | null {
+  if (path === 'pages/boss/inventory/index' || path.startsWith('pages/boss/inventory/')) return INVENTORY_ROLES
+  if (path.startsWith('pages/boss/')) return BOSS_DESK_ROLES
+  return null
+}
+
 export function normalizeRole(role: string | null | undefined): string {
   return (role ?? '').trim().toUpperCase()
 }
@@ -53,9 +72,21 @@ export function guardRedirect(role: string | null | undefined, route: string): s
     return side === 'staff' ? ROLE_HOME_PAGE.CUSTOMER : null
   }
   if (STAFF_ROLES.has(normalized)) {
-    return side === 'customer' ? (ROLE_HOME_PAGE[normalized] ?? null) : null
+    if (side === 'customer') return ROLE_HOME_PAGE[normalized] ?? null
+    const allowed = rolesForStaffPage(path)
+    if (allowed && !allowed.has(normalized)) return ROLE_HOME_PAGE[normalized] ?? LOGIN_PATH
+    return null
   }
   return LOGIN_PATH
+}
+
+/**
+ * 身份已经确认、且这个角色不能停在该页时，返回他的首页。
+ * 角色还没对上时返回 null，刷新不因空角色被送去登录。
+ */
+export function deniedHomeForConfirmedRole(role: string | null | undefined, route: string): string | null {
+  if (!normalizeRole(role)) return null
+  return guardRedirect(role, route)
 }
 
 /**

@@ -93,7 +93,7 @@ export class ReportsController {
   ): Promise<InventoryProductList> {
     const page = Math.max(1, Number(pageRaw) || 1);
     const pageSize = Math.min(50, Math.max(1, Number(pageSizeRaw) || 20));
-    const keyword = (q ?? '').trim();
+    const keyword = escapeLikeLiteral((q ?? '').trim());
     const where: Prisma.ProductWhereInput = { tenantId: user.tenantId };
     if (keyword) {
       where.OR = [
@@ -398,6 +398,14 @@ export interface InventoryProductList {
   pageSize: number;
   threshold: number;
   generatedAt: string;
+}
+
+/**
+ * Prisma 的 contains 会拼进 ILIKE，PostgreSQL 把 %、_、\ 当通配和转义。
+ * 先把这三个字符变成字面量，搜索词才不会命中全部商品。
+ */
+export function escapeLikeLiteral(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
 
 /** 与四问看板同一条阈值：value.v，否则把 value 本身当数字，都不是数字时用 12。 */
