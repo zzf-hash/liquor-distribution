@@ -47,6 +47,7 @@ export const BOSS_PAGES = [
   'pages/boss/home/index',
   'pages/boss/dashboard/index',
   'pages/boss/approvals/index',
+  'pages/boss/inventory/index',
 ] as const
 
 export const RESERVED_PAGES = {

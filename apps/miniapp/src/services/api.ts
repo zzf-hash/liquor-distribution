@@ -2,6 +2,7 @@
 // 信封约定与 admin 一致（{code:0,data}）；token 存 Taro storage 'ld_token'；
 // BASE 从环境变量读（构建时 TARO_APP_API_BASE 注入），默认本机开发后端。
 import Taro from '@tarojs/taro'
+import { inventoryListQuery, type InventoryProductList } from './inventory-list'
 import { SESSION_KEYS, clearConfirmedRole, sessionFromLogin, setConfirmedRole, type MemorySession } from './session-cache'
 import { reportError, trackEvent } from './telemetry'
 
@@ -768,6 +769,11 @@ export interface FourQuestionsDTO {
 
 export const dashboardApi = {
   fourQuestions: () => request<FourQuestionsDTO>('/dashboard/four-questions'),
+}
+
+export const inventoryApi = {
+  products: (q: string, page: number, pageSize = 20) =>
+    request<InventoryProductList>(inventoryListQuery(q, page, pageSize)),
 }
 
 // ───────────────────────── 老板端·审批中心（GET /approvals · POST /approvals/:id/decide） ─────────────────────────

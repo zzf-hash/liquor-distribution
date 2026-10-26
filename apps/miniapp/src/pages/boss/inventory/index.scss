@@ -1,0 +1,86 @@
+@use '../../../styles/shared' as *;
+
+.inv {
+  padding-bottom: calc(#{$size-tab-bar} + #{$space-xxl} + env(safe-area-inset-bottom));
+}
+
+.inv .plist__search {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  height: $size-input;
+  margin-bottom: $space-md;
+  padding: 0 $space-lg;
+  background: $color-card;
+  border: $border-width solid $color-neutral-line-strong;
+  border-radius: $radius-pill;
+  box-sizing: border-box;
+
+  &--focus {
+    border-color: $border-focus;
+    box-shadow: 0 0 0 6px $color-brand-primary-light;
+  }
+}
+
+.inv .plist__search .plist__input {
+  flex: 1;
+  width: 0;
+  height: calc(#{$size-input} - #{$border-width} * 2);
+  margin: 0;
+  padding: 0;
+  border: none;
+  line-height: calc(#{$size-input} - #{$border-width} * 2);
+  font-size: $font-body;
+  color: $color-text;
+  background: transparent;
+}
+
+.inv__card {
+  margin-bottom: $space-md;
+}
+
+.inv__hd {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $space-sm;
+  margin-bottom: $space-sm;
+}
+
+.inv__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.inv__name {
+  display: block;
+  font-size: $font-body;
+  font-weight: $weight-semibold;
+  color: $color-text;
+  line-height: $line-height-tight;
+}
+
+.inv__spec,
+.inv__place {
+  display: block;
+  margin-top: $space-xxs;
+  font-size: $font-sub;
+  color: $color-text-sub;
+}
+
+.inv__total {
+  margin-top: $space-xs;
+}
+
+.inv__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $space-sm;
+  margin-top: $space-md;
+}
+
+.inv__pager-text {
+  font-size: $font-sub;
+  color: $color-text-sub;
+}

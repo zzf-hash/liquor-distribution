@@ -8,16 +8,17 @@ import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 
-const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; key: 'pick' | 'ship' | 'sign' }> = [
+const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; key: 'pick' | 'ship' | 'sign' | 'stock' }> = [
   { icon: 'box', title: '拣货复核', desc: '按 FIFO 批次拣货', url: '/pages/warehouse/outbounds/index', key: 'pick' },
   { icon: 'bag', title: '发运', desc: '待发运订单', url: '/pages/warehouse/delivering/index', key: 'ship' },
   { icon: 'check', title: '签收', desc: '配送中的单', url: '/pages/warehouse/delivering/index?tab=delivering', key: 'sign' },
+  { icon: 'list', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index', key: 'stock' },
 ]
 
 /** 仓配工作台：横向主任务卡，角标来自已有列表接口的 total。 */
 export default function WarehouseHomePage() {
   const [name, setName] = useState('')
-  const [counts, setCounts] = useState<Partial<Record<'pick' | 'ship' | 'sign', number>>>({})
+  const [counts, setCounts] = useState<Partial<Record<'pick' | 'ship' | 'sign' | 'stock', number>>>({})
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
