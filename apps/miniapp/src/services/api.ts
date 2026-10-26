@@ -6,7 +6,7 @@ import { inventoryListQuery, type InventoryProductList } from './inventory-list'
 import { SESSION_KEYS, clearConfirmedRole, sessionFromLogin, setConfirmedRole, type MemorySession } from './session-cache'
 import { reportError, trackEvent } from './telemetry'
 
-const BASE: string = process.env.TARO_APP_API_BASE || 'http://127.0.0.1:3000/api'
+const BASE: string = process.env.TARO_APP_API_BASE || 'https://js.zvinci.cn/api'
 export { BASE }
 
 const TOKEN_KEY = SESSION_KEYS.token
