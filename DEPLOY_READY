@@ -1,4 +1,6 @@
-commit: c11331f
-build: api+web镜像(服务器构建) 批1安全修复上线(d24dca7..c11331f): 子代理8分片扫描核验后修复——roles.guard fail-open→fail-closed(无@Roles路由对CUSTOMER关闭)/telemetry summary收紧OWNER+CLERK/drafts+special-orders行级归属(REP横向越权收口)/orders outbound补CLERK(内勤拣货单403)/admin resolveDispute路径404/audit分页NaN守护
-smoke: owner→summary 200/owner→audit?page=abc 200(原500)/customer→summary 403/customer→notify-status 403/customer→shop/products 200正路无伤/jest 60+tsc绿
-rollback: liquor/{api,web}:rollback-1015
+commit: b378343
+build: api+web镜像(服务器构建, ~/liquor-src) e84d063..b378343: 233文件——RLS启用(45表FORCE)/liquor_app业务角色+grant迁移/统一角色包(d03f79a revoke旧token)/CORS收紧/登录限流/毛利报表/退货收货计划/前端Settings+反向行
+fix: web.Dockerfile 补 COPY packages/shared + 先构建 shared(admin 新引用 @liquor/shared 导致 tsc TS2307, 未提交)
+smoke: https 200(js.zvinci.cn) / health ok / owner+clerk+warehouse 登录角色正确 / products+customers code=0 (只读未下单)
+verify: RLS三查通过——liquor_app非超管不绕RLS / FORCE RLS表=45 / 自有表=0; API日志「不是超级用户, 不绕过RLS」
+rollback: liquor/{api,web}:e84d063(上一版latest, 仍在服务器)
