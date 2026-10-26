@@ -10,7 +10,7 @@ import { requirePriceUnit } from '../../common/require-price-unit';
 // ═══════════════ C组 随单赠规则引擎 (M3-1 买N送M) ═══════════════
 // 规则商品级: 下单管线(OrdersService.create)对命中的行自动追加 0 价赠品行(promoNote 留痕),
 // 赠品计入库存预检; 三入口(内勤/代下/客户商城)统一生效。
-// GET  /promotions                生效中+已关闭列表(全员可读, 商城展示用)
+// GET  /promotions                员工可见全部(含已关闭和 note)；客户只看生效中，且不返回 note
 // POST /promotions                新建(老板/内勤)
 // POST /promotions/:id/close      关闭
 
@@ -36,7 +36,9 @@ export class PromotionsController {
   @Roles('OWNER', 'CLERK', 'REP', 'WAREHOUSE', 'CUSTOMER')
   async list(@CurrentUser() user: AuthUser, @Query('active') active?: string): Promise<unknown> {
     const now = new Date();
-    const where = active === '1'
+    const customer = user.role === 'CUSTOMER' || user.aud === 'customer';
+    const onlyActive = customer || active === '1';
+    const where = onlyActive
       ? { tenantId: user.tenantId, closedAt: null, validFrom: { lte: now }, OR: [{ validTo: null }, { validTo: { gte: now } }] }
       : { tenantId: user.tenantId };
     const rows = await this.prisma.promotion.findMany({
@@ -47,13 +49,17 @@ export class PromotionsController {
         giftProduct: { select: { skuCode: true, name: true } },
       },
     });
-    return rows.map((p) => ({
-      id: p.id, kind: p.kind, productId: p.productId, productName: p.product.name, skuCode: p.product.skuCode,
-      giftProductId: p.giftProductId, giftProductName: p.giftProduct?.name ?? p.product.name,
-      buyQty: p.buyQty, giftQty: p.giftQty, unit: p.unit, unitLabel: p.unit === 'BASE' ? p.product.baseUnit : p.product.minUnit,
-      validFrom: p.validFrom, validTo: p.validTo, closedAt: p.closedAt, note: p.note,
-      active: !p.closedAt && p.validFrom <= now && (!p.validTo || p.validTo >= now),
-    }));
+    return rows.map((p) => {
+      const item: Record<string, unknown> = {
+        id: p.id, kind: p.kind, productId: p.productId, productName: p.product.name, skuCode: p.product.skuCode,
+        giftProductId: p.giftProductId, giftProductName: p.giftProduct?.name ?? p.product.name,
+        buyQty: p.buyQty, giftQty: p.giftQty, unit: p.unit, unitLabel: p.unit === 'BASE' ? p.product.baseUnit : p.product.minUnit,
+        validFrom: p.validFrom, validTo: p.validTo, closedAt: p.closedAt,
+        active: !p.closedAt && p.validFrom <= now && (!p.validTo || p.validTo >= now),
+      };
+      if (!customer) item.note = p.note;
+      return item;
+    });
   }
 
   @Post()
