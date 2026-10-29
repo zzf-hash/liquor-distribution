@@ -1101,7 +1101,8 @@ button.task-card {
   display: flex;
   flex-direction: column;
   gap: $space-card-gap;
-  margin-top: $space-overlap;
+  // 稿面压住头部 28。-28px 在 375 视口只剩 14px，卡顶正好压住金线。
+  margin-top: calc(#{$space-overlap} * 2);
   margin-bottom: $space-xxl;
 }
 

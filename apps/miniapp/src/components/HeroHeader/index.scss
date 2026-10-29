@@ -17,6 +17,17 @@
   margin-right: (-$space-page);
 }
 
+// 稿面头部底部留 60。按 750 稿写成 60px 时，375 视口只剩 30px，仓管和内勤头部显得太矮。
+.grid-home--hero > .hh {
+  padding-bottom: calc(#{$space-hero-bottom} * 2);
+}
+
+// 金线放在压入区上方。压入 28 视口像素，线底再抬 8 视口像素，白卡不会盖住细线。
+.grid-home--hero > .hh::after {
+  bottom: calc(28px * 2 + 8px);
+  height: 2px;
+}
+
 .hh__nav {
   display: flex;
   align-items: center;

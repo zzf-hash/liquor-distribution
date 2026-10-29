@@ -124,7 +124,7 @@ for (const file of pageJsFiles) {
     ]) {
       if (!commonClasses.has(className)) fail(`common.js 缺少入口卡 class ${className}`)
     }
-    expectRule(wxss, page, 'entry-list', ['display:flex', 'flex-direction:column', 'gap:24rpx', 'margin-top:-28rpx'])
+    expectRule(wxss, page, 'entry-list', ['display:flex', 'flex-direction:column', 'gap:24rpx', 'margin-top:-56rpx'])
     expectRule(wxss, page, 'entry-card', [
       'display:flex',
       'flex-direction:row',
@@ -172,6 +172,10 @@ for (const page of homes) {
     fail(`缺少页面 ${page}`)
   }
 }
+
+const commonWxss = readFileSync(path.join(dist, 'common.wxss'), 'utf8')
+expectRule(commonWxss, 'common.wxss', 'hh', ['padding-bottom:120rpx'])
+expectRule(commonWxss, 'common.wxss', 'hh', ['bottom:64rpx'])
 
 if (failures.length > 0) {
   console.error('weapp home wxss check failed:')

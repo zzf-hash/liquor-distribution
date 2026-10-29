@@ -32,45 +32,54 @@ function currentMonth(): string {
 export default function SalesmanHomePage() {
   const [name, setName] = useState('')
   const [perf, setPerf] = useState<PerfItemDTO | null>(null)
-  const [perfReady, setPerfReady] = useState(false)
+  const [perfState, setPerfState] = useState<'loading' | 'ready' | 'empty' | 'error'>('loading')
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
     setName(getUserName())
+    setPerfState('loading')
     performanceApi.monthly(currentMonth())
       .then((data) => {
         const items = data.items ?? []
         const mine = items.find((it) => it.repId === getUserId()) ?? (items.length === 1 ? items[0] : undefined)
         setPerf(mine ?? null)
+        setPerfState(mine ? 'ready' : 'empty')
       })
-      .catch(() => setPerf(null))
-      .finally(() => setPerfReady(true))
+      .catch(() => {
+        setPerf(null)
+        setPerfState('error')
+      })
   })
 
   function logout() {
     void signOut()
   }
 
+  // GET /performance?month= 的 items 为空是「这个月没有业绩行」，不是接口失败。
+  // 失败和加载中仍用占位。回款、提成是金额；拜访、新客是计数。
+  const perfPlaceholder = perfState === 'loading' || perfState === 'error'
+  const visitText = `${perf?.visitCount ?? 0}${perf?.visitTarget ? `/${perf.visitTarget}` : ''}`
+
   return (
     <View className='grid-home grid-home--hero'>
       <HeroHeader title={`你好，${name || '业务员'}`} sub="跑店、报单、收款" badge="业务员" nav={false}>
         <Text className='hero__k'>本月回款</Text>
-        <Text className='hero__num'>{perf ? fmtMoney(perf.paymentAmount) : '—'}</Text>
-        {!perfReady ? <Text className='hero__k'>加载中</Text> : null}
+        <Text className='hero__num'>{perfPlaceholder ? '—' : fmtMoney(perf?.paymentAmount ?? 0)}</Text>
+        {perfState === 'loading' ? <Text className='hero__k'>加载中</Text> : null}
         <View className='hero__stats'>
           <View className='hero__stat'>
             <Text className='hero__stat-k'>拜访</Text>
-            <Text className='hero__stat-v'>{perf ? `${perf.visitCount}${perf.visitTarget ? `/${perf.visitTarget}` : ''}` : '—'}</Text>
+            <Text className='hero__stat-v'>{perfPlaceholder ? '—' : visitText}</Text>
           </View>
           <View className='hero__stat'>
             <Text className='hero__stat-k'>新客</Text>
-            <Text className='hero__stat-v'>{perf ? perf.newCustomers : '—'}</Text>
+            <Text className='hero__stat-v'>{perfPlaceholder ? '—' : String(perf?.newCustomers ?? 0)}</Text>
           </View>
           <View className='hero__stat'>
             <Text className='hero__stat-k'>提成</Text>
-            <Text className='hero__stat-v'>{perf ? fmtMoney(perf.commission) : '—'}</Text>
+            <Text className='hero__stat-v'>{perfPlaceholder ? '—' : fmtMoney(perf?.commission ?? 0)}</Text>
           </View>
         </View>
       </HeroHeader>
