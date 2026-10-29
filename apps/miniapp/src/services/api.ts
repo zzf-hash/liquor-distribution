@@ -908,6 +908,21 @@ export interface CustomerRowDTO {
   salesperson?: { id: string; name: string } | null
 }
 
+export interface CreatedCustomerDTO {
+  id: string
+  code: string
+  name: string
+  onboarding: string
+  salespersonId?: string | null
+}
+
+export interface StaffUserDTO {
+  id: string
+  name: string
+  role: string
+  status: string
+}
+
 export const customersApi = {
   list: (params?: { q?: string; page?: number; pageSize?: number }) => {
     const qs: string[] = []
@@ -915,6 +930,19 @@ export const customersApi = {
     qs.push(`page=${params?.page ?? 1}`)
     qs.push(`pageSize=${params?.pageSize ?? 200}`)
     return request<PageResult<CustomerRowDTO>>(`/customers?${qs.join('&')}`)
+  },
+  /** POST /customers。业务员不传 salespersonId 时，后端把客户挂到当前用户。 */
+  create: (body: Record<string, unknown>) =>
+    request<CreatedCustomerDTO>('/customers', { method: 'POST', body }),
+}
+
+export const usersApi = {
+  /** GET /users 仅老板和内勤。业务员建档不需要这份名单。 */
+  listReps: async (): Promise<Array<{ id: string; name: string }>> => {
+    const rows = await request<StaffUserDTO[]>('/users')
+    return (rows ?? [])
+      .filter((user) => user.role === 'REP' && user.status === 'ACTIVE')
+      .map((user) => ({ id: user.id, name: user.name }))
   },
 }
 
