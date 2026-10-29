@@ -31,9 +31,8 @@ import ReceivablesPage from './pages/receivables/ReceivablesPage';
 import StatementsPage from './pages/statements/StatementsPage';
 import ReportsPage from './pages/reports/ReportsPage';
 import StockAlertPage from './pages/stock-alert/StockAlertPage';
-import { ADMIN_ROUTES, MENU_ROLES, ROLE_LABELS } from './constants/roles';
+import { ROLE_LABELS, routesForRole, shellEntry } from './constants/roles';
 import { getAuth, clearAuth } from './services/auth';
-import type { Role } from './constants/roles';
 import { RequireAuth } from './components/RequireAuth';
 
 const ICONS: Record<string, ReactNode> = {
@@ -83,15 +82,25 @@ function Shell(): JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const auth = getAuth();
-  const role: Role = auth?.role ?? 'owner';
+  const entry = shellEntry(auth?.role);
+  if (entry.kind === 'login') {
+    clearAuth();
+    return <Navigate to="/login" replace />;
+  }
+  const role = auth?.role ?? '';
 
-  // 菜单按角色显隐（§2.1 各岗位只看自己的一屏）
-  const visibleRoutes = ADMIN_ROUTES.filter((r) => (MENU_ROLES[r.path] ?? []).includes(role));
+  // 菜单按角色显隐。首页落到第一项可见路由，不再写死订单池。
+  const visibleRoutes = routesForRole(role);
   const menuData: MenuDataItem[] = visibleRoutes.map((r) => ({
     path: r.path,
     name: r.name,
     icon: ICONS[r.icon],
   }));
+
+  function logout(): void {
+    clearAuth();
+    navigate('/login', { replace: true });
+  }
 
   return (
     <ProLayout
@@ -105,24 +114,17 @@ function Shell(): JSX.Element {
         item.path ? <Link to={item.path}>{dom}</Link> : dom
       }
       avatarProps={{
-        title: `${auth?.name ?? ''}（${ROLE_LABELS[role] ?? role}）`,
+        title: `${auth?.name ?? ''}（${ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role}）`,
         size: 'small',
         render: (_props, dom) => (
-          <Button
-            type="text"
-            icon={<LogoutOutlined />}
-            onClick={() => {
-              clearAuth();
-              navigate('/login', { replace: true });
-            }}
-          >
+          <Button type="text" icon={<LogoutOutlined />} onClick={logout}>
             {dom}
           </Button>
         ),
       }}
     >
       <Routes>
-        <Route path="/" element={<Navigate to="/orders" replace />} />
+        {entry.kind === 'home' ? <Route path="/" element={<Navigate to={entry.path} replace />} /> : null}
         {visibleRoutes.map((r) => (
           <Route
             key={r.path}
@@ -132,7 +134,15 @@ function Shell(): JSX.Element {
         ))}
         <Route
           path="*"
-          element={<Result status="404" title="404" subTitle="页面不存在" />}
+          element={entry.kind === 'denied' ? (
+            <Result
+              status="403"
+              title="该账号无后台权限"
+              extra={<Button type="primary" onClick={logout}>退出登录</Button>}
+            />
+          ) : (
+            <Result status="404" title="404" subTitle="页面不存在" />
+          )}
         />
       </Routes>
     </ProLayout>

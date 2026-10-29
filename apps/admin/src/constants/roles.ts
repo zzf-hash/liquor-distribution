@@ -11,6 +11,13 @@ export const ROLE_LABELS: Record<Role, string> = {
   customer: '客户',
 };
 
+const ADMIN_ROLES = new Set<Role>(['owner', 'rep', 'clerk', 'warehouse']);
+
+/** 客户和没有角色的会话不能进后台。 */
+export function isAdminRole(role: string | null | undefined): role is Role {
+  return !!role && ADMIN_ROLES.has(role as Role);
+}
+
 // 五模块菜单 × 可见角色（计划书§4.1 内勤后台 + §3.2 岗位分工）
 // /orders 全部内勤角色(owner/clerk/warehouse)+owner；主数据/应收=老板+内勤；报表/配置=老板
 // P1 新增：审批中心=老板+内勤；特单=F8 全员下单(owner/clerk/rep)；退货=内勤+仓配
@@ -69,3 +76,20 @@ export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/stock-alert', name: '库存预警', icon: 'AlertOutlined', taskId: 'P2 每日库存报表+动态阈值预警+自动报货' },
   { path: '/settings', name: '配置', icon: 'SettingOutlined', taskId: 'M0-01 业务规则配置' },
 ];
+
+/** 当前角色在菜单矩阵里看得到的路由，顺序与 ADMIN_ROUTES 一致。 */
+export function routesForRole(role: string | null | undefined): RouteDef[] {
+  if (!role) return [];
+  return ADMIN_ROUTES.filter((route) => (MENU_ROLES[route.path] ?? []).includes(role as Role));
+}
+
+/**
+ * 登录后的落点。没有角色回登录页；有角色但一项菜单都没有，停在无权限页。
+ * 不把缺省角色当成老板。
+ */
+export function shellEntry(role: string | null | undefined): { kind: 'login' } | { kind: 'denied' } | { kind: 'home'; path: string } {
+  if (!role) return { kind: 'login' };
+  const path = routesForRole(role)[0]?.path;
+  if (!path) return { kind: 'denied' };
+  return { kind: 'home', path };
+}
