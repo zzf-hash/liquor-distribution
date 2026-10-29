@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
 import { LOGIN_PAGE, approvalsApi, dashboardApi, fmtMoney, getToken, getUserName, signOut } from '../../../services/api'
 import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
+import EntryCard from '../../../components/EntryCard'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 import HeroHeader from '../../../components/HeroHeader'
@@ -56,22 +56,19 @@ export default function BossHomePage() {
         <Text className='hero__num'>{sales ?? '—'}</Text>
         {!salesReady ? <Text className='hero__k'>加载中</Text> : null}
       </HeroHeader>
-      <View className='task-list'>
+      <View className='entry-list'>
         {TILES.map((t) => (
-          <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
-            <View className='tile__icon'><Icon name={t.icon} color='#7A1F2B' size={44} /></View>
-            <View>
-              <Text className='task-card__title'>
-                {t.title}
-                {t.title === '审批中心' && pending != null && pending > 0 ? <Text className='badge'>{pending}</Text> : null}
-              </Text>
-              <Text className='task-card__desc'>{t.desc}</Text>
-            </View>
-            <Text className='frow__arrow'>›</Text>
-          </Button>
+          <EntryCard
+            key={t.title}
+            icon={t.icon}
+            title={t.title}
+            desc={t.desc}
+            badge={t.title === '审批中心' && pending != null && pending > 0 ? `待审批 ${pending}` : undefined}
+            onClick={() => openAppPage(t.url)}
+          />
         ))}
       </View>
-      <Button className='btn-neutral' onClick={logout}>
+      <Button className='btn-neutral btn-md home-logout' onClick={logout}>
         <Text className='btn-label'>退出登录</Text>
       </Button>
       <RoleTabBar />

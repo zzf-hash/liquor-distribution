@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
-import Icon from '../../../components/Icon'
 import type { IconName } from '../../../components/Icon'
 import { LOGIN_PAGE, getToken, getUserName, ordersApi, signOut } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
+import EntryCard from '../../../components/EntryCard'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 import HeroHeader from '../../../components/HeroHeader'
@@ -16,7 +16,7 @@ const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; b
   { icon: 'box', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index' },
 ]
 
-/** 内勤工作台：横向主任务卡。订单池角标只读待确认数量。 */
+/** 内勤工作台：列表入口卡。订单池角标只读待确认数量。 */
 export default function ClerkHomePage() {
   const [name, setName] = useState('')
   const [pending, setPending] = useState<number | null>(null)
@@ -38,22 +38,19 @@ export default function ClerkHomePage() {
   return (
     <View className='grid-home grid-home--hero'>
       <HeroHeader title={`您好，${name || '内勤'}`} sub="订单、收款、应收" badge="内勤" nav={false} />
-      <View className='task-list'>
+      <View className='entry-list'>
         {TILES.map((t) => (
-          <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
-            <View className='tile__icon'><Icon name={t.icon} color='#7A1F2B' size={44} /></View>
-            <View>
-              <Text className='task-card__title'>
-                {t.title}
-                {t.badge && pending != null && pending > 0 ? <Text className='badge'>{pending}</Text> : null}
-              </Text>
-              <Text className='task-card__desc'>{t.desc}</Text>
-            </View>
-            <Text className='frow__arrow'>›</Text>
-          </Button>
+          <EntryCard
+            key={t.title}
+            icon={t.icon}
+            title={t.title}
+            desc={t.desc}
+            badge={t.badge && pending != null && pending > 0 ? `待确认 ${pending}` : undefined}
+            onClick={() => openAppPage(t.url)}
+          />
         ))}
       </View>
-      <Button className='btn-neutral' onClick={logout}>
+      <Button className='btn-neutral btn-md home-logout' onClick={logout}>
         <Text className='btn-label'>退出登录</Text>
       </Button>
       <RoleTabBar />

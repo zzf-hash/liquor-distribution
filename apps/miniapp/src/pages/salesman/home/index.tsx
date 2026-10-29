@@ -79,7 +79,7 @@ export default function SalesmanHomePage() {
         {PRIMARY.map((t, index) => (
           <Button key={t.title} className={`task-card ${index === 0 ? 'task-card--lead' : ''}`} onClick={() => openAppPage(t.url)}>
             <View className='tile__icon'><Icon name={t.icon} color={index === 0 ? '#C9A46A' : '#7A1F2B'} size={44} /></View>
-            <View>
+            <View className='task-card__main'>
               <Text className='task-card__title'>{t.title}</Text>
               <Text className='task-card__desc'>{t.desc}</Text>
             </View>
@@ -101,7 +101,7 @@ export default function SalesmanHomePage() {
         <Text className='state__txt'>今天没有新的待办。拜访和收款进度在对应入口里查看。</Text>
       </View>
 
-      <Button className='btn-neutral' onClick={logout}>
+      <Button className='btn-neutral btn-md home-logout' onClick={logout}>
         <Text className='btn-label'>退出登录</Text>
       </Button>
       <RoleTabBar />
