@@ -11,7 +11,7 @@
     "dev:weapp": "npm run build:weapp -- --watch",
     "dev:h5": "npm run build:h5 -- --watch",
     "test": "vitest run",
-    "check:bundle": "node scripts/check-no-process-env.mjs"
+    "check:bundle": "node scripts/check-no-process-env.mjs && node scripts/check-weapp-home-wxss.mjs"
   },
   "browserslist": [
     "defaults and fully supports es6-module",

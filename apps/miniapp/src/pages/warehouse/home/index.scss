@@ -1,1 +1,7 @@
 @use '../../../styles/shared' as *;
+
+// 四个首页如果打出字节级相同的 css，vite 会合成一份资源，
+// taro 只把 index.wxss 写到其中一个页面。各页留一个不同的自定义属性，避免再被合并。
+.grid-home--hero {
+  --ld-page: warehouse-home;
+}
