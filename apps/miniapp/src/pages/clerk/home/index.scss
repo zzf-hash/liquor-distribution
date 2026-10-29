@@ -1,1 +1,6 @@
 @use '../../../styles/shared' as *;
+
+// 见 warehouse/home/index.scss：相同 css 会被合并，本页必须有自己的 wxss。
+.grid-home--hero {
+  --ld-page: clerk-home;
+}
