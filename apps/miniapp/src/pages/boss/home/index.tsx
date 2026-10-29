@@ -9,6 +9,7 @@ import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }> = [
   { icon: 'chart', title: '四问看板', desc: '销售、回款、欠款、库存预警', url: '/pages/boss/dashboard/index' },
@@ -22,6 +23,7 @@ const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }>
 export default function BossHomePage() {
   const [name, setName] = useState('')
   const [sales, setSales] = useState<string | null>(null)
+  const [salesReady, setSalesReady] = useState(false)
   const [pending, setPending] = useState<number | null>(null)
   useDidShow(() => {
     if (!getToken()) {
@@ -37,6 +39,7 @@ export default function BossHomePage() {
     dashboardApi.fourQuestions()
       .then((d) => setSales(fmtMoney(d.salesToday?.amount)))
       .catch(() => setSales(null))
+      .finally(() => setSalesReady(true))
     approvalsApi.list('PENDING')
       .then((r) => setPending(r.total))
       .catch(() => setPending(null))
@@ -47,19 +50,12 @@ export default function BossHomePage() {
   }
 
   return (
-    <View className='grid-home'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>您好，{name || '老板'}</Text>
-          <Text className='page-head__sub'>今天生意怎么样</Text>
-        </View>
-        <Text className='tag tag--brand'>老板</Text>
-      </View>
-      <View className='brand-card' onClick={() => openAppPage('/pages/boss/dashboard/index')}>
-        <Text className='brand-card__k'>今日销售</Text>
-        <Text className='brand-card__v'>{sales ?? '—'}</Text>
-        <Text className='brand-card__k'>点进四问看板看回款、欠款和库存</Text>
-      </View>
+    <View className='grid-home grid-home--hero'>
+      <HeroHeader title={`您好，${name || '老板'}`} sub="今天生意怎么样" badge="老板" nav={false}>
+        <Text className='hero__k'>今日销售</Text>
+        <Text className='hero__num'>{sales ?? '—'}</Text>
+        {!salesReady ? <Text className='hero__k'>加载中</Text> : null}
+      </HeroHeader>
       <View className='task-list'>
         {TILES.map((t) => (
           <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
@@ -71,10 +67,13 @@ export default function BossHomePage() {
               </Text>
               <Text className='task-card__desc'>{t.desc}</Text>
             </View>
+            <Text className='frow__arrow'>›</Text>
           </Button>
         ))}
       </View>
-      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
+      <Button className='btn-neutral' onClick={logout}>
+        <Text className='btn-label'>退出登录</Text>
+      </Button>
       <RoleTabBar />
     </View>
   )

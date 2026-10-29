@@ -7,6 +7,7 @@ import { LOGIN_PAGE, getToken, getUserName, ordersApi, signOut } from '../../../
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; badge?: boolean }> = [
   { icon: 'list', title: '订单池', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
@@ -35,14 +36,8 @@ export default function ClerkHomePage() {
   }
 
   return (
-    <View className='grid-home'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>您好，{name || '内勤'}</Text>
-          <Text className='page-head__sub'>订单、收款、应收</Text>
-        </View>
-        <Text className='tag tag--brand'>内勤</Text>
-      </View>
+    <View className='grid-home grid-home--hero'>
+      <HeroHeader title={`您好，${name || '内勤'}`} sub="订单、收款、应收" badge="内勤" nav={false} />
       <View className='task-list'>
         {TILES.map((t) => (
           <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
@@ -54,10 +49,13 @@ export default function ClerkHomePage() {
               </Text>
               <Text className='task-card__desc'>{t.desc}</Text>
             </View>
+            <Text className='frow__arrow'>›</Text>
           </Button>
         ))}
       </View>
-      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
+      <Button className='btn-neutral' onClick={logout}>
+        <Text className='btn-label'>退出登录</Text>
+      </Button>
       <RoleTabBar />
     </View>
   )

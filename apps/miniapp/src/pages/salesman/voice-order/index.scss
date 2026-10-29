@@ -4,7 +4,7 @@
 .vo {
   min-height: 100vh;
   background: $color-bg;
-  padding: $gap-base;
+  padding: $space-page;
   box-sizing: border-box;
 }
 
@@ -47,16 +47,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 160px;
-  height: 160px;
-  min-height: 160px;
+  width: 144px;
+  height: 144px;
+  min-height: 144px;
   margin: 0;
   padding: 0;
   font-size: $font-body;
   font-weight: $weight-semibold;
   color: $color-neutral-white;
   background: $color-primary;
-  border: none;
+  border: 3px solid $color-brand-gold;
   border-radius: $radius-pill;
 
   &::after {

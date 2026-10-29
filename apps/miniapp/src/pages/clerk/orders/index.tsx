@@ -15,6 +15,7 @@ import {
 import type { StaffOrderRowDTO } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 // 订单池 tab（与后端 OrderStatus 对齐；已取消/已拒收走服务端历史，不单设 tab）
 const TABS: Array<{ key: string; label: string }> = [
@@ -65,10 +66,7 @@ export default function ClerkOrdersPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
-        <Text className='topbar__title'>订单池</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
-      </View>
+            <HeroHeader title='订单池' />
 
       <TabsScroll intoView={`tab-${tab}`}>
         {TABS.map((t) => (

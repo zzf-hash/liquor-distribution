@@ -1,5 +1,6 @@
 import { PropsWithChildren } from 'react'
-import { useDidShow, useError, useLaunch } from '@tarojs/taro'
+import Taro, { useDidShow, useError, useLaunch } from '@tarojs/taro'
+import { DIGIT_FONT_FAMILY, DIGIT_FONT_SOURCE } from './assets/fonts/digit-font'
 import { LOGIN_PAGE, authApi, clearSession, readSession, writeSession } from './services/api'
 import { sessionAfterMe } from './services/session-cache'
 import { guardRedirect, homeForRole } from './services/route-guard'
@@ -71,6 +72,16 @@ async function validateCachedToken(): Promise<void> {
 
 function App({ children }: PropsWithChildren<any>) {
   useLaunch(() => {
+    try {
+      Taro.loadFontFace({
+        global: true,
+        family: DIGIT_FONT_FAMILY,
+        source: DIGIT_FONT_SOURCE,
+        fail: () => undefined,
+      })
+    } catch {
+      // 字体加载失败时回退到无衬线，不影响页面。
+    }
     installRouteGuard()
     void validateCachedToken()
   })

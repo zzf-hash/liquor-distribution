@@ -19,6 +19,7 @@ import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TYPE_OPTIONS = Object.entries(CUSTOMER_TYPE_LABELS).map(([value, label]) => ({ value, label }))
 
@@ -143,12 +144,7 @@ export default function CreateCustomerPage() {
           : '未指定归属业务员'
     return (
       <View className='page'>
-        <View className='page-head'>
-          <View className='page-head__main'>
-            <Text className='page-head__title'>客户已建档</Text>
-            <Text className='page-head__sub'>需完成开户审批</Text>
-          </View>
-        </View>
+        <HeroHeader title='客户已建档' sub='需完成开户审批' />
         <View className='card'>
           <Text className='card__title'>{created.name}</Text>
           <Text className='tip'>{created.code}</Text>
@@ -167,13 +163,10 @@ export default function CreateCustomerPage() {
 
   return (
     <View className='page'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>新建客户</Text>
-          <Text className='page-head__sub'>保存后进入开户审批，当前状态是业务员录入</Text>
-        </View>
-      </View>
+      <HeroHeader title='新建客户' sub='保存后进入开户审批，当前状态是业务员录入' />
 
+      <View className='card'>
+        <Text className='card__title'>门店</Text>
       <Line label='客户编码' required value={draft.code} placeholder='如 C1001' onInput={(value) => setDraft((prev) => setField(prev, 'code', value))} />
       <Line label='店名' required value={draft.name} placeholder='门店名称' onInput={(value) => setDraft((prev) => setField(prev, 'name', value))} />
       <Choice label='客户类型' required options={TYPE_OPTIONS} value={draft.type} placeholder='请选择' onChange={(value) => setDraft((prev) => setField(prev, 'type', value))} />
@@ -182,6 +175,9 @@ export default function CreateCustomerPage() {
       <Line label='联系人' value={draft.contact} placeholder='选填' onInput={(value) => setDraft((prev) => setField(prev, 'contact', value))} />
       <Line label='区域' value={draft.region} placeholder='选填' onInput={(value) => setDraft((prev) => setField(prev, 'region', value))} />
       <Line label='地址' required value={draft.address} placeholder='收货地址' onInput={(value) => setDraft((prev) => setField(prev, 'address', value))} />
+      </View>
+      <View className='card'>
+        <Text className='card__title'>结算</Text>
       <Choice
         label='结算方式'
         required
@@ -200,6 +196,9 @@ export default function CreateCustomerPage() {
       />
       <Line label='信用额度' number value={draft.creditLimit} placeholder='选填' onInput={(value) => setDraft((prev) => setField(prev, 'creditLimit', value))} />
       <Line label='起送金额' number value={draft.minOrderAmount} placeholder='选填' onInput={(value) => setDraft((prev) => setField(prev, 'minOrderAmount', value))} />
+      </View>
+      <View className='card'>
+        <Text className='card__title'>收货</Text>
       <Choice
         label='签收方式'
         options={[...SIGN_MODE_OPTIONS]}
@@ -220,6 +219,7 @@ export default function CreateCustomerPage() {
         />
       )}
       <Line label='老板手机' value={draft.bossPhone} placeholder='选填' onInput={(value) => setDraft((prev) => setField(prev, 'bossPhone', value))} />
+      </View>
 
       {error ? <Text className='cc-form__error'>{error}</Text> : null}
       <Button className='btn-primary' loading={submitting} disabled={submitting} onClick={() => { void submit() }}>

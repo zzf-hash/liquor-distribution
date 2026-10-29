@@ -1,0 +1,69 @@
+@use '../../styles/tokens' as *;
+
+.hh {
+  @include hero-bg;
+  margin: (-$space-page) (-$space-page) $space-lg;
+  padding-right: $space-hero-x;
+  padding-bottom: $space-hero-bottom;
+  padding-left: $space-hero-x;
+}
+
+.grid-home--hero > .hh,
+.visit > .hh,
+.vo > .hh {
+  margin-top: 0;
+  margin-left: (-$space-page);
+  margin-right: (-$space-page);
+}
+
+.hh__nav {
+  display: flex;
+  align-items: center;
+  gap: $space-sm;
+  min-width: 0;
+}
+
+.hh__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: $color-neutral-white;
+  font-size: $font-title-hero;
+  font-weight: $weight-semibold;
+  line-height: $line-height-tight;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.hh__badge {
+  flex: none;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: $radius-pill;
+  border: 2px solid rgba(201, 164, 106, 0.65);
+  color: $color-brand-gold;
+  font-size: $font-caption;
+  line-height: 40px;
+}
+
+.hh__sub,
+.hh .hero__k {
+  display: block;
+  margin-top: $space-xxs;
+  color: $color-hero-text-sub;
+  font-size: $font-sub;
+}
+
+.hh__icon {
+  display: flex;
+  align-items: center;
+}
+
+.hh__icon--back {
+  transform: rotate(180deg);
+}
+
+.hh .btn-hero {
+  flex: none;
+  width: auto;
+}

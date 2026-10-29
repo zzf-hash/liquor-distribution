@@ -125,9 +125,11 @@ export default function CustomerStatementsPage() {
 
   return (
     <View className='slist'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>月结对账单</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateBack()}>返回</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateBack()}>
+          <Text className='btn-hero__txt'>返回</Text>
+        </Button>
       </View>
 
       <TabsScroll>
@@ -295,7 +297,9 @@ function DisputePopup({
               onInput={(e) => setItem(i, { content: e.detail.value })}
             />
             {items.length > 1 && (
-              <Text className='dpop__del' onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}>删除本条</Text>
+              <Button className='btn-danger btn-sm' onClick={() => setItems((prev) => prev.filter((_, idx) => idx !== i))}>
+                <Text className='btn-label'>删除本条</Text>
+              </Button>
             )}
           </View>
         ))}

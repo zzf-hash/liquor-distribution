@@ -22,6 +22,7 @@ import {
 } from '../../../services/api'
 import type { OrderDetailDTO, PrecheckView } from '../../../services/api'
 import './index.scss'
+import HeroHeader from '../../../components/HeroHeader'
 
 type PopupKind = 'cancel' | 'special' | null
 
@@ -208,12 +209,10 @@ export default function ClerkOrderDetailPage() {
 
   return (
     <View className='page'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>订单详情</Text>
-          <Text className='page-head__sub'>{order.orderNo}</Text>
-        </View>
-      </View>
+      <HeroHeader title='订单详情' sub={order.orderNo}>
+        <Text className='hero__k'>合计</Text>
+        <Text className='hero__num'>{fmtMoney(order.totalAmount)}</Text>
+      </HeroHeader>
       {/* 单头 */}
       <View className='card'>
         <View className='ocard__row'>
@@ -274,19 +273,19 @@ export default function ClerkOrderDetailPage() {
           const reversed = Boolean(l.reversalOfId)
           return (
             <View key={l.id} className={`oline ${reversed ? 'oline--reversal' : ''}`}>
+              <Text className='oline__name'>{l.productName}{l.isGift ? '（赠）' : ''}</Text>
               <View className='oline__row'>
-                <View className='oline__main'>
-                  <Text className='oline__name'>{l.productName}{l.isGift ? '（赠）' : ''}</Text>
-                  <Text className='oline__sub'>
-                    {l.specText ? `${l.specText} · ` : ''}
-                    {toNum(l.qty)}{UNIT_LABELS[l.unit] ?? l.unit} × {fmtMoney(l.unitPrice)}
-                    {reversed ? ' · 红字冲销' : ''}
-                  </Text>
-                </View>
+                <Text className='oline__sub'>
+                  {l.specText ? `${l.specText} · ` : ''}
+                  {toNum(l.qty)}{UNIT_LABELS[l.unit] ?? l.unit} × {fmtMoney(l.unitPrice)}
+                  {reversed ? ' · 红字冲销' : ''}
+                </Text>
                 <Text className='oline__amount'>{fmtMoney(l.amount)}</Text>
-                {canOperate && !reversed && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') && (
-                  <Text
-                    className='oline__reverse'
+              </View>
+              {canOperate && !reversed && (st === 'PENDING_CONFIRM' || st === 'CONFIRMED') ? (
+                <View className='oline__ops'>
+                  <Button
+                    className='btn-danger btn-sm'
                     onClick={() => {
                       setReverseId(l.id)
                       const already = (order.lines ?? [])
@@ -296,10 +295,10 @@ export default function ClerkOrderDetailPage() {
                       setReverseReason('')
                     }}
                   >
-                    冲销此行
-                  </Text>
-                )}
-              </View>
+                    <Text className='btn-label'>冲销此行</Text>
+                  </Button>
+                </View>
+              ) : null}
             </View>
           )
         })}

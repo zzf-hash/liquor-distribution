@@ -5,7 +5,7 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import {
   LOGIN_PAGE,
   agingApi,
-  defaultArBucketLabels,
+  mergeArBucketLabels,
   fmtDate,
   fmtMoney,
   getToken,
@@ -14,6 +14,7 @@ import {
 import type { ArBucket, CustomerReceivableDTO } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 // 账龄分档 tab（bucket 对齐后端 AgingBucket；'' = 全部未结）
 // M9-3: 档位文案按租户配置下发（默认 30/50/90），tab 短标签取档位天数
@@ -59,7 +60,7 @@ export default function ClerkReceivablesPage() {
   const [items, setItems] = useState<CustomerReceivableDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [bucketLabels, setBucketLabels] = useState<Record<ArBucket, string>>(defaultArBucketLabels())
+  const [bucketLabels, setBucketLabels] = useState(mergeArBucketLabels())
 
   const tabs = tabsOf(bucketLabels)
 
@@ -69,7 +70,7 @@ export default function ClerkReceivablesPage() {
       return
     }
     void load()
-    agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
+    agingApi.get().then((r) => setBucketLabels(mergeArBucketLabels(r?.labels))).catch(() => setBucketLabels(mergeArBucketLabels()))
   })
 
   async function load(bucket?: string, nextPage = 1) {
@@ -102,10 +103,7 @@ export default function ClerkReceivablesPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
-        <Text className='topbar__title'>应收台账</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
-      </View>
+            <HeroHeader title='应收台账' />
 
       <TabsScroll intoView={`ar-${tab || 'all'}`}>
         {tabs.map((t) => (

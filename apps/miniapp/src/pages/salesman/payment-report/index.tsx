@@ -1,3 +1,4 @@
+import HeroHeader from '../../../components/HeroHeader'
 import { useRef, useState } from 'react'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
@@ -91,14 +92,10 @@ export default function SalesmanPaymentReportPage() {
   }
 
   const selected = customers.find((c) => c.id === customerId)
-  const methodIdx = Math.max(0, PAYMENT_METHODS.indexOf(method))
 
   return (
     <View className='page'>
-      <View className='topbar'>
-        <Text className='topbar__title'>收款上报</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
-      </View>
+            <HeroHeader title='收款上报' />
 
       <View className='card'>
         <Text className='card__title'>代收货款上报</Text>
@@ -125,18 +122,14 @@ export default function SalesmanPaymentReportPage() {
             onInput={(e) => setAmount(e.detail.value)}
           />
         </View>
-        <Picker
-          mode='selector'
-          range={PAYMENT_METHODS}
-          value={methodIdx}
-          onChange={(e) => setMethod(PAYMENT_METHODS[Number(e.detail.value)] ?? PAYMENT_METHODS[0])}
-        >
-          <View className='frow'>
-            <Text className='frow__label'>方式</Text>
-            <Text className='frow__value'>{method}</Text>
-            <Text className='frow__arrow'>›</Text>
-          </View>
-        </Picker>
+        <Text className='frow__label'>方式</Text>
+        <View className='seg'>
+          {PAYMENT_METHODS.map((item) => (
+            <View key={item} className={`seg__item ${method === item ? 'seg__item--on' : ''}`} onClick={() => setMethod(item)}>
+              <Text>{item}</Text>
+            </View>
+          ))}
+        </View>
         <View className='frow'>
           <Text className='frow__label'>凭证号</Text>
           <Input

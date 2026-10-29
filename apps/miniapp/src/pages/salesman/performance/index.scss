@@ -3,8 +3,8 @@
 // 四指标 2×2 网格
 .pf__grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: $gap-base;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
   margin-bottom: $gap-base;
 }
 

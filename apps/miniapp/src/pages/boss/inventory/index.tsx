@@ -3,6 +3,7 @@ import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 import { LOGIN_PAGE, getToken, inventoryApi } from '../../../services/api'
 import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
@@ -72,12 +73,7 @@ export default function InventoryListPage() {
 
   return (
     <View className='page inv'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>全部库存</Text>
-          <Text className='page-head__sub'>按库位列在库，合计与库存报表同一口径</Text>
-        </View>
-      </View>
+      <HeroHeader title='全部库存' sub='按库位列在库，合计与库存报表同一口径' />
 
       <View className={`plist__search ${focus ? 'plist__search--focus' : ''}`}>
         <Icon name='search' color='#6B5F5A' size={44} />
@@ -137,9 +133,13 @@ export default function InventoryListPage() {
 
       {total > PAGE_SIZE ? (
         <View className='inv__pager'>
-          <Button className='btn-ghost' disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
+          <Button className='btn-neutral btn-sm' disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            <Text className='btn-label'>上一页</Text>
+          </Button>
           <Text className='inv__pager-text'>{page} / {pages}</Text>
-          <Button className='btn-ghost' disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</Button>
+          <Button className='btn-ghost btn-sm' disabled={page >= pages} onClick={() => setPage(page + 1)}>
+            <Text className='btn-label'>下一页</Text>
+          </Button>
         </View>
       ) : null}
       <RoleTabBar />

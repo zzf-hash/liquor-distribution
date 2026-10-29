@@ -462,7 +462,9 @@ export default function WarehouseSignPage() {
               value={p.qty}
               onInput={(e) => setPackage(i, { qty: e.detail.value })}
             />
-            <Text className='pkgrow__del' onClick={() => setPackages((prev) => prev.filter((_, idx) => idx !== i))}>删除</Text>
+            <Button className='btn-danger btn-icon' onClick={() => setPackages((prev) => prev.filter((_, idx) => idx !== i))}>
+              <Text className='btn-label'>删</Text>
+            </Button>
           </View>
         ))}
         <Button

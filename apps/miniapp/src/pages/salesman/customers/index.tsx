@@ -5,11 +5,11 @@ import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, SETTLEMENT_LABELS, customersApi, getToken } from '../../../services/api'
 import type { CustomerRowDTO } from '../../../services/api'
 import { CREATE_CUSTOMER_PAGE, canCreateCustomer } from '../../../services/create-customer'
-import { homeForRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 /**
  * 我的客户（P1 全员端，rep token 自动过滤名下）：GET /customers 列表+搜索
@@ -57,14 +57,10 @@ export default function SalesmanCustomersPage() {
   }
 
   const showCreate = canCreateCustomer(role)
-  const desk = role.trim().toUpperCase() === 'OWNER' ? '/pages/boss/home/index' : (homeForRole(role) ?? '/pages/salesman/home/index')
 
   return (
     <View className='page'>
-      <View className='topbar'>
-        <Text className='topbar__title'>{role.trim().toUpperCase() === 'OWNER' ? '客户' : '我的客户'}（{items.length}）</Text>
-        <Text className='topbar__link' onClick={() => openAppPage(desk)}>工作台</Text>
-      </View>
+      <HeroHeader title={`${role.trim().toUpperCase() === 'OWNER' ? '客户' : '我的客户'}（${items.length}）`} />
 
       {showCreate ? (
         <Button className='btn-primary' onClick={() => openAppPage(CREATE_CUSTOMER_PAGE)}>

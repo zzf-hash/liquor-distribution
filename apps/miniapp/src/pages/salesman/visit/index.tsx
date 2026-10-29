@@ -9,6 +9,7 @@ import { VISIT_PHOTO_UNSAVED, visitCreateBody } from '../../../services/visit-ph
 import type { VisitCustomerDTO, VisitDTO, VisitSteps } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 // 标准八步骤（任务书 P1-T13：陈列检查/库存盘点/收单/收款/宣传物料/客情沟通/竞品信息/设备检查）
 const VISIT_STEPS: Array<{ key: string; label: string }> = [
@@ -163,11 +164,10 @@ export default function SalesmanVisitPage() {
 
   return (
     <View className='visit'>
-      {/* 月度统计 */}
-      <View className='visit__stat'>
-        <Text className='visit__stat-label'>本月拜访</Text>
-        <Text className='visit__stat-num'>{monthCount} 次</Text>
-      </View>
+      <HeroHeader title='拜访打卡'>
+        <Text className='hero__k'>本月拜访</Text>
+        <Text className='hero__num'>{monthCount} 次</Text>
+      </HeroHeader>
 
       {error ? (
         <View className='state'>
@@ -210,8 +210,14 @@ export default function SalesmanVisitPage() {
                   <Text className='photo__mark'>{photoAt}{located ? ` ${located}` : ''} 本机水印</Text>
                 </View>
                 <View className='photo__ops'>
-                  <Text className='photo__op' onClick={choosePhoto}>重拍</Text>
-                  <Text className='photo__op' onClick={() => { setPhoto(''); setPhotoAt('') }}>删除</Text>
+                  <Button className='btn-ghost btn-sm' onClick={choosePhoto}>
+                    <Icon name='cam' color='#7A1F2B' size={32} />
+                    <Text className='btn-label'>重拍</Text>
+                  </Button>
+                  <Button className='btn-danger btn-sm' onClick={() => { setPhoto(''); setPhotoAt('') }}>
+                    <Icon name='trash' color='#B3261E' size={32} />
+                    <Text className='btn-label'>删除</Text>
+                  </Button>
                 </View>
               </View>
             ) : (

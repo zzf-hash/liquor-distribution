@@ -12,6 +12,7 @@ import {
 import type { StaffOrderRowDTO } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 type TabKey = 'OUTBOUND' | 'DELIVERING'
 
@@ -91,10 +92,7 @@ export default function WarehouseDeliveringPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
-        <Text className='topbar__title'>发运签收</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/warehouse/home/index' })}>工作台</Text>
-      </View>
+            <HeroHeader title='发运签收' />
 
       <View className='tabs tabs--segment'>
         <Button className={`tabs__btn ${tab === 'OUTBOUND' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('OUTBOUND')}>

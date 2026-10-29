@@ -1,5 +1,13 @@
 @use './styles/tokens' as *;
 
+@font-face {
+  font-family: "Liquor Digits";
+  src: url("./assets/fonts/noto-serif-digits.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 page {
   background: $color-neutral-bg;
   color: $color-neutral-text;

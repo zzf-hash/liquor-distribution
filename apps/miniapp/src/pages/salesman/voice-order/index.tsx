@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { Button, Text, Textarea, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
+import Icon from '../../../components/Icon'
 import { markAsrUnavailable, readAsrUnavailable, shouldFallbackVoiceToText } from '../../../config/asr-fallback'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
@@ -8,6 +9,7 @@ import { LOGIN_PAGE, draftsApi, fmtDateTime, getToken, toNum } from '../../../se
 import RoleTabBar from '../../../components/RoleTabBar'
 import type { RepDraftDTO } from '../../../services/api'
 import './index.scss'
+import HeroHeader from '../../../components/HeroHeader'
 
 /** 录音文件 → base64（weapp: FileSystemManager；H5: FileReader） */
 function audioToBase64(filePath: string): Promise<string> {
@@ -151,9 +153,8 @@ export default function SalesmanVoiceOrderPage() {
 
   return (
     <View className='vo'>
-      {/* 报单表单卡 */}
+      <HeroHeader title='语音报单' />
       <View className='vo__card'>
-        <Text className='vo__title'>语音报单</Text>
 
         <View className='tabs tabs--segment'>
           <View className={`tabs__btn ${mode === 'voice' ? 'tabs__btn--on' : ''}`} onClick={() => switchMode('voice')}>
@@ -172,6 +173,7 @@ export default function SalesmanVoiceOrderPage() {
               disabled={transcribing}
               onClick={toggleRecord}
             >
+              <Icon name='mic' color='#C9A46A' size={36} />
               <Text className='btn-label'>
                 {transcribing ? '识别中' : recording ? '停止' : '录音'}
               </Text>

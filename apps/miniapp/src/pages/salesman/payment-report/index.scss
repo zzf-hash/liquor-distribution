@@ -3,7 +3,9 @@
 // 金额/凭证输入（frow 内右对齐）
 .pr__ipt {
   flex: 1;
-  min-height: $touch-min;
+  height: 88px;
+  min-height: 88px;
+  line-height: 88px;
   padding: 0 8px;
   font-size: $font-body;
   color: $color-text;
@@ -11,9 +13,8 @@
   background: transparent;
 
   &--num {
-    font-size: $font-amount;
-    font-weight: $weight-semibold;
-    @include num;
+    font-size: $font-amount-serif;
+    @include serif-num;
   }
 }
 
