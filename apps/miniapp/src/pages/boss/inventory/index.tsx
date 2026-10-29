@@ -3,6 +3,7 @@ import { Button, Input, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../../components/Icon'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 import { LOGIN_PAGE, getToken, inventoryApi } from '../../../services/api'
 import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
@@ -72,12 +73,7 @@ export default function InventoryListPage() {
 
   return (
     <View className='page inv'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>全部库存</Text>
-          <Text className='page-head__sub'>按库位列在库，合计与库存报表同一口径</Text>
-        </View>
-      </View>
+      <HeroHeader title='全部库存' sub='按库位列在库，合计与库存报表同一口径' />
 
       <View className={`plist__search ${focus ? 'plist__search--focus' : ''}`}>
         <Icon name='search' color='#6B5F5A' size={44} />

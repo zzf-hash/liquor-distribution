@@ -2,12 +2,13 @@ import { useState } from 'react'
 import { Button, Text, View } from '@tarojs/components'
 import Icon from '../../../components/Icon'
 import Taro, { useDidShow, usePullDownRefresh } from '@tarojs/taro'
-import { LOGIN_PAGE, agingApi, dashboardApi, defaultArBucketLabels, fmtDateTime, fmtMoney, getToken, toNum } from '../../../services/api'
+import { LOGIN_PAGE, agingApi, dashboardApi, fmtDateTime, fmtMoney, getToken, mergeArBucketLabels, toNum } from '../../../services/api'
 import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import type { ArBucket, FourQuestionsDTO } from '../../../services/api'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 import './index.scss'
 
 // 欠款分档（与后端 buckets 键对齐；配色=蓝未到期→橙短逾→红长逾→灰争议）
@@ -37,7 +38,7 @@ export default function BossDashboardPage() {
   const [data, setData] = useState<FourQuestionsDTO | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [bucketLabels, setBucketLabels] = useState<Record<ArBucket, string>>(defaultArBucketLabels())
+  const [bucketLabels, setBucketLabels] = useState(mergeArBucketLabels())
 
   useDidShow(() => {
     if (!getToken()) {
@@ -50,7 +51,7 @@ export default function BossDashboardPage() {
       return
     }
     void load()
-    agingApi.get().then((r) => setBucketLabels(r.labels)).catch(() => {/* 用默认档位文案 */})
+    agingApi.get().then((r) => setBucketLabels(mergeArBucketLabels(r?.labels))).catch(() => setBucketLabels(mergeArBucketLabels()))
   })
 
   usePullDownRefresh(() => {
@@ -100,13 +101,7 @@ export default function BossDashboardPage() {
 
   return (
     <View className='page'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>四问看板</Text>
-          <Text className='page-head__sub'>更新于 {fmtDateTime(data.generatedAt)}</Text>
-        </View>
-        <Text className='tag tag--brand'>老板</Text>
-      </View>
+      <HeroHeader title='四问看板' sub={`更新于 ${fmtDateTime(data.generatedAt)}`} badge='老板' />
 
       <View className='dash__metrics'>
         {salesCount <= 0 ? (

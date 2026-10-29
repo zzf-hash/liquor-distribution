@@ -8,6 +8,7 @@ import type { PerfItemDTO } from '../../../services/api'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 const PRIMARY: Array<{ icon: IconName; title: string; desc: string; url: string }> = [
   { icon: 'pin', title: '拜访打卡', desc: '八步骤 · 定位', url: '/pages/salesman/visit/index' },
@@ -31,6 +32,7 @@ function currentMonth(): string {
 export default function SalesmanHomePage() {
   const [name, setName] = useState('')
   const [perf, setPerf] = useState<PerfItemDTO | null>(null)
+  const [perfReady, setPerfReady] = useState(false)
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
@@ -44,6 +46,7 @@ export default function SalesmanHomePage() {
         setPerf(mine ?? null)
       })
       .catch(() => setPerf(null))
+      .finally(() => setPerfReady(true))
   })
 
   function logout() {
@@ -52,11 +55,10 @@ export default function SalesmanHomePage() {
 
   return (
     <View className='grid-home grid-home--hero'>
-      <View className='hero'>
-        <Text className='hero__title'>你好，{name || '业务员'}</Text>
-        <Text className='hero__sub'>跑店、报单、收款</Text>
+      <HeroHeader title={`你好，${name || '业务员'}`} sub="跑店、报单、收款" badge="业务员" nav={false}>
         <Text className='hero__k'>本月回款</Text>
         <Text className='hero__num'>{perf ? fmtMoney(perf.paymentAmount) : '—'}</Text>
+        {!perfReady ? <Text className='hero__k'>加载中</Text> : null}
         <View className='hero__stats'>
           <View className='hero__stat'>
             <Text className='hero__stat-k'>拜访</Text>
@@ -71,7 +73,7 @@ export default function SalesmanHomePage() {
             <Text className='hero__stat-v'>{perf ? fmtMoney(perf.commission) : '—'}</Text>
           </View>
         </View>
-      </View>
+      </HeroHeader>
 
       <View className='task-row'>
         {PRIMARY.map((t, index) => (

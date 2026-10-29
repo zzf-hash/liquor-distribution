@@ -1,3 +1,4 @@
+import HeroHeader from '../../../components/HeroHeader'
 import { useState } from 'react'
 import { Button, Picker, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
@@ -48,12 +49,7 @@ export default function SalesmanPerformancePage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>我的绩效</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='我的绩效' />
 
       <Picker mode='date' fields='month' value={month} onChange={(e) => { setMonth(e.detail.value); void load(e.detail.value) }}>
         <View className='search-pill'>

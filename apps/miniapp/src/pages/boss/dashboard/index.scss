@@ -2,8 +2,9 @@
 
 // 四问看板：两大数指标排、欠款分档条、榜单行
 .dash__metrics {
-  display: flex;
-  gap: $gap-base;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
   margin-bottom: $gap-base;
 }
 

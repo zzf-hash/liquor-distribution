@@ -1,3 +1,4 @@
+import HeroHeader from '../../../components/HeroHeader'
 import { useRef, useState } from 'react'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
@@ -117,12 +118,7 @@ export default function CapRecyclePage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>瓶盖回收</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='瓶盖回收' />
 
       <View className='card'>
         <Text className='card__title'>客户</Text>
@@ -175,7 +171,7 @@ export default function CapRecyclePage() {
               if (p && !lines.some((l) => l.policy.id === p.id)) setLines((prev) => [...prev, { policy: p, qty: '' }])
             }}
           >
-            <Button className='btn-ghost btn-sm'>＋ 添加商品</Button>
+            <Button className='btn-tonal btn-sm'>＋ 添加商品</Button>
           </Picker>
         ) : (
           <View className='state'>

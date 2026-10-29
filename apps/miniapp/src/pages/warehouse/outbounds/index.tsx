@@ -5,6 +5,7 @@ import { LOGIN_PAGE, fmtDateTime, getToken, outboundsApi, toNum } from '../../..
 import type { OutboundRowDTO } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 /**
  * 拣货工作台（P1 全员端，仓配）：GET /orders/outbounds?status=PICKING 待拣货复核列表，
@@ -42,12 +43,7 @@ export default function WarehouseOutboundsPage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>拣货工作台</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/warehouse/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='拣货工作台' />
 
       {error ? (
         <View className='state'>

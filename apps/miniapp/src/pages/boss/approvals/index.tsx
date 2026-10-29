@@ -3,6 +3,7 @@ import { Button, Text, View } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import ReasonPopup from '../../../components/reason-popup'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 import {
   APPROVAL_LINE_LABELS,
   APPROVAL_STATUS_LABELS,
@@ -118,12 +119,7 @@ export default function BossApprovalsPage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>审批中心</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/boss/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='审批中心' />
 
       <View className='tabs tabs--segment'>
         <Button className={`tabs__btn ${tab === 'pending' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('pending')}>待办</Button>

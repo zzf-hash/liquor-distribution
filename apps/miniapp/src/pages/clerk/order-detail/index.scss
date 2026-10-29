@@ -87,28 +87,24 @@
 }
 
 .oline__name {
+  display: block;
   font-size: $font-body;
   color: $color-text;
   font-weight: 600;
 }
 
-.oline__reverse {
-  flex-shrink: 0;
-  height: $size-btn-sm;
-  margin: -14px 0;
-  padding: 14px $space-sm;
-  box-sizing: content-box;
+.oline__ops {
   display: flex;
-  align-items: center;
-  font-size: $font-sub;
-  color: $color-primary;
-  line-height: 1;
+  justify-content: flex-end;
+  margin-top: $space-sm;
 }
 
 .oline__amount {
-  font-size: $font-body;
+  margin-left: auto;
+  font-size: $font-amount-serif;
   color: $color-text;
-  font-weight: 600;
+  text-align: right;
+  @include serif-num;
 }
 
 .oline__sub {

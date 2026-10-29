@@ -438,6 +438,17 @@ export function defaultArBucketLabels(): Record<ArBucket, string> {
   }
 }
 
+/** 配置缺字段或整包缺失时，缺的档位用默认文案，避免看板和台账白屏。 */
+export function mergeArBucketLabels(labels?: Partial<Record<ArBucket, string>> | null): Record<ArBucket, string> {
+  const merged = defaultArBucketLabels()
+  if (!labels) return merged
+  for (const key of Object.keys(merged) as ArBucket[]) {
+    const value = labels[key]
+    if (typeof value === 'string' && value.trim()) merged[key] = value
+  }
+  return merged
+}
+
 export interface CustomerReceivableDTO {
   id: string
   sourceType: string

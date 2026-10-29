@@ -7,6 +7,7 @@ import { LOGIN_PAGE, getToken, getUserName, ordersApi, outboundsApi, signOut } f
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; key: 'pick' | 'ship' | 'sign' | 'stock' }> = [
   { icon: 'box', title: '拣货复核', desc: '按 FIFO 批次拣货', url: '/pages/warehouse/outbounds/index', key: 'pick' },
@@ -44,10 +45,7 @@ export default function WarehouseHomePage() {
 
   return (
     <View className='grid-home grid-home--hero'>
-      <View className='hero'>
-        <Text className='hero__title'>您好，{name || '仓配'}</Text>
-        <Text className='hero__sub'>拣货、发运、签收</Text>
-      </View>
+      <HeroHeader title={`您好，${name || '仓配'}`} sub="拣货、发运、签收" badge="仓配" nav={false} />
       <View className='task-list'>
         {TILES.map((t) => {
           const n = counts[t.key]

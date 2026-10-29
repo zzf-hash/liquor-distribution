@@ -20,6 +20,7 @@ import {
 import type { CustomerRowDTO, ProductRowDTO, ShopUnit } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 interface DraftLine {
   productId: string
@@ -160,12 +161,7 @@ export default function SalesmanOrderCreatePage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>代下单</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='代下单' />
 
       {error ? (
         <View className='state'>
@@ -271,7 +267,7 @@ export default function SalesmanOrderCreatePage() {
               <Text className='settle__meta'>预估金额，以服务端快照为准</Text>
             </View>
             <Button
-              className='btn-primary'
+              className='btn-primary settle__go'
               loading={submitting}
               disabled={submitting || lines.length === 0}
               onClick={() => { void submit() }}

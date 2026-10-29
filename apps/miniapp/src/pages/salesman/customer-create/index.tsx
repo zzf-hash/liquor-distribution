@@ -19,6 +19,7 @@ import { deniedHomeForConfirmedRole } from '../../../services/route-guard'
 import { confirmedRoleForGuard } from '../../../services/session-cache'
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TYPE_OPTIONS = Object.entries(CUSTOMER_TYPE_LABELS).map(([value, label]) => ({ value, label }))
 
@@ -143,12 +144,7 @@ export default function CreateCustomerPage() {
           : '未指定归属业务员'
     return (
       <View className='page'>
-        <View className='page-head'>
-          <View className='page-head__main'>
-            <Text className='page-head__title'>客户已建档</Text>
-            <Text className='page-head__sub'>需完成开户审批</Text>
-          </View>
-        </View>
+        <HeroHeader title='客户已建档' sub='需完成开户审批' />
         <View className='card'>
           <Text className='card__title'>{created.name}</Text>
           <Text className='tip'>{created.code}</Text>
@@ -167,12 +163,7 @@ export default function CreateCustomerPage() {
 
   return (
     <View className='page'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>新建客户</Text>
-          <Text className='page-head__sub'>保存后进入开户审批，当前状态是业务员录入</Text>
-        </View>
-      </View>
+      <HeroHeader title='新建客户' sub='保存后进入开户审批，当前状态是业务员录入' />
 
       <View className='card'>
         <Text className='card__title'>门店</Text>

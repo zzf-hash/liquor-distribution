@@ -16,6 +16,7 @@ import {
 import type { CustomerRowDTO, PaymentRowDTO } from '../../../services/api'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 /**
  * 收款登记（P1 全员端，内勤）：客户 picker + 金额 + 方式 + 凭证号 → POST /payments
@@ -121,12 +122,7 @@ export default function ClerkPaymentsPage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>收款登记</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='收款登记' />
 
       {/* 登记表单 */}
       <View className='card'>

@@ -1,3 +1,4 @@
+import HeroHeader from '../../../components/HeroHeader'
 import { useRef, useState } from 'react'
 import { rememberIdemKey } from '../../../services/idempotency'
 import type { IdemSlot } from '../../../services/idempotency'
@@ -94,12 +95,7 @@ export default function SalesmanPaymentReportPage() {
 
   return (
     <View className='page'>
-      <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>收款上报</Text>
-        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
-          <Text className='btn-hero__txt'>工作台</Text>
-        </Button>
-      </View>
+            <HeroHeader title='收款上报' />
 
       <View className='card'>
         <Text className='card__title'>代收货款上报</Text>

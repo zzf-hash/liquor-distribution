@@ -7,6 +7,7 @@ import { LOGIN_PAGE, getToken, getUserName, ordersApi, signOut } from '../../../
 import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
+import HeroHeader from '../../../components/HeroHeader'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; badge?: boolean }> = [
   { icon: 'list', title: '订单池', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
@@ -36,10 +37,7 @@ export default function ClerkHomePage() {
 
   return (
     <View className='grid-home grid-home--hero'>
-      <View className='hero'>
-        <Text className='hero__title'>您好，{name || '内勤'}</Text>
-        <Text className='hero__sub'>订单、收款、应收</Text>
-      </View>
+      <HeroHeader title={`您好，${name || '内勤'}`} sub="订单、收款、应收" badge="内勤" nav={false} />
       <View className='task-list'>
         {TILES.map((t) => (
           <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>

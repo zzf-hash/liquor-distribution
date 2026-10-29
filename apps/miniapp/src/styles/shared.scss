@@ -64,9 +64,14 @@
   align-items: center;
 
   .topbar__title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
     color: $color-neutral-white;
     font-size: $font-title-hero;
     font-weight: $weight-semibold;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 }
 
@@ -135,9 +140,11 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: none;
   gap: 8px;
+  width: auto;
   height: $hero-pill-h;
-  min-height: $btn-hit-min;
+  min-height: $hero-pill-h;
   margin: 0;
   padding: 0 $space-md;
   color: $color-neutral-white;
@@ -148,8 +155,16 @@
   border-radius: $radius-pill;
   line-height: 1.2;
   box-sizing: border-box;
+  @include hit-area;
 
   &::after { border: none; }
+}
+
+button.btn-hero,
+.taro-button-core.btn-hero {
+  width: auto;
+  flex: none;
+  margin: 0;
 }
 
 .btn-hero__txt {
@@ -266,6 +281,8 @@
 
 .metric {
   flex: 1;
+  min-width: 0;
+  box-sizing: border-box;
   padding: $space-lg;
   background: $color-card;
   border-radius: $radius-md;
@@ -281,11 +298,10 @@
 .metric__num {
   display: block;
   margin-top: $space-xxs;
-  font-size: $font-amount-lg;
-  font-weight: $weight-bold;
+  font-size: $font-amount-serif;
   color: $color-text;
   line-height: $line-height-tight;
-  @include num;
+  @include serif-num;
 }
 
 .metric__sub {
@@ -522,7 +538,11 @@
     border: none;
   }
 
-  &.taro-btn-default.btn-hero {
+  &.taro-btn-default.btn-hero,
+  &.btn-hero {
+    width: auto;
+    flex: none;
+    margin: 0;
     color: $color-neutral-white;
     background: rgba(255, 255, 255, 0.08);
     border: 2px solid rgba(201, 164, 106, 0.65);
@@ -777,13 +797,22 @@ taro-button-core.task-card {
   align-items: center;
   justify-content: space-between;
   gap: $space-md;
-  min-height: 112px;
+  min-height: 88px;
   padding: 0 $space-lg;
   margin-bottom: $space-sm;
   background: $color-card;
   border: $border-width solid $color-neutral-line-strong;
   border-radius: $radius-sm;
   box-sizing: border-box;
+}
+
+.frow input,
+.frow .weui-input,
+.frow .cc-form__ipt,
+.frow .pr__ipt,
+.frow .pay__ipt {
+  height: 88px;
+  line-height: 88px;
 }
 
 .frow__label {
@@ -1369,15 +1398,15 @@ taro-button-core.task-card {
 .hero__stat-v {
   display: block;
   margin-top: 4px;
-  font-size: 40px;
-  font-weight: $weight-bold;
+  font-size: $font-amount-serif;
   color: $color-neutral-white;
-  @include num;
+  line-height: 1.1;
+  @include serif-num;
 }
 
 .settle {
   position: sticky;
-  bottom: $space-sm;
+  bottom: calc(#{$tabbar-h} + 16px);
   z-index: 8;
   display: flex;
   align-items: center;
@@ -1385,29 +1414,59 @@ taro-button-core.task-card {
   gap: $space-md;
   margin-top: $space-lg;
   padding: $space-sm $space-sm $space-sm $space-lg;
-  background: $color-card;
-  border-radius: $radius-pill;
-  box-shadow: $shadow-float;
-
-  .btn-primary {
-    width: auto;
-    min-width: 220px;
-    margin: 0;
-  }
+  background: $color-ink;
+  border-radius: $radius-settle;
+  box-shadow: $shadow-settle;
 }
 
 .settle__sum {
-  @include num;
-  font-size: 40px;
-  font-weight: $weight-bold;
-  color: $color-text;
+  display: block;
+  color: $color-brand-gold;
+  font-size: $font-amount-serif;
+  line-height: 1.1;
+  @include serif-num;
 }
 
 .settle__meta {
   display: block;
   font-size: $font-caption;
-  color: $color-text-sub;
+  color: $color-hero-text-sub;
   font-weight: $weight-regular;
+}
+
+.settle__go,
+.taro-button-core.settle__go,
+button.settle__go {
+  width: auto;
+  min-width: 220px;
+  margin: 0;
+  color: $color-brand-gold;
+  background: transparent;
+  border: 2px solid $color-brand-gold;
+  box-shadow: none;
+}
+
+.settle__go .btn-label,
+.taro-button-core.settle__go .btn-label {
+  color: $color-brand-gold;
+}
+
+.settle__go[disabled],
+.settle__go[disabled='true'],
+.taro-button-core.settle__go[disabled],
+.taro-button-core.settle__go.taro-btn-disabled,
+button.settle__go[disabled] {
+  color: $color-neutral-text-disabled;
+  background: $color-disabled-fill;
+  border-color: $color-disabled-fill;
+  box-shadow: none;
+}
+
+.settle__go[disabled] .btn-label,
+.settle__go[disabled='true'] .btn-label,
+.taro-button-core.settle__go[disabled] .btn-label,
+.taro-button-core.settle__go.taro-btn-disabled .btn-label {
+  color: $color-neutral-text-disabled;
 }
 
 .callout {
