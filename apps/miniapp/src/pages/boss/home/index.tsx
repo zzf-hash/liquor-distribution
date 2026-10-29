@@ -47,18 +47,12 @@ export default function BossHomePage() {
   }
 
   return (
-    <View className='grid-home'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>您好，{name || '老板'}</Text>
-          <Text className='page-head__sub'>今天生意怎么样</Text>
-        </View>
-        <Text className='tag tag--brand'>老板</Text>
-      </View>
-      <View className='brand-card' onClick={() => openAppPage('/pages/boss/dashboard/index')}>
-        <Text className='brand-card__k'>今日销售</Text>
-        <Text className='brand-card__v'>{sales ?? '—'}</Text>
-        <Text className='brand-card__k'>点进四问看板看回款、欠款和库存</Text>
+    <View className='grid-home grid-home--hero'>
+      <View className='hero'>
+        <Text className='hero__title'>您好，{name || '老板'}</Text>
+        <Text className='hero__sub'>今天生意怎么样</Text>
+        <Text className='hero__k'>今日销售</Text>
+        <Text className='hero__num'>{sales ?? '—'}</Text>
       </View>
       <View className='task-list'>
         {TILES.map((t) => (
@@ -71,10 +65,13 @@ export default function BossHomePage() {
               </Text>
               <Text className='task-card__desc'>{t.desc}</Text>
             </View>
+            <Text className='frow__arrow'>›</Text>
           </Button>
         ))}
       </View>
-      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
+      <Button className='btn-neutral' onClick={logout}>
+        <Text className='btn-label'>退出登录</Text>
+      </Button>
       <RoleTabBar />
     </View>
   )

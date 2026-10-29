@@ -150,8 +150,8 @@ export default function CustomerCartPage() {
                     <Text className='crow__name'>{it.name}</Text>
                     <Text className='crow__spec'>{it.specText || '—'} · 按{labelOf(UNIT_LABELS, it.unit)}订</Text>
                   </View>
-                  <Text className='icon-hit' onClick={() => removeAt(idx)}>
-                    <Icon name='trash' color='#6B5F5A' size={40} />
+                  <Text className='icon-hit icon-hit--danger' onClick={() => removeAt(idx)}>
+                    <Icon name='trash' color='#B3261E' size={36} />
                   </Text>
                 </View>
                 <View className='crow__bot'>

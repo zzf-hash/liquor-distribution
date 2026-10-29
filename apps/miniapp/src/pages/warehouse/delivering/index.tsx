@@ -91,9 +91,11 @@ export default function WarehouseDeliveringPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>发运签收</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/warehouse/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/warehouse/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       <View className='tabs tabs--segment'>

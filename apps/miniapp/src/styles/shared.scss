@@ -57,14 +57,131 @@
   line-height: $line-height-base;
 }
 
-.topbar__link,
-.grid-home__out {
-  min-height: $touch-min;
+.topbar--hero {
+  @include hero-bg;
+  margin: (-$space-page) (-$space-page) $space-lg;
+  padding: $space-xl $space-hero-x $space-hero-bottom;
+  align-items: center;
+
+  .topbar__title {
+    color: $color-neutral-white;
+    font-size: $font-title-hero;
+    font-weight: $weight-semibold;
+  }
+}
+
+.hero {
+  @include hero-bg;
+  margin: (-$space-page) (-$space-page) $space-lg;
+  padding: $space-xl $space-hero-x $space-hero-bottom;
+}
+
+.hero__kicker,
+.hero__title {
+  display: block;
+  color: $color-neutral-white;
+  font-size: $font-title-hero;
+  font-weight: $weight-semibold;
+  line-height: $line-height-tight;
+}
+
+.hero__sub,
+.hero__k {
+  display: block;
+  margin-top: $space-xxs;
+  color: $color-hero-text-sub;
+  font-size: $font-sub;
+}
+
+.hero__num {
+  display: block;
+  margin-top: $space-sm;
+  color: $color-brand-gold;
+  font-size: $font-hero-num;
+  line-height: 1.05;
+  @include serif-num;
+}
+
+.hero__stats {
+  display: flex;
+  gap: $space-sm;
+  margin-top: $space-md;
+}
+
+.hero__stat {
+  flex: 1;
+  padding: $space-sm;
+  border-radius: $radius-sm;
+  background: $color-hero-glass;
+  border: 2px solid $color-hero-glass-line;
+}
+
+.hero__stat-k {
+  display: block;
+  color: $color-hero-text-sub;
+  font-size: $font-caption;
+}
+
+.hero__stat-v {
+  display: block;
+  margin-top: 4px;
+  color: $color-neutral-white;
+  font-size: $font-amount-serif;
+  line-height: 1.1;
+  @include serif-num;
+}
+
+.btn-hero {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: $hero-pill-h;
+  min-height: $btn-hit-min;
+  margin: 0;
+  padding: 0 $space-md;
+  color: $color-neutral-white;
+  font-size: $font-sub;
+  font-weight: $weight-medium;
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(201, 164, 106, 0.65);
+  border-radius: $radius-pill;
+  line-height: 1.2;
+  box-sizing: border-box;
+
+  &::after { border: none; }
+}
+
+.btn-hero__txt {
+  color: $color-neutral-white;
+  font-size: $font-sub;
+}
+
+.seg {
+  display: flex;
+  gap: 8px;
+  margin-bottom: $space-md;
+  padding: 8px;
+  background: $color-neutral-fill;
+  border-radius: $radius-pill;
+}
+
+.seg__item {
+  flex: 1;
   display: flex;
   align-items: center;
-  font-size: $font-sub;
+  justify-content: center;
+  min-height: $btn-h-sm;
+  border-radius: $radius-pill;
   color: $color-text-sub;
-  text-decoration: none;
+  font-size: $font-sub;
+}
+
+.seg__item--on {
+  background: $color-card;
+  color: $color-primary;
+  font-weight: $weight-semibold;
+  box-shadow: $shadow-card-wine;
 }
 
 .card {
@@ -182,12 +299,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: $size-btn-lg;
+  min-height: $btn-h-lg;
   width: 100%;
   padding: 0 $space-lg;
   font-size: $font-body-lg;
   font-weight: $weight-semibold;
-  border-radius: $radius-pill;
+  border-radius: $radius-btn;
   box-sizing: border-box;
   line-height: 1.2;
 
@@ -201,9 +318,11 @@
   color: $color-neutral-white;
   background: $color-primary;
   border: none;
+  box-shadow: $shadow-btn-primary;
 
   &:active {
     background: $color-primary-pressed;
+    box-shadow: none;
   }
 
   &[disabled] {
@@ -238,10 +357,10 @@
   @include btn-base;
   color: $color-primary;
   background: $color-card;
-  border: $border-width solid $color-primary;
+  border: 3px solid $color-primary;
 
   &:active {
-    background: $color-brand-primary-light;
+    background: $color-press-brand-light;
   }
 
   &[disabled='false'] {
@@ -270,9 +389,9 @@
 
 .btn-danger {
   @include btn-base;
-  color: $color-danger;
+  color: $color-functional-danger-text;
   background: $color-card;
-  border: $border-width solid $color-danger;
+  border: 3px solid $color-functional-danger;
 
   &:active {
     background: $color-functional-danger-light;
@@ -286,11 +405,39 @@
 }
 
 .btn-sm {
-  min-height: $size-btn-sm;
+  min-height: $btn-h-sm;
   width: auto;
   padding: 0 $space-md;
   font-size: $font-sub;
   font-weight: $weight-medium;
+  border-radius: $radius-btn-sm;
+}
+
+.btn-md {
+  min-height: $btn-h-md;
+  border-radius: $radius-btn-md;
+}
+
+.btn-tonal {
+  @include btn-base;
+  width: auto;
+  min-height: $btn-h-sm;
+  color: $color-brand-gold-text;
+  background: $color-brand-gold-light;
+  border: none;
+  border-radius: $radius-btn-sm;
+
+  &:active {
+    background: $color-press-gold-light;
+  }
+}
+
+.btn-icon {
+  width: 80px;
+  min-width: 80px;
+  height: 80px;
+  min-height: 80px;
+  padding: 0;
 }
 
 .btn-inline {
@@ -342,6 +489,8 @@
   &.btn-ghost,
   &.btn-neutral,
   &.btn-danger,
+  &.btn-tonal,
+  &.btn-hero,
   &.btn-inline {
     overflow: visible;
     line-height: 1.2;
@@ -364,7 +513,19 @@
   &.taro-btn-default.btn-ghost {
     color: $color-primary;
     background: $color-card;
-    border: $border-width solid $color-primary;
+    border: 3px solid $color-primary;
+  }
+
+  &.taro-btn-default.btn-tonal {
+    color: $color-brand-gold-text;
+    background: $color-brand-gold-light;
+    border: none;
+  }
+
+  &.taro-btn-default.btn-hero {
+    color: $color-neutral-white;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid rgba(201, 164, 106, 0.65);
   }
 
   &.taro-btn-default.btn-neutral,
@@ -376,16 +537,17 @@
 
   &.taro-btn-default.btn-danger,
   &.taro-btn-default.btn-inline--danger {
-    color: $color-danger;
+    color: $color-functional-danger-text;
     background: $color-card;
-    border: $border-width solid $color-danger;
+    border: 3px solid $color-functional-danger;
   }
 
   &.btn-primary.taro-btn-disabled,
   &.btn-primary[disabled] {
     color: $color-neutral-text-disabled;
-    background: $color-neutral-fill;
+    background: $color-disabled-fill;
     border: none;
+    box-shadow: none;
   }
 }
 
@@ -399,7 +561,8 @@
 // 标签节点单独设色，避免继承到 taro-button-core[disabled] 的白色。
 .btn-neutral .btn-label { color: $color-text; }
 .btn-danger .btn-label,
-.btn-inline--danger .btn-label { color: $color-danger; }
+.btn-inline--danger .btn-label { color: $color-functional-danger-text; }
+.btn-tonal .btn-label { color: $color-brand-gold-text; }
 .btn-ghost .btn-label,
 .btn-secondary .btn-label,
 .btn-inline--ghost .btn-label { color: $color-primary; }
@@ -857,6 +1020,30 @@ taro-button-core.task-card {
   color: $color-text-sub;
 }
 
+.task-card--lead {
+  background: $color-brand-primary;
+  box-shadow: $shadow-entry-main;
+
+  .task-card__title,
+  .task-card__desc { color: $color-neutral-white; }
+
+  .tile__icon { background: rgba(201, 164, 106, 0.22); }
+}
+
+.task-list .task-card {
+  width: 100%;
+  min-height: $entry-row-min-h;
+}
+
+.grid-home--hero {
+  padding-top: 0;
+}
+
+.grid-home--hero .hero {
+  margin: 0 (-$space-page) $space-lg;
+  padding: $space-xl $space-page $space-hero-bottom;
+}
+
 .task-list {
   display: flex;
   flex-direction: column;
@@ -928,10 +1115,10 @@ taro-button-core.task-card {
 .brand-card__v {
   display: block;
   margin: $space-xxs 0 $space-md;
-  font-size: 52px;
-  font-weight: $weight-bold;
-  color: $color-neutral-white;
-  @include num;
+  font-size: $font-hero-num;
+  line-height: 1.05;
+  color: $color-brand-gold;
+  @include serif-num;
 }
 
 .brand-card__stats {
@@ -1007,9 +1194,16 @@ taro-button-core.task-card {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: $touch-min;
-  height: $touch-min;
+  width: $call-btn;
+  height: $call-btn;
   flex-shrink: 0;
+  border-radius: 50%;
+  background: $color-brand-gold-light;
+}
+
+.icon-hit--danger {
+  background: $color-card;
+  border: 3px solid $color-functional-danger;
 }
 
 .req {

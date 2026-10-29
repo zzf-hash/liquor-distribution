@@ -61,9 +61,11 @@ export default function SalesmanCustomersPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>{role.trim().toUpperCase() === 'OWNER' ? '客户' : '我的客户'}（{items.length}）</Text>
-        <Text className='topbar__link' onClick={() => openAppPage(desk)}>工作台</Text>
+        <Button className='btn-hero' onClick={() => openAppPage(desk)}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       {showCreate ? (

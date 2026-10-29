@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { View, Text } from '@tarojs/components'
+import { View, Text, Button } from '@tarojs/components'
 import Taro, { useDidShow } from '@tarojs/taro'
 import Icon from '../../components/Icon'
 import RoleTabBar from '../../components/RoleTabBar'
@@ -120,7 +120,9 @@ export default function Index() {
       <View className='card home-recent'>
         <View className='home-recent__hd'>
           <Text className='card__title'>最近订单</Text>
-          <Text className='home-recent__all' onClick={() => openAppPage('/pages/customer/orders/index')}>全部 ›</Text>
+          <Button className='btn-tonal btn-sm' onClick={() => openAppPage('/pages/customer/orders/index')}>
+            <Text className='btn-label'>全部订单</Text>
+          </Button>
         </View>
         {recent ? (
           <View className='home-recent__row' onClick={() => openAppPage('/pages/customer/orders/index')}>

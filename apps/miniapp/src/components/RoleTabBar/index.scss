@@ -1,7 +1,7 @@
 @use '../../styles/tokens' as *;
 
 .role-tab__spacer {
-  height: $size-tab-bar;
+  height: calc(#{$tabbar-h} + env(safe-area-inset-bottom));
 }
 
 .role-tab__bar {
@@ -11,20 +11,23 @@
   bottom: 0;
   z-index: 20;
   display: flex;
-  height: $size-tab-bar;
+  height: $tabbar-h;
   background: $color-card;
-  border-top: $border-width solid $color-neutral-line;
+  box-shadow: $shadow-tabbar;
+  padding-bottom: constant(safe-area-inset-bottom);
   padding-bottom: env(safe-area-inset-bottom);
   box-sizing: content-box;
 }
 
 .role-tab__item {
   flex: 1;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
+  min-height: $btn-hit-min;
 }
 
 .role-tab__text {
@@ -36,4 +39,15 @@
 .role-tab__item--on .role-tab__text {
   color: $color-primary;
   font-weight: $weight-semibold;
+}
+
+.role-tab__item--on::after {
+  content: '';
+  position: absolute;
+  left: 28px;
+  right: 28px;
+  bottom: 8px;
+  height: 4px;
+  border-radius: 4px;
+  background: $color-brand-gold;
 }

@@ -102,9 +102,11 @@ export default function ClerkReceivablesPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>应收台账</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       <TabsScroll intoView={`ar-${tab || 'all'}`}>

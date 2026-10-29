@@ -117,9 +117,11 @@ export default function CapRecyclePage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>瓶盖回收</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       <View className='card'>
@@ -158,7 +160,9 @@ export default function CapRecyclePage() {
               <Text className='crline__amt'>
                 {Number(l.qty) > 0 ? fmtMoney(Number(l.qty) * l.policy.perBottleFee) : '—'}
               </Text>
-              <Text className='crline__del' onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}>删除</Text>
+              <Button className='btn-danger btn-icon' onClick={() => setLines((prev) => prev.filter((_, idx) => idx !== i))}>
+                <Text className='btn-label'>删除</Text>
+              </Button>
             </View>
           </View>
         ))}

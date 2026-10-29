@@ -137,9 +137,13 @@ export default function InventoryListPage() {
 
       {total > PAGE_SIZE ? (
         <View className='inv__pager'>
-          <Button className='btn-ghost' disabled={page <= 1} onClick={() => setPage(page - 1)}>上一页</Button>
+          <Button className='btn-neutral btn-sm' disabled={page <= 1} onClick={() => setPage(page - 1)}>
+            <Text className='btn-label'>上一页</Text>
+          </Button>
           <Text className='inv__pager-text'>{page} / {pages}</Text>
-          <Button className='btn-ghost' disabled={page >= pages} onClick={() => setPage(page + 1)}>下一页</Button>
+          <Button className='btn-ghost btn-sm' disabled={page >= pages} onClick={() => setPage(page + 1)}>
+            <Text className='btn-label'>下一页</Text>
+          </Button>
         </View>
       ) : null}
       <RoleTabBar />

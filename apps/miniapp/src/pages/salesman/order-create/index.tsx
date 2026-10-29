@@ -160,9 +160,11 @@ export default function SalesmanOrderCreatePage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>代下单</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       {error ? (

@@ -35,13 +35,10 @@ export default function ClerkHomePage() {
   }
 
   return (
-    <View className='grid-home'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>您好，{name || '内勤'}</Text>
-          <Text className='page-head__sub'>订单、收款、应收</Text>
-        </View>
-        <Text className='tag tag--brand'>内勤</Text>
+    <View className='grid-home grid-home--hero'>
+      <View className='hero'>
+        <Text className='hero__title'>您好，{name || '内勤'}</Text>
+        <Text className='hero__sub'>订单、收款、应收</Text>
       </View>
       <View className='task-list'>
         {TILES.map((t) => (
@@ -54,10 +51,13 @@ export default function ClerkHomePage() {
               </Text>
               <Text className='task-card__desc'>{t.desc}</Text>
             </View>
+            <Text className='frow__arrow'>›</Text>
           </Button>
         ))}
       </View>
-      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
+      <Button className='btn-neutral' onClick={logout}>
+        <Text className='btn-label'>退出登录</Text>
+      </Button>
       <RoleTabBar />
     </View>
   )

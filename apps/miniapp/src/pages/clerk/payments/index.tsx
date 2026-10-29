@@ -118,13 +118,14 @@ export default function ClerkPaymentsPage() {
   }
 
   const selected = customers.find((c) => c.id === customerId)
-  const methodIdx = Math.max(0, PAYMENT_METHODS.indexOf(method))
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>收款登记</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/clerk/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       {/* 登记表单 */}
@@ -153,18 +154,14 @@ export default function ClerkPaymentsPage() {
             onInput={(e) => setAmount(e.detail.value)}
           />
         </View>
-        <Picker
-          mode='selector'
-          range={PAYMENT_METHODS}
-          value={methodIdx}
-          onChange={(e) => setMethod(PAYMENT_METHODS[Number(e.detail.value)] ?? PAYMENT_METHODS[0])}
-        >
-          <View className='frow'>
-            <Text className='frow__label'>方式</Text>
-            <Text className='frow__value'>{method}</Text>
-            <Text className='frow__arrow'>›</Text>
-          </View>
-        </Picker>
+        <Text className='frow__label'>方式</Text>
+        <View className='seg'>
+          {PAYMENT_METHODS.map((item) => (
+            <View key={item} className={`seg__item ${method === item ? 'seg__item--on' : ''}`} onClick={() => setMethod(item)}>
+              <Text>{item}</Text>
+            </View>
+          ))}
+        </View>
         <View className='frow'>
           <Text className='frow__label'>凭证号</Text>
           <Input
@@ -212,7 +209,7 @@ export default function ClerkPaymentsPage() {
                   {p.method ?? '未填方式'}{p.voucher ? ` · 凭证 ${p.voucher}` : ''} · {fmtDateTime(p.createdAt)}
                 </Text>
               </View>
-              <Button className='btn-primary btn-sm' onClick={() => confirmPay(p)}>
+              <Button className='btn-ghost btn-sm' onClick={() => confirmPay(p)}>
                 <Text className='btn-label'>确认销账</Text>
               </Button>
             </View>

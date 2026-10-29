@@ -118,9 +118,11 @@ export default function BossApprovalsPage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>审批中心</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/boss/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/boss/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       <View className='tabs tabs--segment'>
@@ -191,18 +193,18 @@ export default function BossApprovalsPage() {
               {tab === 'pending' && (
                 <View className='appr__ops'>
                   <Button
-                    className='btn-inline btn-inline--danger'
+                    className='btn-danger btn-md'
                     disabled={submitting}
                     onClick={() => setDeciding({ id: it.id, action: 'reject', title: `驳回：${it.title}` })}
                   >
-                    驳回
+                    <Text className='btn-label'>驳回</Text>
                   </Button>
                   <Button
-                    className='btn-inline'
+                    className='btn-primary btn-md'
                     disabled={submitting}
                     onClick={() => setDeciding({ id: it.id, action: 'approve', title: `通过：${it.title}` })}
                   >
-                    通过
+                    <Text className='btn-label'>通过</Text>
                   </Button>
                 </View>
               )}

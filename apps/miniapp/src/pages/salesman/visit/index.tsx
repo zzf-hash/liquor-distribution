@@ -210,8 +210,14 @@ export default function SalesmanVisitPage() {
                   <Text className='photo__mark'>{photoAt}{located ? ` ${located}` : ''} 本机水印</Text>
                 </View>
                 <View className='photo__ops'>
-                  <Text className='photo__op' onClick={choosePhoto}>重拍</Text>
-                  <Text className='photo__op' onClick={() => { setPhoto(''); setPhotoAt('') }}>删除</Text>
+                  <Button className='btn-ghost btn-sm' onClick={choosePhoto}>
+                    <Icon name='cam' color='#7A1F2B' size={32} />
+                    <Text className='btn-label'>重拍</Text>
+                  </Button>
+                  <Button className='btn-danger btn-sm' onClick={() => { setPhoto(''); setPhotoAt('') }}>
+                    <Icon name='trash' color='#B3261E' size={32} />
+                    <Text className='btn-label'>删除</Text>
+                  </Button>
                 </View>
               </View>
             ) : (

@@ -181,13 +181,17 @@ export default function BossDashboardPage() {
         <View className='card state'>
           <Text className='state__title'>库存充足</Text>
           <Text className='state__txt'>暂时没有低库存预警</Text>
-          <Text className='topbar__link' onClick={() => openAppPage('/pages/boss/inventory/index')}>查看全部</Text>
+          <Button className='btn-tonal btn-sm' onClick={() => openAppPage('/pages/boss/inventory/index')}>
+            <Text className='btn-label'>查看全部</Text>
+          </Button>
         </View>
       ) : (
         <View className='card'>
           <View className='dash__hd'>
             <Text className='card__title'>低库存预警</Text>
-            <Text className='topbar__link' onClick={() => openAppPage('/pages/boss/inventory/index')}>查看全部</Text>
+            <Button className='btn-tonal btn-sm' onClick={() => openAppPage('/pages/boss/inventory/index')}>
+            <Text className='btn-label'>查看全部</Text>
+          </Button>
             <Text className='tag tag--danger'>{low.length} 项</Text>
           </View>
           {low.map((p) => {

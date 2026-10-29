@@ -51,38 +51,32 @@ export default function SalesmanHomePage() {
   }
 
   return (
-    <View className='grid-home'>
-      <View className='page-head'>
-        <View className='page-head__main'>
-          <Text className='page-head__title'>你好，{name || '业务员'}</Text>
-          <Text className='page-head__sub'>跑店、报单、收款</Text>
-        </View>
-        <Text className='tag tag--brand'>业务员</Text>
-      </View>
-
-      <View className='brand-card'>
-        <Text className='brand-card__k'>本月回款</Text>
-        <Text className='brand-card__v'>{perf ? fmtMoney(perf.paymentAmount) : '—'}</Text>
-        <View className='brand-card__stats'>
-          <View className='brand-card__stat'>
-            <Text className='brand-card__stat-k'>拜访</Text>
-            <Text className='brand-card__stat-v'>{perf ? `${perf.visitCount}${perf.visitTarget ? `/${perf.visitTarget}` : ''}` : '—'}</Text>
+    <View className='grid-home grid-home--hero'>
+      <View className='hero'>
+        <Text className='hero__title'>你好，{name || '业务员'}</Text>
+        <Text className='hero__sub'>跑店、报单、收款</Text>
+        <Text className='hero__k'>本月回款</Text>
+        <Text className='hero__num'>{perf ? fmtMoney(perf.paymentAmount) : '—'}</Text>
+        <View className='hero__stats'>
+          <View className='hero__stat'>
+            <Text className='hero__stat-k'>拜访</Text>
+            <Text className='hero__stat-v'>{perf ? `${perf.visitCount}${perf.visitTarget ? `/${perf.visitTarget}` : ''}` : '—'}</Text>
           </View>
-          <View className='brand-card__stat'>
-            <Text className='brand-card__stat-k'>新客</Text>
-            <Text className='brand-card__stat-v'>{perf ? perf.newCustomers : '—'}</Text>
+          <View className='hero__stat'>
+            <Text className='hero__stat-k'>新客</Text>
+            <Text className='hero__stat-v'>{perf ? perf.newCustomers : '—'}</Text>
           </View>
-          <View className='brand-card__stat'>
-            <Text className='brand-card__stat-k'>提成</Text>
-            <Text className='brand-card__stat-v'>{perf ? fmtMoney(perf.commission) : '—'}</Text>
+          <View className='hero__stat'>
+            <Text className='hero__stat-k'>提成</Text>
+            <Text className='hero__stat-v'>{perf ? fmtMoney(perf.commission) : '—'}</Text>
           </View>
         </View>
       </View>
 
       <View className='task-row'>
-        {PRIMARY.map((t) => (
-          <Button key={t.title} className='task-card' onClick={() => openAppPage(t.url)}>
-            <View className='tile__icon'><Icon name={t.icon} color='#7A1F2B' size={44} /></View>
+        {PRIMARY.map((t, index) => (
+          <Button key={t.title} className={`task-card ${index === 0 ? 'task-card--lead' : ''}`} onClick={() => openAppPage(t.url)}>
+            <View className='tile__icon'><Icon name={t.icon} color={index === 0 ? '#C9A46A' : '#7A1F2B'} size={44} /></View>
             <View>
               <Text className='task-card__title'>{t.title}</Text>
               <Text className='task-card__desc'>{t.desc}</Text>
@@ -105,7 +99,9 @@ export default function SalesmanHomePage() {
         <Text className='state__txt'>今天没有新的待办。拜访和收款进度在对应入口里查看。</Text>
       </View>
 
-      <Text className='grid-home__out grid-home__logout' onClick={logout}>退出登录</Text>
+      <Button className='btn-neutral' onClick={logout}>
+        <Text className='btn-label'>退出登录</Text>
+      </Button>
       <RoleTabBar />
     </View>
   )

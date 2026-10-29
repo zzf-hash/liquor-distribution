@@ -48,9 +48,11 @@ export default function SalesmanPerformancePage() {
 
   return (
     <View className='page'>
-      <View className='topbar'>
+      <View className='topbar topbar--hero'>
         <Text className='topbar__title'>我的绩效</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
+        <Button className='btn-hero' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>
+          <Text className='btn-hero__txt'>工作台</Text>
+        </Button>
       </View>
 
       <Picker mode='date' fields='month' value={month} onChange={(e) => { setMonth(e.detail.value); void load(e.detail.value) }}>

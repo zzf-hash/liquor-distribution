@@ -108,7 +108,9 @@ export default function CustomerProductsPage() {
           <Text className='page-head__title'>选酒下单</Text>
           <Text className='page-head__sub'>价格为参考价，以商家确认为准</Text>
         </View>
-        <Text className='grid-home__out' onClick={() => { void signOut() }}>退出登录</Text>
+        <Button className='btn-neutral' onClick={() => { void signOut() }}>
+          <Text className='btn-label'>退出登录</Text>
+        </Button>
       </View>
 
       <View className={`plist__search ${focus ? 'plist__search--focus' : ''}`}>
