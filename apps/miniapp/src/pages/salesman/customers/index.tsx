@@ -4,6 +4,10 @@ import Icon from '../../../components/Icon'
 import Taro, { useDidShow } from '@tarojs/taro'
 import { LOGIN_PAGE, SETTLEMENT_LABELS, customersApi, getToken } from '../../../services/api'
 import type { CustomerRowDTO } from '../../../services/api'
+import { CREATE_CUSTOMER_PAGE, canCreateCustomer } from '../../../services/create-customer'
+import { homeForRole } from '../../../services/route-guard'
+import { confirmedRoleForGuard } from '../../../services/session-cache'
+import { openAppPage } from '../../../services/navigation'
 import './index.scss'
 import RoleTabBar from '../../../components/RoleTabBar'
 
@@ -16,12 +20,14 @@ export default function SalesmanCustomersPage() {
   const [items, setItems] = useState<CustomerRowDTO[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [role, setRole] = useState('')
 
   useDidShow(() => {
     if (!getToken()) {
       Taro.reLaunch({ url: LOGIN_PAGE })
       return
     }
+    setRole(confirmedRoleForGuard())
     void load()
   })
 
@@ -50,12 +56,21 @@ export default function SalesmanCustomersPage() {
     Taro.makePhoneCall({ phoneNumber: phone }).catch(() => undefined)
   }
 
+  const showCreate = canCreateCustomer(role)
+  const desk = role.trim().toUpperCase() === 'OWNER' ? '/pages/boss/home/index' : (homeForRole(role) ?? '/pages/salesman/home/index')
+
   return (
     <View className='page'>
       <View className='topbar'>
-        <Text className='topbar__title'>我的客户（{items.length}）</Text>
-        <Text className='topbar__link' onClick={() => Taro.navigateTo({ url: '/pages/salesman/home/index' })}>工作台</Text>
+        <Text className='topbar__title'>{role.trim().toUpperCase() === 'OWNER' ? '客户' : '我的客户'}（{items.length}）</Text>
+        <Text className='topbar__link' onClick={() => openAppPage(desk)}>工作台</Text>
       </View>
+
+      {showCreate ? (
+        <Button className='btn-primary' onClick={() => openAppPage(CREATE_CUSTOMER_PAGE)}>
+          <Text className='btn-label'>新建客户</Text>
+        </Button>
+      ) : null}
 
       <View className='search-pill'>
         <Icon name='search' color='#6B5F5A' size={44} />

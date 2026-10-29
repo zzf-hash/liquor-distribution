@@ -14,6 +14,7 @@ const TILES: Array<{ icon: IconName; title: string; desc: string; url: string }>
   { icon: 'chart', title: '四问看板', desc: '销售、回款、欠款、库存预警', url: '/pages/boss/dashboard/index' },
   { icon: 'box', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index' },
   { icon: 'check', title: '审批中心', desc: '特批、调价、采购', url: '/pages/boss/approvals/index' },
+  { icon: 'users', title: '客户', desc: '建档后走开户审批', url: '/pages/salesman/customers/index' },
   { icon: 'list', title: '订单池', desc: '全部订单', url: '/pages/clerk/orders/index' },
 ]
 

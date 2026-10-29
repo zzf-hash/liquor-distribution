@@ -18,6 +18,7 @@ export const SALESMAN_PAGES = [
   'pages/salesman/visit/index',
   'pages/salesman/voice-order/index',
   'pages/salesman/customers/index',
+  'pages/salesman/customer-create/index',
   'pages/salesman/order-create/index',
   'pages/salesman/payment-report/index',
   'pages/salesman/performance/index',

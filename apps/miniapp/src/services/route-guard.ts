@@ -6,6 +6,9 @@ export const LOGIN_PATH = '/pages/staff/login/index'
 
 const STAFF_ROLES = new Set(['REP', 'CLERK', 'WAREHOUSE', 'OWNER'])
 
+/** 新建客户只给老板和业务员。小程序不给内勤这条页面。 */
+const CREATE_CUSTOMER_ROLES = new Set(['OWNER', 'REP'])
+
 /** 全量库存的接口角色。业务员不在里面。 */
 const INVENTORY_ROLES = new Set(['OWNER', 'CLERK', 'WAREHOUSE'])
 
@@ -20,6 +23,9 @@ const BOSS_DESK_ROLES = new Set(['OWNER', 'CLERK'])
  * 库存单独列出，避免被后面的 pages/boss/ 收成老板和内勤。
  */
 export function rolesForStaffPage(path: string): ReadonlySet<string> | null {
+  if (path === 'pages/salesman/customer-create/index' || path.startsWith('pages/salesman/customer-create/')) {
+    return CREATE_CUSTOMER_ROLES
+  }
   if (path === 'pages/boss/inventory/index' || path.startsWith('pages/boss/inventory/')) return INVENTORY_ROLES
   if (path.startsWith('pages/boss/')) return BOSS_DESK_ROLES
   return null
