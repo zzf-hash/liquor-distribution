@@ -1,6 +1,7 @@
 // 订单池（P0-T20~T25）：状态筛选 tab + 行展开明细（含红字冲销行负数）+ 预检结果 + 状态机操作 + 内勤开单
 import { lazy, Suspense, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert, App as AntApp, Button, Collapse, Descriptions, Input, Space, Spin, Tag, Typography,
 } from 'antd';
@@ -11,6 +12,7 @@ const ReasonActionModal = lazy(() => import('./order-modals').then((m) => ({ def
 const CreateOrderModal = lazy(() => import('./order-modals').then((m) => ({ default: m.CreateOrderModal })));
 import {
   ApiError,
+  approvalsApi,
   customersApi,
   downloadApiFile,
   ordersApi,
@@ -54,8 +56,10 @@ function openDeliveryNote(id: string): void {
 
 export default function OrdersPage(): JSX.Element {
   const { message, modal } = AntApp.useApp();
+  const navigate = useNavigate();
   const role: Role = getAuth()?.role ?? 'owner';
   const canOperate = role === 'owner' || role === 'clerk';
+  const [pendingCount, setPendingCount] = useState<number | null>(null);
 
   const [activeStatus, setActiveStatus] = useState('ALL');
   const [keyword, setKeyword] = useState('');
@@ -69,6 +73,15 @@ export default function OrdersPage(): JSX.Element {
   const [reasonState, setReasonState] = useState<{ type: ReasonAction; order: OrderDTO } | null>(null);
 
   const reload = (): void => setRefreshKey((k) => k + 1);
+
+  useEffect(() => {
+    if (!canOperate) return;
+    let alive = true;
+    approvalsApi.list({ status: 'PENDING', page: 1, pageSize: 1 })
+      .then((res) => { if (alive) setPendingCount(res.total ?? 0); })
+      .catch(() => { if (alive) setPendingCount(null); });
+    return () => { alive = false; };
+  }, [canOperate]);
 
   useEffect(() => {
     let alive = true;
@@ -205,6 +218,18 @@ export default function OrdersPage(): JSX.Element {
 
   return (
     <div>
+      {canOperate && (
+        <div style={{ background: '#fff', border: '1px solid #91caff', borderRadius: 8, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>常用操作</div>
+          <Space size={12} wrap>
+            <Button type="primary" size="large" onClick={() => navigate('/customers?create=1')}>＋ 新建客户</Button>
+            <Button size="large" onClick={() => setCreateOpen(true)}>新建订单</Button>
+            <Button size="large" onClick={() => navigate('/approvals')}>
+              待审批 {pendingCount === null ? '—' : pendingCount}
+            </Button>
+          </Space>
+        </div>
+      )}
       <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>订单池</Typography.Title>
       <Typography.Paragraph type="secondary">三入口统一订单池（内勤开单/业务员代下/客户商城）</Typography.Paragraph>
       <Panel>
