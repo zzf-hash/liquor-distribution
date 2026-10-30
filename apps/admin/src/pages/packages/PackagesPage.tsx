@@ -163,7 +163,7 @@ export default function PackagesPage(): JSX.Element {
     <PageContainer title="回包装" subTitle="F11 无单回收 · 押金台账 append-only · 押金单价后台 cfg 可配">
       {summary && (
         <Row gutter={12} style={{ marginBottom: 12 }}>
-          {summary.items.map((i) => (
+          {(summary.items ?? []).map((i) => (
             <Col key={i.category}>
               <Card size="small">
                 <Statistic title={`${i.category}（在押 ${i.qty}）`} value={fmtMoney(i.deposit)} />

@@ -73,7 +73,8 @@ function PromotionsTab(): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      setRows(await promotionsApi.list());
+      const list = await promotionsApi.list();
+      setRows(Array.isArray(list) ? list : []);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载随单赠规则失败');
     } finally {
@@ -227,7 +228,7 @@ function SchemesTab(): JSX.Element {
     setLoading(true);
     rebatesApi
       .listSchemes({ customerId: filterCustomerId || undefined })
-      .then((r) => { if (alive) setRows(r); })
+      .then((r) => { if (alive) setRows(Array.isArray(r) ? r : []); })
       .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载方案失败'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
@@ -538,7 +539,7 @@ function SettlementsTab(): JSX.Element {
     setLoading(true);
     rebatesApi
       .listSettlements({ period })
-      .then((r) => { if (alive) setRows(r); })
+      .then((r) => { if (alive) setRows(Array.isArray(r) ? r : []); })
       .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载核算记录失败'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
