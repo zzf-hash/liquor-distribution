@@ -1,10 +1,14 @@
 /**
  * 构建后的 JS chunk 体积（gzip）。
- * 首屏 = 入口静态依赖，加上登录后第一个可见页（订单池、特单）各自再拉的动态 chunk。
+ * 静态图只含 import/export。首屏上限按浏览器真实请求：
+ * 写入角色会话后打开 /，等到第一页渲染完、网络安静，把请求过的 js 用 gzipSync 加总。
+ * 这样「挂上 React.lazy 就会立刻拉」的动态 chunk 也会进 --check。
  * 用法：node scripts/chunk-report.mjs [--check]
  */
+import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
 import { gzipSync } from 'node:zlib'
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -118,19 +122,187 @@ if (forbidden.length) {
   process.exit(1)
 }
 
-const owner = screen('owner/clerk/warehouse first page /orders', 'OrdersPage')
-const rep = screen('rep first page /special-orders', 'SpecialOrdersPage')
+const staticOwner = screen('static /orders', 'OrdersPage')
+const staticRep = screen('static /special-orders', 'SpecialOrdersPage')
 
 function printScreen(screenRow) {
-  console.log(`\n${screenRow.label}: ${(screenRow.gzip / 1024).toFixed(1)} KB gzip`)
-  for (const row of screenRow.rows) console.log(`  ${(row.gzip / 1024).toFixed(1).padStart(7)} KB  ${row.name}`)
+  console.log(`\n${screenRow.label}: ${screenRow.gzip} bytes (${(screenRow.gzip / 1024).toFixed(1)} KB gzip)`)
+  for (const row of screenRow.rows) console.log(`  ${String(row.gzip).padStart(7)}  ${(row.gzip / 1024).toFixed(1).padStart(6)} KB  ${row.name}`)
 }
-printScreen(owner)
-printScreen(rep)
+printScreen(staticOwner)
+printScreen(staticRep)
 
-const worst = Math.max(owner.gzip, rep.gzip)
-if (check && worst > LIMIT) {
-  console.error(`first screen ${ (worst / 1024).toFixed(1) } KB gzip exceeds ${LIMIT / 1024} KB`)
-  process.exit(1)
+const ROLES = [
+  { role: 'owner', name: '朱总', marker: '订单池', home: '/orders', staticSet: staticOwner },
+  { role: 'clerk', name: '王内勤', marker: '订单池', home: '/orders', staticSet: staticOwner },
+  { role: 'warehouse', name: '仓配张姐', marker: '订单池', home: '/orders', staticSet: staticOwner },
+  { role: 'rep', name: '李业务员', marker: '特单', home: '/special-orders', staticSet: staticRep },
+]
+
+function startStaticServer() {
+  return new Promise((resolve, reject) => {
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      let rel = decodeURIComponent(url.pathname)
+      if (rel === '/') rel = '/index.html'
+      const file = path.resolve(dist, `.${rel}`)
+      if (!file.startsWith(dist) || !existsSync(file) || statSync(file).isDirectory()) {
+        res.writeHead(404)
+        res.end('not found')
+        return
+      }
+      const type = file.endsWith('.js') ? 'text/javascript' : file.endsWith('.css') ? 'text/css' : 'text/html; charset=utf-8'
+      res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' })
+      res.end(readFileSync(file))
+    })
+    server.listen(0, '127.0.0.1', () => resolve(server))
+    server.on('error', reject)
+  })
 }
-console.log(`\nfirst-screen max ${(worst / 1024).toFixed(1)} KB gzip (limit ${LIMIT / 1024} KB)`)
+
+async function chromeBase() {
+  try {
+    const res = await fetch('http://127.0.0.1:9222/json/version')
+    if (res.ok) return { base: 'http://127.0.0.1:9222', child: null }
+  } catch {
+    // 没有现成的调试端口时再自己拉一个。
+  }
+  const userDir = `/tmp/admin-chunk-chrome-${process.pid}`
+  const child = spawn('google-chrome', [
+    '--headless=new',
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-first-run',
+    `--user-data-dir=${userDir}`,
+    '--remote-debugging-port=9344',
+    'about:blank',
+  ], { stdio: 'ignore' })
+  for (let i = 0; i < 50; i += 1) {
+    try {
+      const res = await fetch('http://127.0.0.1:9344/json/version')
+      if (res.ok) return { base: 'http://127.0.0.1:9344', child }
+    } catch {
+      await new Promise((r) => setTimeout(r, 100))
+    }
+  }
+  child.kill()
+  throw new Error('chrome did not open a debugging port')
+}
+
+function assetPath(raw) {
+  try {
+    const pathname = new URL(raw).pathname.replace(/^\//, '')
+    if (pathname.startsWith('assets/') && pathname.endsWith('.js')) return pathname
+  } catch {
+    return null
+  }
+  return null
+}
+
+async function measureRole(cdpBase, origin, spec) {
+  const created = await fetch(`${cdpBase}/json/new?about:blank`, { method: 'PUT' }).then((r) => r.json())
+  const ws = new WebSocket(created.webSocketDebuggerUrl)
+  await new Promise((resolve, reject) => {
+    ws.addEventListener('open', resolve, { once: true })
+    ws.addEventListener('error', reject, { once: true })
+  })
+  let nextId = 0
+  const pending = new Map()
+  const fetched = new Set()
+  ws.addEventListener('message', (event) => {
+    const msg = JSON.parse(event.data)
+    const rawUrl = msg.params?.request?.url || msg.params?.response?.url
+    const asset = rawUrl ? assetPath(rawUrl) : null
+    if (asset) fetched.add(asset)
+    if (msg.id && pending.has(msg.id)) {
+      const { resolve, reject } = pending.get(msg.id)
+      pending.delete(msg.id)
+      if (msg.error) reject(new Error(JSON.stringify(msg.error)))
+      else resolve(msg.result ?? {})
+    }
+  })
+  const call = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++nextId
+    pending.set(id, { resolve, reject })
+    ws.send(JSON.stringify({ id, method, params }))
+  })
+  try {
+    await call('Network.enable')
+    await call('Network.setCacheDisabled', { cacheDisabled: true })
+    await call('Page.enable')
+    const auth = JSON.stringify({ token: `measure-${spec.role}`, username: spec.role, name: spec.name, role: spec.role })
+    await call('Page.addScriptToEvaluateOnNewDocument', {
+      source: `localStorage.setItem('ld_admin_auth', ${JSON.stringify(auth)});`,
+    })
+    await call('Page.navigate', { url: `${origin}/?bust=${spec.role}` })
+    const deadline = Date.now() + 20000
+    let state = null
+    while (Date.now() < deadline) {
+      const result = await call('Runtime.evaluate', {
+        expression: `(() => ({ path: location.pathname, text: (document.body && document.body.innerText || '').slice(0, 300), buttons: document.querySelectorAll('aside button').length }))()`,
+        returnByValue: true,
+      })
+      state = result.result?.value
+      if (state?.path === spec.home && state.buttons > 0 && state.text.includes(spec.marker) && !state.text.includes('页面加载中')) break
+      await new Promise((r) => setTimeout(r, 150))
+    }
+    if (!state || state.path !== spec.home || !state.text.includes(spec.marker) || state.text.includes('页面加载中')) {
+      throw new Error(`${spec.role} did not reach ${spec.home}: ${JSON.stringify(state)}`)
+    }
+    let stable = -1
+    for (let i = 0; i < 8; i += 1) {
+      await new Promise((r) => setTimeout(r, 200))
+      const resources = await call('Runtime.evaluate', {
+        expression: `performance.getEntriesByType('resource').map(e => e.name)`,
+        returnByValue: true,
+      })
+      for (const name of resources.result?.value ?? []) {
+        const asset = assetPath(name)
+        if (asset) fetched.add(asset)
+      }
+      if (fetched.size === stable) break
+      stable = fetched.size
+    }
+    const missing = [...fetched].filter((name) => !byName.has(name))
+    if (missing.length) throw new Error(`unknown js: ${missing.join(', ')}`)
+    const rows = [...fetched].map((name) => byName.get(name)).sort((a, b) => b.gzip - a.gzip)
+    const gzip = rows.reduce((sum, row) => sum + row.gzip, 0)
+    const staticNames = new Set(spec.staticSet.rows.map((row) => row.name))
+    const extra = rows.filter((row) => !staticNames.has(row.name))
+    return { role: spec.role, home: state.path, gzip, rows, extra }
+  } finally {
+    ws.close()
+    await fetch(`${cdpBase}/json/close/${created.id}`).catch(() => {})
+  }
+}
+
+const server = await startStaticServer()
+const origin = `http://127.0.0.1:${server.address().port}`
+const chrome = await chromeBase()
+let worst = 0
+try {
+  console.log('\nbrowser first screen (gzipSync of requested js)')
+  for (const spec of ROLES) {
+    const measured = await measureRole(chrome.base, origin, spec)
+    worst = Math.max(worst, measured.gzip)
+    console.log(`\n${measured.role} ${measured.home}: ${measured.gzip} bytes (${(measured.gzip / 1024).toFixed(1)} KB gzip)`)
+    for (const row of measured.rows) console.log(`  ${String(row.gzip).padStart(7)}  ${(row.gzip / 1024).toFixed(1).padStart(6)} KB  ${row.name}`)
+    if (measured.extra.length) {
+      const extraBytes = measured.extra.reduce((sum, row) => sum + row.gzip, 0)
+      console.log(`  dynamic chunks fetched on first paint: ${extraBytes} bytes`)
+      for (const row of measured.extra) console.log(`    ${row.name}`)
+    } else {
+      console.log('  dynamic chunks fetched on first paint: none')
+    }
+    if (check && measured.gzip > LIMIT) {
+      console.error(`${measured.role} first screen ${(measured.gzip / 1024).toFixed(1)} KB gzip exceeds ${LIMIT / 1024} KB`)
+      process.exitCode = 1
+    }
+  }
+} finally {
+  server.close()
+  if (chrome.child) chrome.child.kill()
+}
+if (process.exitCode) process.exit(process.exitCode)
+console.log(`\nfirst-screen max ${worst} bytes (${(worst / 1024).toFixed(1)} KB gzip, limit ${LIMIT / 1024} KB)`)

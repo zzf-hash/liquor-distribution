@@ -261,18 +261,24 @@ export default function OrdersPage(): JSX.Element {
         />
       </Panel>
 
-      <Suspense fallback={null}>
-        <ReasonActionModal
-          state={reasonState}
-          onClose={() => setReasonState(null)}
-          onDone={() => { setReasonState(null); reload(); }}
-        />
-        <CreateOrderModal
-          open={createOpen}
-          onClose={() => setCreateOpen(false)}
-          onCreated={() => { setCreateOpen(false); reload(); }}
-        />
-      </Suspense>
+      {reasonState ? (
+        <Suspense fallback={null}>
+          <ReasonActionModal
+            state={reasonState}
+            onClose={() => setReasonState(null)}
+            onDone={() => { setReasonState(null); reload(); }}
+          />
+        </Suspense>
+      ) : null}
+      {createOpen ? (
+        <Suspense fallback={null}>
+          <CreateOrderModal
+            open
+            onClose={() => setCreateOpen(false)}
+            onCreated={() => { setCreateOpen(false); reload(); }}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }
