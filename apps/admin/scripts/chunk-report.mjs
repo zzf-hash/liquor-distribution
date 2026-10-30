@@ -133,10 +133,10 @@ printScreen(staticOwner)
 printScreen(staticRep)
 
 const ROLES = [
-  { role: 'owner', name: '朱总', marker: '订单池', home: '/orders', staticSet: staticOwner },
-  { role: 'clerk', name: '王内勤', marker: '订单池', home: '/orders', staticSet: staticOwner },
-  { role: 'warehouse', name: '仓配张姐', marker: '订单池', home: '/orders', staticSet: staticOwner },
-  { role: 'rep', name: '李业务员', marker: '特单', home: '/special-orders', staticSet: staticRep },
+  { role: 'owner', name: '朱总', marker: '订单', home: '/orders', staticSet: staticOwner },
+  { role: 'clerk', name: '王内勤', marker: '订单', home: '/orders', staticSet: staticOwner },
+  { role: 'warehouse', name: '仓配张姐', marker: '订单', home: '/orders', staticSet: staticOwner },
+  { role: 'rep', name: '李业务员', marker: '特殊订单', home: '/special-orders', staticSet: staticRep },
 ]
 
 function startStaticServer() {

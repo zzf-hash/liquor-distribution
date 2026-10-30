@@ -178,7 +178,7 @@ function MonthlyTab(): JSX.Element {
       [`月度报表 ${data.month}`],
       [],
       ['经营汇总'],
-      ['应收发生', '当月收款', '退货金额', '采购金额', '期末未结'],
+      ['本期新增欠款', '当月收款', '退货金额', '采购金额', '期末未结'],
       [
         toNum(summary?.charged).toFixed(2), toNum(summary?.collected).toFixed(2),
         toNum(summary?.returned).toFixed(2), toNum(summary?.purchased).toFixed(2),
@@ -212,7 +212,7 @@ function MonthlyTab(): JSX.Element {
         />
         <Button type="primary" disabled={!data} onClick={exportMonthly}>导出 CSV</Button>
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          口径与台账一致：应收＝当月签收发生；收款＝当月确认；退货/采购＝当月收货。
+          口径与台账一致：本期新增欠款＝当月签收记上的欠款；收款＝当月确认；退货/采购＝当月收货。
         </Typography.Text>
       </Space>
 
@@ -227,7 +227,7 @@ function MonthlyTab(): JSX.Element {
       <Card size="small" loading={loading && !data}>
         <Row gutter={[16, 16]}>
           <Col xs={12} lg={6}>
-            <Statistic title="应收发生" value={fmtMoney(summary?.charged)} />
+            <Statistic title="本期新增欠款" value={fmtMoney(summary?.charged)} />
           </Col>
           <Col xs={12} lg={6}>
             <Statistic title="当月收款" value={fmtMoney(summary?.collected)} valueStyle={{ color: '#389e0d' }} />

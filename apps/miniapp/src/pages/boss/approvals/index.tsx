@@ -119,7 +119,7 @@ export default function BossApprovalsPage() {
 
   return (
     <View className='page'>
-            <HeroHeader title='审批中心' />
+            <HeroHeader title='待审批' />
 
       <View className='tabs tabs--segment'>
         <Button className={`tabs__btn ${tab === 'pending' ? 'tabs__btn--on' : ''}`} onClick={() => switchTab('pending')}>待办</Button>

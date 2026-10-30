@@ -23,7 +23,7 @@ function payloadText(v: unknown): string {
 
 export default function ApprovalsPage(): JSX.Element {
   return (
-    <PageContainer title="审批中心" subTitle="五条审批线统一：信用放行 / 特单价格 / 调价 / 采购 / 运营费 / 退货">
+    <PageContainer title="待审批" subTitle="五条审批线统一：信用放行 / 特殊订单价格 / 改价格 / 采购 / 运营费 / 退货">
       <Card>
         <Alert
           style={{ marginBottom: 12 }}

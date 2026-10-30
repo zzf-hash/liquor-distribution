@@ -228,8 +228,8 @@ export default function BossDashboardPage() {
       )}
 
       <View className='dash__links'>
-        <Button className='btn-primary' onClick={() => Taro.navigateTo({ url: '/pages/boss/approvals/index' })}>审批中心</Button>
-        <Button className='btn-ghost' onClick={() => Taro.navigateTo({ url: '/pages/clerk/orders/index' })}>订单池</Button>
+        <Button className='btn-primary' onClick={() => Taro.navigateTo({ url: '/pages/boss/approvals/index' })}>待审批</Button>
+        <Button className='btn-ghost' onClick={() => Taro.navigateTo({ url: '/pages/clerk/orders/index' })}>订单</Button>
       </View>
       <RoleTabBar />
     </View>

@@ -25,7 +25,7 @@ export const CLERK_TABS: RoleTab[] = [
   { pagePath: 'pages/clerk/home/index', text: '首页' },
   { pagePath: 'pages/clerk/orders/index', text: '订单' },
   { pagePath: 'pages/clerk/payments/index', text: '收款' },
-  { pagePath: 'pages/clerk/receivables/index', text: '应收' },
+  { pagePath: 'pages/clerk/receivables/index', text: '客户欠款' },
 ]
 
 export const WAREHOUSE_TABS: RoleTab[] = [
@@ -37,7 +37,7 @@ export const WAREHOUSE_TABS: RoleTab[] = [
 export const BOSS_TABS: RoleTab[] = [
   { pagePath: 'pages/boss/home/index', text: '首页' },
   { pagePath: 'pages/boss/dashboard/index', text: '看板' },
-  { pagePath: 'pages/boss/approvals/index', text: '审批' },
+  { pagePath: 'pages/boss/approvals/index', text: '待审批' },
   { pagePath: 'pages/clerk/orders/index', text: '订单' },
 ]
 

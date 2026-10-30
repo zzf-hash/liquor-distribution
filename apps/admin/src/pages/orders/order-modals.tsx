@@ -14,7 +14,7 @@ type ReasonAction = 'cancel' | 'reject' | 'approveSpecial';
 const APPROVE_TYPE_OPTIONS = [
   { value: 'CREDIT_RELEASE', label: '信用超额放行' },
   { value: 'PRICE_SPECIAL', label: '价格特批' },
-  { value: 'ORDER_SPECIAL', label: '特单（地址/时段/宴席/超账期）' },
+  { value: 'ORDER_SPECIAL', label: '特殊订单（地址/时段/宴席/超账期）' },
 ];
 
 export function ReasonActionModal({

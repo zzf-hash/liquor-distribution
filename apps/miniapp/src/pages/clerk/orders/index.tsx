@@ -66,7 +66,7 @@ export default function ClerkOrdersPage() {
 
   return (
     <View className='page'>
-            <HeroHeader title='订单池' />
+            <HeroHeader title='订单' />
 
       <TabsScroll intoView={`tab-${tab}`}>
         {TABS.map((t) => (

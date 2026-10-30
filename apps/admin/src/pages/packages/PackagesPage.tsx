@@ -117,7 +117,7 @@ export default function PackagesPage(): JSX.Element {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `回包装台账_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `包装物回收台账_${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       message.success(`已导出 ${rows.length} 条台账明细`);
@@ -160,7 +160,7 @@ export default function PackagesPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="回包装" subTitle="F11 无单回收 · 押金台账 append-only · 押金单价后台 cfg 可配">
+    <PageContainer title="包装物回收" subTitle="F11 无单回收 · 押金台账 append-only · 押金单价后台 cfg 可配">
       {summary && (
         <Row gutter={12} style={{ marginBottom: 12 }}>
           {(summary.items ?? []).map((i) => (
@@ -229,7 +229,7 @@ export default function PackagesPage(): JSX.Element {
               });
               return { data: res.items, total: res.total, success: true };
             } catch (e) {
-              message.error(e instanceof Error ? e.message : '加载回包装台账失败');
+              message.error(e instanceof Error ? e.message : '加载包装物回收台账失败');
               return { data: [], total: 0, success: false };
             }
           }}

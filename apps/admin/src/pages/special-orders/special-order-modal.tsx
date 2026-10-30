@@ -93,7 +93,7 @@ export default function CreateSpecialOrderModal({
   const total = lines.reduce((sum, l) => sum + (l.qty ?? 0) * (l.price ?? 0), 0);
 
   async function submit(): Promise<void> {
-    if (!title.trim()) { message.warning('请填写特单标题'); return; }
+    if (!title.trim()) { message.warning('请填写特殊订单标题'); return; }
     if (!customerName.trim()) { message.warning('请填写客户名称（无档案散客直接手填）'); return; }
     if (!contactName.trim() || !contactPhone.trim()) { message.warning('请填写联系人和联系电话'); return; }
     if (!address.trim()) { message.warning('请填写配送地址'); return; }
@@ -127,10 +127,10 @@ export default function CreateSpecialOrderModal({
           price: l.price ?? 0,
         })),
       });
-      message.success(`特单已创建（草稿）：${res.specialNo}，提交定价审批通过后方可出货`);
+      message.success(`特殊订单已创建（草稿）：${res.specialNo}，提交定价审批通过后方可出货`);
       onCreated();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '创建特单失败');
+      message.error(e instanceof Error ? e.message : '创建特殊订单失败');
     } finally {
       setSubmitting(false);
     }
@@ -144,7 +144,7 @@ export default function CreateSpecialOrderModal({
   return (
     <Modal
       open={open}
-      title="新建特单（F8 全员下单）"
+      title="新建特殊订单"
       okText="保存草稿"
       cancelText="取消"
       width={920}
@@ -155,7 +155,7 @@ export default function CreateSpecialOrderModal({
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <Space wrap>
-          <Input style={{ width: 280 }} placeholder="特单标题（如：张府婚宴用酒）" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input style={{ width: 280 }} placeholder="标题（如：张府婚宴用酒）" value={title} onChange={(e) => setTitle(e.target.value)} />
           <Select
             style={{ width: 240 }}
             showSearch

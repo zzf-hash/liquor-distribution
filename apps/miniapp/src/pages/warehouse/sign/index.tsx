@@ -441,7 +441,7 @@ export default function WarehouseSignPage() {
 
       {/* 回包装动态行 */}
       <View className='card'>
-        <Text className='card__title'>回包装回填（选填，落押金台账）</Text>
+        <Text className='card__title'>包装物回填（选填，记入押金）</Text>
         {packages.map((p, i) => (
           <View key={i} className='pkgrow'>
             <Picker
@@ -471,7 +471,7 @@ export default function WarehouseSignPage() {
           className='btn-inline btn-inline--ghost'
           onClick={() => setPackages((prev) => [...prev, { category: PACKAGE_CATEGORIES[0], qty: '' }])}
         >
-          ＋ 添加回包装
+          ＋ 添加包装物
         </Button>
       </View>
 
@@ -486,7 +486,7 @@ export default function WarehouseSignPage() {
       <Button className='btn-danger sign__reject' disabled={submitting} onClick={() => setShowReject(true)}>
         整单拒收
       </Button>
-      <Text className='tip'>签收即生成应收；拒收部分自动回冲库存，请与客户当面点清</Text>
+      <Text className='tip'>签收后记入客户欠款；拒收部分自动退回库存，请与客户当面点清</Text>
 
       <ReasonPopup
         visible={showReject}

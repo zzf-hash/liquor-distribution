@@ -1,5 +1,5 @@
 export default definePageConfig({
-  navigationBarTitleText: '审批中心',
+  navigationBarTitleText: '待审批',
   navigationStyle: 'custom',
   navigationBarTextStyle: 'white',
   navigationBarBackgroundColor: '#5E1520',

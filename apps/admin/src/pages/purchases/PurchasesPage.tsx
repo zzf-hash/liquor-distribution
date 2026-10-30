@@ -59,13 +59,13 @@ export default function PurchasesPage(): JSX.Element {
   function submitForApproval(r: PurchaseOrderDTO): void {
     modal.confirm({
       title: `提交采购审批？${r.purNo}`,
-      content: `${PURCHASE_TYPE_META[r.type]?.label ?? r.type} · ${r.supplier} · ${fmtMoney(r.totalAmount)}，提交后进入审批中心（采购线）待审批。`,
+      content: `${PURCHASE_TYPE_META[r.type]?.label ?? r.type} · ${r.supplier} · ${fmtMoney(r.totalAmount)}，提交后进入待审批（采购）。`,
       okText: '提交审批',
       cancelText: '再想想',
       onOk: async () => {
         try {
           await purchasesApi.submit(r.id);
-          message.success('已提交审批，请到「审批中心」（采购线）处理');
+          message.success('已提交审批，请到「待审批」（采购）处理');
           reload();
         } catch (e) {
           message.error(e instanceof Error ? e.message : '提交失败');

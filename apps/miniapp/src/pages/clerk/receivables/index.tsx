@@ -87,7 +87,7 @@ export default function ClerkReceivablesPage() {
       setOpenTotal(typeof res.openTotal === 'number' ? res.openTotal : null)
       setPage(nextPage)
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载应收台账失败')
+      setError(e instanceof Error ? e.message : '加载客户欠款失败')
     } finally {
       setLoading(false)
     }
@@ -103,7 +103,7 @@ export default function ClerkReceivablesPage() {
 
   return (
     <View className='page'>
-            <HeroHeader title='应收台账' />
+            <HeroHeader title='客户欠款' />
 
       <TabsScroll intoView={`ar-${tab || 'all'}`}>
         {tabs.map((t) => (

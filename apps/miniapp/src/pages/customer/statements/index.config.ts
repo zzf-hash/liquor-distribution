@@ -1,3 +1,3 @@
 export default definePageConfig({
-  navigationBarTitleText: '月结对账单',
+  navigationBarTitleText: '月结账单',
 })

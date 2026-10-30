@@ -126,7 +126,7 @@ export const IMPORT_KIND_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'CUSTOMER', label: '客户' },
   { value: 'PRICE', label: '价格' },
   { value: 'INVENTORY', label: '期初库存' },
-  { value: 'RECEIVABLE', label: '期初应收' },
+  { value: 'RECEIVABLE', label: '期初客户欠款' },
 ];
 
 export const IMPORT_LEVEL_META: Record<string, { label: string; color: string }> = {
@@ -138,12 +138,12 @@ export const IMPORT_LEVEL_META: Record<string, { label: string; color: string }>
 /** P1-T01 审批线（后端 ApprovalLine 枚举，五条线+信用放行） */
 export const APPROVAL_LINE_LABELS: Record<string, string> = {
   CREDIT_RELEASE: '信用放行',
-  PRICE_SPECIAL: '特单价格',
-  PRICE_CHANGE: '调价',
+  PRICE_SPECIAL: '特殊订单价格',
+  PRICE_CHANGE: '改价格',
   PURCHASE: '采购',
   EXPENSE: '运营费',
   RETURN: '退货',
-  STOCKTAKE: '盘点调账',
+  STOCKTAKE: '清点库存调账',
 };
 
 export const APPROVAL_STATUS_META: Record<string, { label: string; color: string }> = {
@@ -276,8 +276,8 @@ export const PURCHASE_STATUS_TABS: Array<{ value: string; label: string }> = [
 
 /** P1-T07 盘点（Q11：仓管盘→内勤核对→超阈值报老板→调账，双签留痕） */
 export const STOCKTAKE_TYPE_META: Record<string, { label: string; color: string }> = {
-  SPOT: { label: '抽盘', color: 'processing' },
-  FULL: { label: '月末大盘', color: 'purple' },
+  SPOT: { label: '抽查', color: 'processing' },
+  FULL: { label: '月末大清点', color: 'purple' },
 };
 
 export const STOCKTAKE_STATUS_META: Record<string, { label: string; color: string }> = {

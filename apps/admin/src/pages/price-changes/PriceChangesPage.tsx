@@ -51,14 +51,14 @@ export default function PriceChangesPage(): JSX.Element {
   /** DRAFT → 提交审批（生成 PRICE_CHANGE 待办，去审批中心处理） */
   function submitForApproval(r: PriceChangeDTO): void {
     modal.confirm({
-      title: `提交调价审批？${labelOf(PRICE_LEVEL_LABELS, r.levelType)} ${fmtMoney(r.oldPrice)} → ${fmtMoney(r.newPrice)}`,
-      content: '提交后进入审批中心（调价线）待审批；审批通过后需回本页「一键生效」落新价格版本。',
+      title: `提交改价格审批？${labelOf(PRICE_LEVEL_LABELS, r.levelType)} ${fmtMoney(r.oldPrice)} → ${fmtMoney(r.newPrice)}`,
+      content: '提交后进入待审批（改价格）；审批通过后需回本页「一键生效」落新价格版本。',
       okText: '提交审批',
       cancelText: '再想想',
       onOk: async () => {
         try {
           await priceChangesApi.submit(r.id);
-          message.success('已提交审批，请到「审批中心」（调价线）处理');
+          message.success('已提交审批，请到「待审批」（改价格）处理');
           reload();
         } catch (e) {
           message.error(e instanceof Error ? e.message : '提交失败');
@@ -81,7 +81,7 @@ export default function PriceChangesPage(): JSX.Element {
           <Descriptions size="small" column={1} bordered style={{ marginTop: 12 }}>
             <Descriptions.Item label="商品">{r.product?.name ?? r.productId}</Descriptions.Item>
             <Descriptions.Item label="生效日">{fmtDate(r.effectiveDate)}</Descriptions.Item>
-            <Descriptions.Item label="调价理由">{r.reason}</Descriptions.Item>
+            <Descriptions.Item label="改价格理由">{r.reason}</Descriptions.Item>
           </Descriptions>
         </div>
       ),
@@ -90,7 +90,7 @@ export default function PriceChangesPage(): JSX.Element {
       onOk: async () => {
         try {
           await priceChangesApi.effectuate(r.id);
-          message.success(`调价已生效，新价格版本已生成（生效日 ${fmtDate(r.effectiveDate)}）`);
+          message.success(`改价格已生效，新价格版本已生成（生效日 ${fmtDate(r.effectiveDate)}）`);
           reload();
         } catch (e) {
           message.error(e instanceof Error ? e.message : '生效失败');
@@ -154,7 +154,7 @@ export default function PriceChangesPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="调价" subTitle="F7 调价引擎 · 一键批量调价（C组） · 只新增版本不覆盖历史（D08） · 存货增贬值仅测算登记（R7）">
+    <PageContainer title="改价格" subTitle="只新增版本不覆盖历史 · 一键批量改价格 · 存货增贬值只登记、不自动改账">
       <Card>
         <Space style={{ marginBottom: 12 }} wrap>
           <Select
@@ -163,9 +163,9 @@ export default function PriceChangesPage(): JSX.Element {
             onChange={(v) => { setActiveStatus(v); reload(); }}
             options={PRICE_CHANGE_STATUS_TABS}
           />
-          <Button type="primary" onClick={() => setCreateOpen(true)}>发起调价</Button>
-          <Button onClick={() => setBatchOpen(true)}>一键批量调价</Button>
-          <Button onClick={() => setBatchesOpen(true)}>批量调价批次</Button>
+          <Button type="primary" onClick={() => setCreateOpen(true)}>发起改价格</Button>
+          <Button onClick={() => setBatchOpen(true)}>一键批量改价格</Button>
+          <Button onClick={() => setBatchesOpen(true)}>批量改价格批次</Button>
         </Space>
         <ProTable<PriceChangeDTO>
           rowKey="id"
@@ -181,7 +181,7 @@ export default function PriceChangesPage(): JSX.Element {
               });
               return { data: res.items, total: res.total, success: true };
             } catch (e) {
-              message.error(e instanceof Error ? e.message : '加载调价单失败');
+              message.error(e instanceof Error ? e.message : '加载改价格单失败');
               return { data: [], total: 0, success: false };
             }
           }}
@@ -245,11 +245,11 @@ function BatchPriceChangeModal({
       .map((r) => ({ productId: r.productId!, levelType: r.levelType, newPrice: r.newPrice! }));
     if (items.length === 0) { message.warning('至少一行完整的商品+新价'); return; }
     if (!effectiveDate) { message.warning('请选择生效日'); return; }
-    if (!reason.trim()) { message.warning('请填写调价理由'); return; }
+    if (!reason.trim()) { message.warning('请填写改价格理由'); return; }
     setSubmitting(true);
     try {
       const res = await priceChangesApi.createBatch({ items, effectiveDate, reason: reason.trim(), customerSync });
-      message.success(`批量调价已创建：${res.batchNo}（${res.count} 单已逐单提审，请到审批中心处理）`);
+      message.success(`批量改价格已创建：${res.batchNo}（${res.count} 单已逐单提审，请到待审批处理）`);
       onDone();
     } catch (e) {
       message.error(e instanceof Error ? e.message : '批量创建失败');
@@ -263,7 +263,7 @@ function BatchPriceChangeModal({
   return (
     <Modal
       open={open}
-      title="一键批量调价（C组 M2-7）"
+      title="一键批量改价格"
       okText="批量创建并提审"
       cancelText="取消"
       confirmLoading={submitting}
@@ -310,9 +310,9 @@ function BatchPriceChangeModal({
           <DatePicker style={{ width: 160 }} placeholder="不得早于今天" onChange={(d) => setEffectiveDate(d ? d.format('YYYY-MM-DD') : undefined)} />
           <Switch checked={customerSync} onChange={setCustomerSync} checkedChildren="联动客户专属价" unCheckedChildren="不联动" />
         </Space>
-        <Input.TextArea rows={2} maxLength={200} placeholder="调价理由（共用，必填）" value={reason} onChange={(e) => setReason(e.target.value)} />
+        <Input.TextArea rows={2} maxLength={200} placeholder="改价格理由（共用，必填）" value={reason} onChange={(e) => setReason(e.target.value)} />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          每个商品一张调价单（各自留存货增贬值测算），共用批次号/生效日/理由，逐单进 PRICE_CHANGE 审批；
+          每个商品一张改价格单（各自留下存货增减值测算），共用批次号、生效日和理由，逐张送去审批；
           联动客户专属价＝生效时按价差平移该商品全部专属价（版本化留痕，COST 级不联动）。
         </Typography.Text>
       </Space>
@@ -399,7 +399,7 @@ function BatchesModal({
   return (
     <Modal
       open={open}
-      title="批量调价批次（C组 一键调价工作台）"
+      title="批量改价格批次"
       footer={null}
       onCancel={onClose}
       width={860}
@@ -411,7 +411,7 @@ function BatchesModal({
         loading={loading}
         dataSource={rows}
         pagination={false}
-        locale={{ emptyText: '暂无批量调价批次' }}
+        locale={{ emptyText: '暂无批量改价格批次' }}
         expandable={{
           expandedRowRender: (b) => (
             <Table
@@ -456,9 +456,9 @@ function PriceChangeDetailCard({ record }: { record: PriceChangeDTO }): JSX.Elem
   const impact = record.stockImpact;
   const delta = impact ? toNum(impact.deltaAmount) : 0;
   return (
-    <Card size="small" title="调价详情">
+    <Card size="small" title="改价格详情">
       <Descriptions size="small" column={3} bordered>
-        <Descriptions.Item label="调价理由" span={3}>{record.reason}</Descriptions.Item>
+        <Descriptions.Item label="改价格理由" span={3}>{record.reason}</Descriptions.Item>
         <Descriptions.Item label="在库量">
           {impact ? toNum(impact.onHandQty) : '-'}
         </Descriptions.Item>
@@ -552,7 +552,7 @@ function CreatePriceChangeModal({
     if (!productId) { message.warning('请选择商品'); return; }
     if (newPrice === undefined || newPrice === null) { message.warning('请填写新价'); return; }
     if (!effectiveDate) { message.warning('请选择生效日'); return; }
-    if (!reason.trim()) { message.warning('调价理由必填'); return; }
+    if (!reason.trim()) { message.warning('改价格理由必填'); return; }
     setSubmitting(true);
     try {
       const res = await priceChangesApi.create({
@@ -566,7 +566,7 @@ function CreatePriceChangeModal({
       setCreated(res);
       setStep(1);
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '创建调价草稿失败');
+      message.error(e instanceof Error ? e.message : '创建改价格草稿失败');
     } finally {
       setSubmitting(false);
     }
@@ -578,7 +578,7 @@ function CreatePriceChangeModal({
     setSubmitting(true);
     try {
       await priceChangesApi.submit(created.id);
-      message.success('已提交审批，请到「审批中心」（调价线）处理');
+      message.success('已提交审批，请到「待审批」（改价格）处理');
       onDone();
     } catch (e) {
       message.error(e instanceof Error ? e.message : '提交审批失败');
@@ -604,12 +604,12 @@ function CreatePriceChangeModal({
   return (
     <Modal
       open={open}
-      title="发起调价"
+      title="发起改价格"
       width={720}
       footer={step === 0
         ? [
           <Button key="cancel" onClick={onClose}>取消</Button>,
-          <Button key="create" type="primary" loading={submitting} onClick={createDraft}>生成调价草稿</Button>,
+          <Button key="create" type="primary" loading={submitting} onClick={createDraft}>生成改价格草稿</Button>,
         ]
         : [
           <Button key="keep" onClick={onDone}>暂存草稿</Button>,
@@ -622,7 +622,7 @@ function CreatePriceChangeModal({
         <Steps
           size="small"
           current={step}
-          items={[{ title: '填写调价' }, { title: '存货增贬值测算' }, { title: '提交审批' }]}
+          items={[{ title: '填写改价格' }, { title: '存货增贬值测算' }, { title: '提交审批' }]}
         />
 
         {step === 0 && (
@@ -682,19 +682,19 @@ function CreatePriceChangeModal({
               rows={3}
               maxLength={200}
               showCount
-              placeholder="调价理由（必填，如：厂家提价 / 市场竞争 / 促销结束恢复）"
+              placeholder="改价格理由（必填，如：厂家提价 / 市场竞争 / 促销结束恢复）"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              D08：生效时只新增价格版本行，历史单据价格不变；生效前需经审批中心（调价线）审批。
+              生效时只新增一条价格，历史单据的价格不变；生效前要先在「待审批」里通过。
             </Typography.Text>
           </Space>
         )}
 
         {step === 1 && created && (
           <Space direction="vertical" style={{ width: '100%' }} size={12}>
-            <Alert type="success" showIcon message="调价草稿已创建，存货增贬值测算如下（仅登记，不自动调账）" />
+            <Alert type="success" showIcon message="改价格草稿已创建。下面是存货增减值测算，只登记，不自动改账" />
             <Descriptions size="small" column={2} bordered>
               <Descriptions.Item label="商品">{created.product?.name ?? created.productId}</Descriptions.Item>
               <Descriptions.Item label="价级">
@@ -717,7 +717,7 @@ function CreatePriceChangeModal({
               ]}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              提交审批后到「审批中心」（调价线）处理；审批通过回本页「一键生效」落新价格版本。也可暂存草稿稍后提交。
+              提交后到「待审批」处理；通过后回到本页点「一键生效」。也可以先存成草稿，稍后再提交。
             </Typography.Text>
           </Space>
         )}

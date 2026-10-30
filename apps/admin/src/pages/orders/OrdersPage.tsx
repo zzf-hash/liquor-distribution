@@ -230,8 +230,8 @@ export default function OrdersPage(): JSX.Element {
           </Space>
         </div>
       )}
-      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>订单池</Typography.Title>
-      <Typography.Paragraph type="secondary">三入口统一订单池（内勤开单/业务员代下/客户商城）</Typography.Paragraph>
+      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>订单</Typography.Title>
+      <Typography.Paragraph type="secondary">三入口统一订单（内勤开单/业务员代下/客户商城）</Typography.Paragraph>
       <Panel>
         <Space style={{ marginBottom: 12 }} wrap>
           <select

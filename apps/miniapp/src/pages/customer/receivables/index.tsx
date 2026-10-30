@@ -84,7 +84,7 @@ export default function CustomerReceivablesPage() {
             className='sumcard__link'
             onClick={() => Taro.navigateTo({ url: '/pages/customer/statements/index' })}
           >
-            月结对账单 ›
+            月结账单 ›
           </Button>
         </View>
       ) : null}

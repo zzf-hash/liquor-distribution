@@ -69,7 +69,7 @@ export default function CustomerStatementsPage() {
       const res = await statementsApi.list(status === 'ALL' ? undefined : status)
       setRows(res ?? [])
     } catch (e) {
-      setError(e instanceof Error ? e.message : '加载对账单失败')
+      setError(e instanceof Error ? e.message : '加载月结账单失败')
     } finally {
       setLoading(false)
     }
@@ -102,7 +102,7 @@ export default function CustomerStatementsPage() {
     if (confirming) return
     const ok = await new Promise<boolean>((resolve) => {
       Taro.showModal({
-        title: `确认 ${s.period} 对账单`,
+        title: `确认 ${s.period} 月结账单`,
         content: `当期应付 ¥${fmtMoney(s.totalCharged).slice(1)}，已结 ¥${fmtMoney(s.totalSettled).slice(1)}，期末待结 ¥${fmtMoney(s.openBalance).slice(1)}。确认数字无误吗？`,
         confirmText: '确认无误',
         confirmColor: '#7A1F2B',
@@ -126,7 +126,7 @@ export default function CustomerStatementsPage() {
   return (
     <View className='slist'>
       <View className='topbar topbar--hero'>
-        <Text className='topbar__title'>月结对账单</Text>
+        <Text className='topbar__title'>月结账单</Text>
         <Button className='btn-hero' onClick={() => Taro.navigateBack()}>
           <Text className='btn-hero__txt'>返回</Text>
         </Button>
@@ -153,8 +153,8 @@ export default function CustomerStatementsPage() {
         <Text className='slist__tip'>正在加载…</Text>
       ) : rows.length === 0 ? (
         <View className='state'>
-          <Text className='state__txt'>暂无对账单</Text>
-          <Text className='slist__tip'>每月初系统自动生成上月对账单并推送</Text>
+          <Text className='state__txt'>暂无月结账单</Text>
+          <Text className='slist__tip'>每月初会生成并推送上一月的月结账单</Text>
         </View>
       ) : (
         <View className='slist__body'>
@@ -162,7 +162,7 @@ export default function CustomerStatementsPage() {
             <View key={s.id} className='scard'>
               <View className='scard__row' onClick={() => { void toggleDetail(s) }}>
                 <View className='scard__head'>
-                  <Text className='scard__no'>{s.period} 对账单</Text>
+                  <Text className='scard__no'>{s.period} 月结账单</Text>
                   <Text className={`tag tag--${STATUS_TONES[s.status] ?? 'muted'}`}>
                     {STATEMENT_STATUS_LABELS[s.status] ?? s.status}
                   </Text>
@@ -218,7 +218,7 @@ export default function CustomerStatementsPage() {
               )}
             </View>
           ))}
-          <Text className='slist__tip'>对账口径：当期应付=期间内生成单据；已结=期间内核销（含往期单）；待结=当前未结合计</Text>
+          <Text className='slist__tip'>账单口径：当期应付=期间内生成单据；已结=期间内核销（含往期单）；待结=当前未结合计</Text>
         </View>
       )}
 
@@ -275,7 +275,7 @@ function DisputePopup({
     <View className='dpop'>
       <View className='dpop__mask' onClick={onClose} />
       <View className='dpop__panel'>
-        <Text className='dpop__title'>{statement.period} 对账单 · 提差异</Text>
+        <Text className='dpop__title'>{statement.period} 月结账单 · 提差异</Text>
         {items.map((it, i) => (
           <View key={i} className='dpop__item'>
             <Picker
@@ -291,7 +291,7 @@ function DisputePopup({
             </Picker>
             <Textarea
               className='dpop__input'
-              placeholder='差异描述（必填），如：10月3日送的一箱青岛没在对账单里'
+              placeholder='差异描述（必填），如：10月3日送的一箱青岛没在月结账单里'
               value={it.content}
               maxlength={200}
               onInput={(e) => setItem(i, { content: e.detail.value })}
