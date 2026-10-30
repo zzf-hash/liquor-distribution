@@ -421,10 +421,10 @@ function CreateStocktakeModal({
             style={{ marginTop: 4 }}
             value={type}
             onChange={(e: RadioChangeEvent) => setType(e.target.value)}
-            options={[
-              { value: 'SPOT', label: '抽盘（日常局部）' },
-              { value: 'FULL', label: '月末大盘（全量）' },
-            ]}
+            options={(Object.keys(STOCKTAKE_TYPE_META) as StocktakeTypeDTO[]).map((value) => ({
+              value,
+              label: STOCKTAKE_TYPE_META[value].label,
+            }))}
             optionType="button"
             buttonStyle="solid"
           />

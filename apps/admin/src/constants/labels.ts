@@ -276,8 +276,8 @@ export const PURCHASE_STATUS_TABS: Array<{ value: string; label: string }> = [
 
 /** P1-T07 盘点（Q11：仓管盘→内勤核对→超阈值报老板→调账，双签留痕） */
 export const STOCKTAKE_TYPE_META: Record<string, { label: string; color: string }> = {
-  SPOT: { label: '抽查', color: 'processing' },
-  FULL: { label: '月末大清点', color: 'purple' },
+  SPOT: { label: '抽查（日常局部）', color: 'processing' },
+  FULL: { label: '月末大清点（全量）', color: 'purple' },
 };
 
 export const STOCKTAKE_STATUS_META: Record<string, { label: string; color: string }> = {
