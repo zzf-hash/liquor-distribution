@@ -120,7 +120,7 @@ export function FourQuestionsBoard(): JSX.Element {
     agingApi.get().then((r) => setBucketTabs(arBucketTabs(r.config))).catch(() => setBucketTabs(AR_BUCKET_TABS));
   }, []);
 
-  const debtBuckets = data?.debt.buckets ?? {};
+  const debtBuckets = data?.debt?.buckets ?? {};
   const shownBuckets = bucketTabs.filter((b) => toNum(debtBuckets[b.value]) > 0);
 
   return (
@@ -145,15 +145,15 @@ export function FourQuestionsBoard(): JSX.Element {
           <Card title="今日卖多少 · 收多少" extra={<Tag color="green">实时</Tag>} loading={loading && !data}>
             <Row gutter={16}>
               <Col span={12}>
-                <Statistic title="今日销售" value={fmtMoney(data?.salesToday.amount)} />
+                <Statistic title="今日销售" value={fmtMoney(data?.salesToday?.amount)} />
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  当日签收 {data?.salesToday.orderCount ?? 0} 单
+                  当日签收 {data?.salesToday?.orderCount ?? 0} 单
                 </Typography.Text>
               </Col>
               <Col span={12}>
-                <Statistic title="今日回款" value={fmtMoney(data?.collectedToday.amount)} valueStyle={{ color: '#389e0d' }} />
+                <Statistic title="今日回款" value={fmtMoney(data?.collectedToday?.amount)} valueStyle={{ color: '#389e0d' }} />
                 <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                  确认收款 {data?.collectedToday.paymentCount ?? 0} 笔
+                  确认收款 {data?.collectedToday?.paymentCount ?? 0} 笔
                 </Typography.Text>
               </Col>
             </Row>
@@ -163,7 +163,7 @@ export function FourQuestionsBoard(): JSX.Element {
         {/* 三问：谁欠钱 */}
         <Col xs={24} lg={12}>
           <Card title="谁欠钱（应收未结）" extra={<Tag color="green">实时</Tag>} loading={loading && !data}>
-            <Statistic title="未结总额" value={fmtMoney(data?.debt.total)} valueStyle={{ color: NEG }} />
+            <Statistic title="未结总额" value={fmtMoney(data?.debt?.total)} valueStyle={{ color: NEG }} />
             <Space style={{ marginTop: 8 }} wrap size={4}>
               {shownBuckets.length ? shownBuckets.map((b) => (
                 <Tag key={b.value} color={BUCKET_TAG_COLORS[b.value]}>
@@ -176,7 +176,7 @@ export function FourQuestionsBoard(): JSX.Element {
               size="small"
               rowKey="customerId"
               pagination={false}
-              dataSource={data?.debt.topDebtors ?? []}
+              dataSource={Array.isArray(data?.debt?.topDebtors) ? data.debt.topDebtors : []}
               locale={{ emptyText: '暂无未结客户' }}
               columns={[
                 { title: '欠款最多的客户', dataIndex: 'name' },
@@ -196,7 +196,7 @@ export function FourQuestionsBoard(): JSX.Element {
               size="small"
               rowKey="productId"
               pagination={false}
-              dataSource={data?.lowStock ?? []}
+              dataSource={Array.isArray(data?.lowStock) ? data.lowStock : []}
               locale={{ emptyText: '库存充足，暂无低可售商品' }}
               columns={[
                 {
@@ -236,13 +236,14 @@ export function FourQuestionsBoard(): JSX.Element {
               size="small"
               rowKey="userId"
               pagination={false}
-              dataSource={data?.repRanking ?? []}
+              dataSource={Array.isArray(data?.repRanking) ? data.repRanking : []}
               locale={{ emptyText: '暂无业务员数据' }}
               columns={[
                 {
                   title: '#', width: 64,
                   render: (_: unknown, r: RepRankDTO) => {
-                    const idx = (data?.repRanking ?? []).findIndex((x) => x.userId === r.userId);
+                    const ranking = Array.isArray(data?.repRanking) ? data.repRanking : [];
+                    const idx = ranking.findIndex((x) => x.userId === r.userId);
                     return idx === 0 ? <Tag color="red">Top1</Tag> : idx + 1;
                   },
                 },

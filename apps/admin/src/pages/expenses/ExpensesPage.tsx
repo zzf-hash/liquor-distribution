@@ -68,8 +68,8 @@ function LedgerTab(): JSX.Element {
         expensesApi.list({ month, category, status, pageSize: 100 }),
         expensesApi.summary(month),
       ]);
-      setRows(list.items);
-      setSummary(sum);
+      setRows(list.items ?? []);
+      setSummary(sum?.byCategory ? sum : null);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载费用台账失败');
     } finally {
@@ -355,7 +355,8 @@ function PolicyTab(): JSX.Element {
   const load = useCallback(async (): Promise<void> => {
     setLoading(true);
     try {
-      setRows((await capFeesApi.policies()) as CapFeePolicyDTO[]);
+      const policies = await capFeesApi.policies();
+      setRows(Array.isArray(policies) ? policies : []);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载开瓶费政策失败');
     } finally {
@@ -478,7 +479,7 @@ function RecycleTab(): JSX.Element {
     setLoading(true);
     try {
       const res = await capFeesApi.recycles({ status: status || undefined, pageSize: 100 });
-      setRows(res.items as CapRecycleDTO[]);
+      setRows(Array.isArray(res.items) ? res.items : []);
     } catch (e) {
       message.error(e instanceof Error ? e.message : '加载回收单失败');
     } finally {

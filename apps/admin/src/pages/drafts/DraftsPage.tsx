@@ -71,10 +71,10 @@ export default function DraftsPage(): JSX.Element {
   useEffect(() => {
     draftsApi.engineStatus().then(setEngine).catch(() => setEngine(null));
     customersApi.list({ page: 1, pageSize: 200, onboarding: 'ACTIVE' })
-      .then((r) => setCustomers(r.items))
+      .then((r) => setCustomers(r.items ?? []))
       .catch(() => setCustomers([]));
     productsApi.list({ page: 1, pageSize: 200, status: 'ON_SALE' })
-      .then((r) => setProducts(r.items))
+      .then((r) => setProducts(r.items ?? []))
       .catch(() => setProducts([]));
   }, []);
 
@@ -157,8 +157,8 @@ function DraftList({
     draftsApi.list({ status, page: 1, pageSize: 50 })
       .then((r) => {
         if (!alive) return;
-        setItems(r.items);
-        setTotal(r.total);
+        setItems(r.items ?? []);
+        setTotal(r.total ?? 0);
       })
       .catch((e) => {
         if (alive) message.error(e instanceof Error ? e.message : '加载草稿失败');

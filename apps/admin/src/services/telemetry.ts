@@ -3,8 +3,10 @@
  * - reportError: window.onerror / request 失败调用；fire-and-forget，绝不影响主流程
  * - 缓冲+批量，失败静默丢弃不回灌
  */
+import { apiBase } from './api-base'
 import { getAuth } from './auth'
-import { BASE_URL } from './api'
+
+const BASE_URL = apiBase()
 
 type TelemetryLevel = 'info' | 'warn' | 'error'
 

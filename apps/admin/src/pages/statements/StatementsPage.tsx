@@ -50,7 +50,7 @@ export default function StatementsPage(): JSX.Element {
         customerId: filterCustomerId || undefined,
         period: filterPeriod || undefined,
       })
-      .then((r) => { if (alive) setRows(r); })
+      .then((r) => { if (alive) setRows(Array.isArray(r) ? r : []); })
       .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载对账单失败'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
