@@ -27,6 +27,7 @@ export function isAdminRole(role: string | null | undefined): role is Role {
 // P1-T12：转单草稿=owner+clerk+rep(业务员语音入口的确认工作台)
 export const MENU_ROLES: Record<string, Role[]> = {
   '/orders': ['owner', 'clerk', 'warehouse'],
+  '/customers': ['owner', 'clerk'],
   '/approvals': ['owner', 'clerk'],
   '/special-orders': ['owner', 'clerk', 'rep'],
   '/drafts': ['owner', 'clerk', 'rep'],
@@ -58,6 +59,7 @@ export interface RouteDef {
 // + P1-T12（转单草稿：语音/拍照/文字接单）
 export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/orders', name: '订单池', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
+  { path: '/customers', name: '客户管理', icon: 'TeamOutlined', taskId: '客户建档与查找' },
   { path: '/approvals', name: '审批中心', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
   { path: '/special-orders', name: '特单', icon: 'GoldOutlined', taskId: 'P1-T02 F8 全员下单·婚宴宴席' },
   { path: '/drafts', name: '转单草稿', icon: 'AudioOutlined', taskId: 'P1-T12 语音/拍照/文字·可编辑草稿' },
@@ -69,7 +71,7 @@ export const ADMIN_ROUTES: RouteDef[] = [
   { path: '/rebates', name: '优惠返利', icon: 'GiftOutlined', taskId: 'P1-T08 D02 优惠三式·月末核算' },
   { path: '/expenses', name: '费用中心', icon: 'PayCircleOutlined', taskId: 'B组 费用台账·开瓶费·陈列进店冲抵' },
   { path: '/payroll', name: '绩效工资', icon: 'MoneyCollectOutlined', taskId: 'P1-T09 D5 三指标·一键工资表' },
-  { path: '/master-data', name: '主数据', icon: 'DatabaseOutlined', taskId: 'P0-T10~T13 商品·客户·价格·导入' },
+  { path: '/master-data', name: '商品与价格', icon: 'DatabaseOutlined', taskId: 'P0-T10~T13 商品·价格·导入' },
   { path: '/receivables', name: '应收', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 应收·销账·提醒' },
   { path: '/statements', name: '对账', icon: 'FileSyncOutlined', taskId: 'P1-T10 月结对账·差异四类' },
   { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 四问看板 + P1-T11 月度/库存报表' },

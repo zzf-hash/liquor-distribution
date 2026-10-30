@@ -6,7 +6,7 @@ import {
   SettingOutlined, LogoutOutlined, AuditOutlined, GoldOutlined, RollbackOutlined,
   RiseOutlined, InboxOutlined, ShoppingCartOutlined, ReconciliationOutlined,
   GiftOutlined, MoneyCollectOutlined, FileSyncOutlined, AudioOutlined,
-  AlertOutlined, PayCircleOutlined,
+  AlertOutlined, PayCircleOutlined, TeamOutlined,
 } from '@ant-design/icons';
 import { Button } from 'antd';
 import { ROLE_LABELS, routesForRole, shellEntry } from '../constants/roles';
@@ -32,11 +32,13 @@ const ICONS: Record<string, ReactNode> = {
   AudioOutlined: <AudioOutlined />,
   PayCircleOutlined: <PayCircleOutlined />,
   AlertOutlined: <AlertOutlined />,
+  TeamOutlined: <TeamOutlined />,
 };
 
 // 每个菜单页单独 chunk。壳子只保留动态 import，不把页面打进登录包。
 const PAGES: Record<string, LazyExoticComponent<() => JSX.Element>> = {
   '/orders': lazy(() => import('../pages/orders/OrdersPage')),
+  '/customers': lazy(() => import('../pages/customers/CustomersPage')),
   '/approvals': lazy(() => import('../pages/approvals/ApprovalsPage')),
   '/special-orders': lazy(() => import('../pages/special-orders/SpecialOrdersPage')),
   '/drafts': lazy(() => import('../pages/drafts/DraftsPage')),
