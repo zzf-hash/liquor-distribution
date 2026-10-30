@@ -49,16 +49,16 @@ export default function SettingsPage(): JSX.Element {
   }
 
   return (
-    <PageContainer title="配置">
+    <PageContainer title="业务规则">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Alert
           type="info"
           showIcon
-          message="能改的配置在原页面"
+          message="能改的规则在原来的页面"
           description={
             <span>
-              账龄档位在<Link to="/receivables">应收</Link>，库存与临期预警在<Link to="/stock-alert">库存预警</Link>。
-              押金、抹零单笔/月上限、提成权重没有配置接口，这里不能改。
+              账龄档位在<Link to="/receivables">客户欠款</Link>，库存与临期预警在<Link to="/stock-alert">库存预警</Link>。
+              押金、抹零单笔/月上限、提成权重没有写入接口，这里不能改。
             </span>
           }
         />
@@ -67,7 +67,7 @@ export default function SettingsPage(): JSX.Element {
         <Space wrap>
           <Input placeholder="期间 YYYY-MM，可空" value={period} onChange={(e) => setPeriod(e.target.value.trim())} style={{ width: 180 }} />
           <Button loading={running === '到期提醒'} onClick={() => { void run('到期提醒', () => dailyTasksApi.reminders()); }}>跑到期提醒</Button>
-          <Button loading={running === '月结对账'} onClick={() => { void run('月结对账', () => dailyTasksApi.statements(period || undefined)); }}>跑月结对账</Button>
+          <Button loading={running === '月结账单'} onClick={() => { void run('月结账单', () => dailyTasksApi.statements(period || undefined)); }}>跑月结账单</Button>
           <Button loading={running === '自动归档'} onClick={() => { void run('自动归档', () => dailyTasksApi.archive()); }}>跑自动归档</Button>
           <Button loading={running === '开瓶费计提'} onClick={() => { void run('开瓶费计提', () => dailyTasksApi.capAccrue(period || undefined)); }}>跑开瓶费计提</Button>
         </Space>

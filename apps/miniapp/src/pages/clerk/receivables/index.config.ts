@@ -1,5 +1,5 @@
 export default definePageConfig({
-  navigationBarTitleText: '应收台账',
+  navigationBarTitleText: '客户欠款',
   navigationStyle: 'custom',
   navigationBarTextStyle: 'white',
   navigationBarBackgroundColor: '#5E1520',

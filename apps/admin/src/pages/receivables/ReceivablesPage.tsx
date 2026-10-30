@@ -54,7 +54,7 @@ export default function ReceivablesPage(): JSX.Element {
       </Space>
     ) },
     { title: '客户', dataIndex: 'customerName', width: 150 },
-    { title: '应收金额', dataIndex: 'total', width: 120, align: 'right', render: (_, r) => fmtMoney(r.total) },
+    { title: '客户欠款金额', dataIndex: 'total', width: 120, align: 'right', render: (_, r) => fmtMoney(r.total) },
     { title: '已收', dataIndex: 'settled', width: 110, align: 'right', render: (_, r) => fmtMoney(r.settled) },
     { title: '未收', dataIndex: 'open', width: 120, align: 'right', render: (_, r) => (
       <span style={{ color: r.open > 0 && r.bucket !== 'not_due' ? NEG : undefined }}>{fmtMoney(r.open)}</span>
@@ -81,7 +81,7 @@ export default function ReceivablesPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="应收台账" subTitle="账期自定义 · 到期/超期分档 · 争议款单列（不进提醒 D11）">
+    <PageContainer title="客户欠款" subTitle="账期自定义 · 到期/超期分档 · 争议款单列（不进提醒 D11）">
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card>
           <Space style={{ marginBottom: 12 }} wrap>
@@ -98,8 +98,8 @@ export default function ReceivablesPage(): JSX.Element {
               onClick={async () => {
                 setExporting(true);
                 try {
-                  await downloadApiFile(`/receivables/export?bucket=${bucket}`, '应收台账');
-                  message.success('应收台账已导出');
+                  await downloadApiFile(`/receivables/export?bucket=${bucket}`, '客户欠款');
+                  message.success('客户欠款已导出');
                 } catch (e) {
                   message.error(e instanceof Error ? e.message : '导出失败');
                 } finally {
@@ -138,7 +138,7 @@ export default function ReceivablesPage(): JSX.Element {
                 });
                 return { data: res.items, total: res.total, success: true };
               } catch (e) {
-                message.error(e instanceof Error ? e.message : '加载应收失败');
+                message.error(e instanceof Error ? e.message : '加载客户欠款失败');
                 return { data: [], total: 0, success: false };
               }
             }}

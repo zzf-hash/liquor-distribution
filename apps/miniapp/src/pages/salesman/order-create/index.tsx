@@ -141,7 +141,7 @@ export default function SalesmanOrderCreatePage() {
       idemRef.current = null
       Taro.showModal({
         title: `下单成功 ${res.orderNo}`,
-        content: `订单已进入订单池（待内勤确认），金额 ${fmtMoney(res.totalAmount)}。`,
+        content: `订单已进入订单（待内勤确认），金额 ${fmtMoney(res.totalAmount)}。`,
         showCancel: false,
       })
       setLines([])

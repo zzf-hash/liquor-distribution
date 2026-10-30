@@ -10,9 +10,9 @@ import RoleTabBar from '../../../components/RoleTabBar'
 import HeroHeader from '../../../components/HeroHeader'
 
 const TILES: Array<{ icon: IconName; title: string; desc: string; url: string; badge?: boolean }> = [
-  { icon: 'list', title: '订单池', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
+  { icon: 'list', title: '订单', desc: '确认、取消、特批', url: '/pages/clerk/orders/index', badge: true },
   { icon: 'coin', title: '收款登记', desc: '直录即销账', url: '/pages/clerk/payments/index' },
-  { icon: 'wallet', title: '应收台账', desc: '账龄分档', url: '/pages/clerk/receivables/index' },
+  { icon: 'wallet', title: '客户欠款', desc: '账龄分档', url: '/pages/clerk/receivables/index' },
   { icon: 'box', title: '全部库存', desc: '各库位在库和合计', url: '/pages/boss/inventory/index' },
 ]
 
@@ -37,7 +37,7 @@ export default function ClerkHomePage() {
 
   return (
     <View className='grid-home grid-home--hero'>
-      <HeroHeader title={`您好，${name || '内勤'}`} sub="订单、收款、应收" badge="内勤" nav={false} />
+      <HeroHeader title={`您好，${name || '内勤'}`} sub="订单、收款、客户欠款" badge="内勤" nav={false} />
       <View className='entry-list'>
         {TILES.map((t) => (
           <EntryCard

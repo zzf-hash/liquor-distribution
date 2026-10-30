@@ -58,25 +58,25 @@ export interface RouteDef {
 // + P1 第二批（调价/回包装/采购）+ P1 第三批（盘点/优惠返利/绩效工资）+ P1 收尾批（对账/报表增强）
 // + P1-T12（转单草稿：语音/拍照/文字接单）
 export const ADMIN_ROUTES: RouteDef[] = [
-  { path: '/orders', name: '订单池', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
+  { path: '/orders', name: '订单', icon: 'ProfileOutlined', taskId: 'P0-T20~T25 订单主线' },
   { path: '/customers', name: '客户管理', icon: 'TeamOutlined', taskId: '客户建档与查找' },
-  { path: '/approvals', name: '审批中心', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
-  { path: '/special-orders', name: '特单', icon: 'GoldOutlined', taskId: 'P1-T02 F8 全员下单·婚宴宴席' },
-  { path: '/drafts', name: '转单草稿', icon: 'AudioOutlined', taskId: 'P1-T12 语音/拍照/文字·可编辑草稿' },
+  { path: '/approvals', name: '待审批', icon: 'AuditOutlined', taskId: 'P1-T01 五条审批线统一' },
+  { path: '/special-orders', name: '特殊订单', icon: 'GoldOutlined', taskId: 'P1-T02 F8 全员下单·婚宴宴席' },
+  { path: '/drafts', name: '待确认的接单', icon: 'AudioOutlined', taskId: 'P1-T12 语音/拍照/文字·可编辑草稿' },
   { path: '/returns', name: '退货', icon: 'RollbackOutlined', taskId: 'P1-T03 F10 退货·只多不少' },
-  { path: '/price-changes', name: '调价', icon: 'RiseOutlined', taskId: 'P1-T05 F7 调价·版本不覆盖' },
-  { path: '/packages', name: '回包装', icon: 'InboxOutlined', taskId: 'P1-T04 F11 无单回收·押金台账' },
+  { path: '/price-changes', name: '改价格', icon: 'RiseOutlined', taskId: 'P1-T05 F7 改价格·版本不覆盖' },
+  { path: '/packages', name: '包装物回收', icon: 'InboxOutlined', taskId: 'P1-T04 F11 无单回收·押金台账' },
   { path: '/purchases', name: '采购', icon: 'ShoppingCartOutlined', taskId: 'P1-T06 F3/F4 采购双流程' },
-  { path: '/stocktakes', name: '盘点', icon: 'ReconciliationOutlined', taskId: 'P1-T07 Q11 抽盘·月末大盘·双签' },
+  { path: '/stocktakes', name: '清点库存', icon: 'ReconciliationOutlined', taskId: 'P1-T07 Q11 抽盘·月末大盘·双签' },
   { path: '/rebates', name: '优惠返利', icon: 'GiftOutlined', taskId: 'P1-T08 D02 优惠三式·月末核算' },
   { path: '/expenses', name: '费用中心', icon: 'PayCircleOutlined', taskId: 'B组 费用台账·开瓶费·陈列进店冲抵' },
   { path: '/payroll', name: '绩效工资', icon: 'MoneyCollectOutlined', taskId: 'P1-T09 D5 三指标·一键工资表' },
   { path: '/master-data', name: '商品与价格', icon: 'DatabaseOutlined', taskId: 'P0-T10~T13 商品·价格·导入' },
-  { path: '/receivables', name: '应收', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 应收·销账·提醒' },
-  { path: '/statements', name: '对账', icon: 'FileSyncOutlined', taskId: 'P1-T10 月结对账·差异四类' },
+  { path: '/receivables', name: '客户欠款', icon: 'AccountBookOutlined', taskId: 'P0-T30~T31 客户欠款·销账·提醒' },
+  { path: '/statements', name: '月结账单', icon: 'FileSyncOutlined', taskId: 'P1-T10 月结账单·差异四类' },
   { path: '/reports', name: '报表', icon: 'BarChartOutlined', taskId: 'P0-T40 四问看板 + P1-T11 月度/库存报表' },
   { path: '/stock-alert', name: '库存预警', icon: 'AlertOutlined', taskId: 'P2 每日库存报表+动态阈值预警+自动报货' },
-  { path: '/settings', name: '配置', icon: 'SettingOutlined', taskId: 'M0-01 业务规则配置' },
+  { path: '/settings', name: '业务规则', icon: 'SettingOutlined', taskId: 'M0-01 业务规则' },
 ];
 
 /** 当前角色在菜单矩阵里看得到的路由，顺序与 ADMIN_ROUTES 一致。 */

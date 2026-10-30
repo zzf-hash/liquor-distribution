@@ -79,7 +79,7 @@ export default function DraftsPage(): JSX.Element {
   }, []);
 
   return (
-    <PageContainer title="转单草稿" subTitle="语音 / 拍照 / 文字接单 · 草稿永远可编辑 · 确认转单只进订单池，不直接出库（红线）">
+    <PageContainer title="待确认的接单" subTitle="语音 / 拍照 / 文字接单 · 草稿永远可编辑 · 确认后只进订单，不直接出库（红线）">
       <Card>
         <Space style={{ marginBottom: 12 }} wrap>
           <Tooltip title={engine ? `${engine.engine} @ ${engine.baseUrl}` : '引擎状态获取失败，按人工模式处理'}>
@@ -342,7 +342,7 @@ function DraftEditDrawer({
           ))}
           <Typography.Text strong>合计：{fmtMoney(totalAmount)}（{matched.length} 行）</Typography.Text>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            转单后生成「待确认」订单进入订单池，不会直接出库；别名映射将自动学习进词典。
+            转单后生成「待确认」订单进入订单，不会直接出库；别名映射将自动学习进词典。
           </Typography.Text>
         </Space>
       ),
@@ -354,7 +354,7 @@ function DraftEditDrawer({
           const input = { customerId, lines, learnAliases: true as const };
           const res = await draftsApi.confirm(d.id, input, rememberIdemKey(idemRef, { id: d.id, input }));
           idemRef.current = null;
-          message.success(`已转单：${res.orderNo}（已进入订单池待确认，不会直接出库）`);
+          message.success(`已转单：${res.orderNo}（已进入订单待确认，不会直接出库）`);
           onChanged();
           onClose();
         } catch (e) {
@@ -428,7 +428,7 @@ function DraftEditDrawer({
         {d.status === 'CONFIRMED' && d.convertedOrderId && (
           <Alert
             type="success"
-            message={<span>已转订单：<Typography.Text copyable>{d.convertedOrderId}</Typography.Text>（见订单池）</span>}
+            message={<span>已转订单：<Typography.Text copyable>{d.convertedOrderId}</Typography.Text>（见订单）</span>}
             showIcon
           />
         )}

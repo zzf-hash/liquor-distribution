@@ -17,6 +17,8 @@ describe('tabBar by role', () => {
     expect(tabsForRuntimeRole('CUSTOMER')).toEqual(CUSTOMER_TABS)
     expect(tabsForRuntimeRole('WAREHOUSE')).toEqual(WAREHOUSE_TABS)
     expect(tabsForRuntimeRole('CUSTOMER')?.map((tab) => tab.text)).toEqual(['首页', '订货', '我的订单', '待结金额'])
+    expect(tabsForRuntimeRole('CLERK')?.map((tab) => tab.text)).toEqual(['首页', '订单', '收款', '客户欠款'])
+    expect(tabsForRuntimeRole('OWNER')?.map((tab) => tab.text)).toEqual(['首页', '看板', '待审批', '订单'])
     expect(tabsForRuntimeRole('CUSTOMER')?.map((tab) => tab.pagePath)).toEqual([
       'pages/index/index',
       'pages/customer/products/index',

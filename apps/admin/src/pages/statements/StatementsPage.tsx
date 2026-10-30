@@ -51,7 +51,7 @@ export default function StatementsPage(): JSX.Element {
         period: filterPeriod || undefined,
       })
       .then((r) => { if (alive) setRows(Array.isArray(r) ? r : []); })
-      .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载对账单失败'); })
+      .catch((e) => { if (alive) message.error(e instanceof Error ? e.message : '加载月结账单失败'); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [statusTab, filterCustomerId, filterPeriod, refreshKey, message]);
@@ -63,7 +63,7 @@ export default function StatementsPage(): JSX.Element {
       statementsApi
         .detail(r.id)
         .then((d) => setDetails((prev) => ({ ...prev, [r.id]: d })))
-        .catch((e) => message.error(e instanceof Error ? e.message : '加载对账单详情失败'));
+        .catch((e) => message.error(e instanceof Error ? e.message : '加载月结账单详情失败'));
     }
   }
 
@@ -90,7 +90,7 @@ export default function StatementsPage(): JSX.Element {
   const monthOptions = recentMonths(24).map((m) => ({ value: m, label: m }));
 
   return (
-    <PageContainer title="对账中心" subTitle="月结对账 · 推送客户确认 · 差异四类工作池（漏单/价格/赠品/退货）">
+    <PageContainer title="月结账单" subTitle="推送客户确认 · 差异四类：漏单 / 价格 / 赠品 / 退货">
       <Card>
         <Tabs
           activeKey={statusTab}
@@ -116,7 +116,7 @@ export default function StatementsPage(): JSX.Element {
             onChange={setFilterPeriod}
             options={monthOptions}
           />
-          <Button type="primary" onClick={() => setGenerateOpen(true)}>生成对账单</Button>
+          <Button type="primary" onClick={() => setGenerateOpen(true)}>生成月结账单</Button>
           <Button
             icon={<DownloadOutlined />}
             onClick={async () => {
@@ -125,8 +125,8 @@ export default function StatementsPage(): JSX.Element {
                 if (statusTab !== 'ALL') qsParams.set('status', statusTab);
                 if (filterPeriod) qsParams.set('period', filterPeriod);
                 const qsStr = qsParams.toString();
-                await downloadApiFile(`/statements/export${qsStr ? `?${qsStr}` : ''}`, '对账单');
-                message.success('对账单已导出');
+                await downloadApiFile(`/statements/export${qsStr ? `?${qsStr}` : ''}`, '月结账单');
+                message.success('月结账单已导出');
               } catch (e) {
                 message.error(e instanceof Error ? e.message : '导出失败');
               }
@@ -140,7 +140,7 @@ export default function StatementsPage(): JSX.Element {
           rowKey="id"
           loading={loading}
           dataSource={rows}
-          locale={{ emptyText: '暂无对账单，点「生成对账单」按客户+月份生成' }}
+          locale={{ emptyText: '暂无月结账单，点「生成月结账单」按客户和月份生成' }}
           expandable={{
             expandedRowKeys: expandedKeys,
             onExpandedRowsChange: (keys) => setExpandedKeys(keys),
@@ -161,7 +161,7 @@ export default function StatementsPage(): JSX.Element {
             ),
           }}
           columns={[
-            { title: '对账单号', dataIndex: 'statementNo', width: 170 },
+            { title: '账单号', dataIndex: 'statementNo', width: 170 },
             {
               title: '客户', dataIndex: 'customerId', width: 200,
               render: (_v, r) => (
@@ -249,7 +249,7 @@ function ExpandedStatement({
         rowKey="docNo"
         pagination={false}
         dataSource={lines}
-        locale={{ emptyText: '该期间无应收单据' }}
+        locale={{ emptyText: '该期间没有欠款单据' }}
         columns={[
           { title: '单据号', dataIndex: 'docNo', width: 200 },
           {
@@ -277,7 +277,7 @@ function ExpandedStatement({
           {!detail ? (
             <Typography.Text type="secondary">正在加载差异项…</Typography.Text>
           ) : disputes.length === 0 ? (
-            <Typography.Text type="secondary">该对账单暂无差异项</Typography.Text>
+            <Typography.Text type="secondary">这张月结账单暂无差异项</Typography.Text>
           ) : (
             <Table<DisputeItemDTO>
               size="small"
@@ -343,7 +343,7 @@ function ExpandedStatement({
               onChange={(e) => setResolution(e.target.value)}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              处理结论必填；该对账单全部差异处理完后自动置为「差异已解」。
+              处理结论必填；这张月结账单的差异全部处理完后，自动标成「差异已解」。
             </Typography.Text>
           </Space>
         )}
@@ -383,13 +383,13 @@ function GenerateStatementModal({
     try {
       const res = await statementsApi.generate({ customerId, period });
       setCreated(res);
-      message.success(`对账单已生成：${res.statementNo}`);
+      message.success(`月结账单已生成：${res.statementNo}`);
     } catch (e) {
       if (e instanceof ApiError && e.status === 409) {
         // tenant+customer+period 唯一：该客户该月已有对账单（后端拒），弹窗突出展示
-        modal.error({ title: '该客户本月对账单已存在', content: e.message });
+        modal.error({ title: '该客户本月月结账单已存在', content: e.message });
       } else {
-        message.error(e instanceof Error ? e.message : '生成对账单失败');
+        message.error(e instanceof Error ? e.message : '生成月结账单失败');
       }
     } finally {
       setCreating(false);
@@ -417,8 +417,8 @@ function GenerateStatementModal({
   return (
     <Modal
       open={open}
-      title={created ? `对账单已生成 · ${created.statementNo}` : '生成对账单'}
-      okText={created ? '推送客户' : '生成对账单'}
+      title={created ? `月结账单已生成 · ${created.statementNo}` : '生成月结账单'}
+      okText={created ? '推送客户' : '生成月结账单'}
       cancelText={created ? '完成' : '取消'}
       confirmLoading={created ? sending : creating}
       onOk={() => { void (created ? push() : generate()); }}
@@ -445,8 +445,8 @@ function GenerateStatementModal({
             options={recentMonths(24).map((m) => ({ value: m, label: `${m} 月` }))}
           />
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-            口径：当期发生＝期间内应收发生；当期核销＝期间内收款+票折；期末未结＝客户当前未结合计。
-            同客户同月份仅一张对账单（重复生成后端拒绝）。
+            口径：当期发生＝这段时间新记上的欠款；当期核销＝这段时间的收款和票折；期末未结＝客户现在还欠的合计。
+            同一个客户同一个月只有一张月结账单，重复生成会被拒绝。
           </Typography.Text>
         </Space>
       ) : (
@@ -467,7 +467,7 @@ function GenerateStatementModal({
               rowKey="docNo"
               pagination={lines.length > 6 ? { pageSize: 6, size: 'small', hideOnSinglePage: true } : false}
               dataSource={lines}
-              locale={{ emptyText: '该期间无应收单据' }}
+              locale={{ emptyText: '该期间没有欠款单据' }}
               columns={[
                 { title: '单据号', dataIndex: 'docNo', ellipsis: true },
                 {

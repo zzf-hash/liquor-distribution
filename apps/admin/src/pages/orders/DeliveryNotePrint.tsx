@@ -188,7 +188,7 @@ export default function DeliveryNotePrint(): JSX.Element {
             <tr>
               <td style={{ ...cell, width: '40%', padding: '14px 8px' }}>客户签名：</td>
               <td style={{ ...cell, width: '26%', padding: '14px 8px' }}>签收日期：　　年　　月　　日</td>
-              <td style={{ ...cell, width: '34%', padding: '14px 8px' }}>回包装登记：空瓶（　）个　箱子（　）个</td>
+              <td style={{ ...cell, width: '34%', padding: '14px 8px' }}>包装物回收：空瓶（　）个　箱子（　）个</td>
             </tr>
           </tbody>
         </table>

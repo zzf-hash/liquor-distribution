@@ -601,7 +601,7 @@ function ImportTab(): JSX.Element {
     if (!preview) return;
     modal.confirm({
       title: `回滚批次 ${preview.batchNo}？`,
-      content: '回滚=冲正流水（仅期初库存/期初应收），回滚后期初类需重新执行全量盘点基准。',
+      content: '回滚=冲正流水（仅期初库存/期初客户欠款）。回滚后，期初类需要重新做一次全量清点作为基准。',
       okText: '确认回滚',
       okButtonProps: { danger: true },
       cancelText: '取消',
@@ -634,7 +634,7 @@ function ImportTab(): JSX.Element {
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>
-      <Card size="small" title="数据导入（存量迁移：商品→客户→价格→期初库存→期初应收）">
+      <Card size="small" title="数据导入（存量迁移：商品→客户→价格→期初库存→期初客户欠款）">
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           <Space wrap>
             <Select

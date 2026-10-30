@@ -23,6 +23,11 @@ describe('admin home for each role', () => {
     expect(routesForRole('clerk').slice(0, 2).map((r) => r.path)).toEqual(['/orders', '/customers']);
     expect(routesForRole('owner').find((r) => r.path === '/customers')?.name).toBe('客户管理');
     expect(routesForRole('owner').find((r) => r.path === '/master-data')?.name).toBe('商品与价格');
+    expect(routesForRole('owner').map((r) => r.name)).toEqual([
+      '订单', '客户管理', '待审批', '特殊订单', '待确认的接单', '退货', '改价格', '包装物回收',
+      '采购', '清点库存', '优惠返利', '费用中心', '绩效工资', '商品与价格', '客户欠款', '月结账单',
+      '报表', '库存预警', '业务规则',
+    ]);
     expect(routesForRole('warehouse').some((r) => r.path === '/customers')).toBe(false);
     expect(routesForRole('rep').some((r) => r.path === '/customers')).toBe(false);
   });

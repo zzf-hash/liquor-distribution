@@ -118,7 +118,7 @@ export default function StocktakesPage(): JSX.Element {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `盘点差异清单_${r.takeNo}.csv`;
+      a.download = `清点差异清单_${r.takeNo}.csv`;
       a.click();
       URL.revokeObjectURL(url);
       message.success(`已导出 ${diffs.length} 行差异（${r.takeNo}）`);
@@ -147,7 +147,7 @@ export default function StocktakesPage(): JSX.Element {
   }
 
   const columns: ProColumns<StocktakeDTO>[] = [
-    { title: '盘点单号', dataIndex: 'takeNo', width: 170, render: (_, r) => <Typography.Text copyable>{r.takeNo}</Typography.Text> },
+    { title: '清点单号', dataIndex: 'takeNo', width: 170, render: (_, r) => <Typography.Text copyable>{r.takeNo}</Typography.Text> },
     {
       title: '类型', dataIndex: 'type', width: 110,
       render: (_, r) => {
@@ -201,7 +201,7 @@ export default function StocktakesPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="盘点" subTitle="Q11 抽盘 / 月末大盘 · 仓管盘→内勤核对→超阈值报老板→调账（双签留痕）">
+    <PageContainer title="清点库存" subTitle="抽查 / 月末大清点 · 仓管清点→内勤核对→超阈值报老板→调账（双签留痕）">
       <Card size="small" title="状态流说明" style={{ marginBottom: 12 }}>
         <Steps
           size="small"
@@ -209,7 +209,7 @@ export default function StocktakesPage(): JSX.Element {
           items={FLOW_STEPS.map((title) => ({ title }))}
         />
         <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-          差异金额超阈值才报老板（审批中心·盘点调账线）：批准→回到「已核对」由内勤调账，驳回→退回重盘；调账写 ADJUST 不可变流水，不反改历史单据。
+          差异金额超阈值才报老板（待审批 · 清点库存调账）：批准→回到「已核对」由内勤调账，驳回→退回重盘；调账写 ADJUST 不可变流水，不反改历史单据。
         </Typography.Text>
       </Card>
 
@@ -221,7 +221,7 @@ export default function StocktakesPage(): JSX.Element {
             onChange={(v) => { setActiveStatus(v); reload(); }}
             options={STOCKTAKE_STATUS_TABS}
           />
-          {canCount && <Button type="primary" onClick={() => setCreateOpen(true)}>新建盘点</Button>}
+          {canCount && <Button type="primary" onClick={() => setCreateOpen(true)}>新建清点</Button>}
         </Space>
         <ProTable<StocktakeDTO>
           rowKey="id"
@@ -237,7 +237,7 @@ export default function StocktakesPage(): JSX.Element {
               });
               return { data: res.items, total: res.total, success: true };
             } catch (e) {
-              message.error(e instanceof Error ? e.message : '加载盘点单失败');
+              message.error(e instanceof Error ? e.message : '加载清点单失败');
               return { data: [], total: 0, success: false };
             }
           }}
@@ -292,9 +292,9 @@ function StocktakeDetailCard({ record }: { record: StocktakeDTO }): JSX.Element 
   const diffSum = diffRows.reduce((s, l) => s + diffAmountOf(l), 0);
 
   return (
-    <Card size="small" title={`盘点行（${lines.length} 行 · 差异 ${diffRows.length} 行 · 差异金额 ${fmtMoney(diffSum)}）`}>
+    <Card size="small" title={`清点行（${lines.length} 行 · 差异 ${diffRows.length} 行 · 差异金额 ${fmtMoney(diffSum)}）`}>
       {detail.status === 'CANCELLED' ? (
-        <Alert style={{ marginBottom: 12 }} type="warning" showIcon message="该盘点单已取消" />
+        <Alert style={{ marginBottom: 12 }} type="warning" showIcon message="该清点单已取消" />
       ) : (
         <Steps
           size="small"
@@ -383,7 +383,7 @@ function CreateStocktakeModal({
 
   async function submit(): Promise<void> {
     if (scope === 'CATEGORY' && !category) {
-      message.warning('请选择盘点品类');
+      message.warning('请选择清点品类');
       return;
     }
     setSubmitting(true);
@@ -393,11 +393,11 @@ function CreateStocktakeModal({
         category: scope === 'CATEGORY' ? category : undefined,
       });
       message.success(
-        `盘点单 ${res.takeNo} 已创建（账面快照 ${res.lines?.length ?? 0} 行），待仓管录实盘`,
+        `清点单 ${res.takeNo} 已创建（账面快照 ${res.lines?.length ?? 0} 行），待仓管录实盘`,
       );
       onCreated();
     } catch (e) {
-      message.error(e instanceof Error ? e.message : '创建盘点单失败');
+      message.error(e instanceof Error ? e.message : '创建清点单失败');
     } finally {
       setSubmitting(false);
     }
@@ -406,7 +406,7 @@ function CreateStocktakeModal({
   return (
     <Modal
       open={open}
-      title="新建盘点"
+      title="新建清点"
       okText="建单（锁账面快照）"
       cancelText="取消"
       confirmLoading={submitting}
@@ -416,21 +416,21 @@ function CreateStocktakeModal({
     >
       <Space direction="vertical" style={{ width: '100%' }} size={12}>
         <div>
-          <Typography.Text type="secondary">盘点类型</Typography.Text>
+          <Typography.Text type="secondary">清点类型</Typography.Text>
           <Radio.Group
             style={{ marginTop: 4 }}
             value={type}
             onChange={(e: RadioChangeEvent) => setType(e.target.value)}
-            options={[
-              { value: 'SPOT', label: '抽盘（日常局部）' },
-              { value: 'FULL', label: '月末大盘（全量）' },
-            ]}
+            options={(Object.keys(STOCKTAKE_TYPE_META) as StocktakeTypeDTO[]).map((value) => ({
+              value,
+              label: STOCKTAKE_TYPE_META[value].label,
+            }))}
             optionType="button"
             buttonStyle="solid"
           />
         </div>
         <div>
-          <Typography.Text type="secondary">盘点范围</Typography.Text>
+          <Typography.Text type="secondary">清点范围</Typography.Text>
           <Space style={{ marginTop: 4 }} wrap>
             <Radio.Group
               value={scope}
@@ -639,7 +639,7 @@ function ReconcileStocktakeModal({
     try {
       const res = await stocktakesApi.reconcile(target.id);
       if (res.thresholdOver) {
-        message.warning('差异金额超阈值，已送老板审批（审批中心·盘点调账线）：批准后回到「已核对」调账，驳回退回重盘');
+        message.warning('差异金额超阈值，已送老板审批（待审批 · 清点库存调账）：批准后回到「已核对」调账，驳回退回重盘');
       } else {
         message.success('核对完成，差异清单已生成，可执行「调账落账」');
       }

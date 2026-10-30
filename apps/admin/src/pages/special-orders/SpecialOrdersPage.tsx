@@ -57,7 +57,7 @@ export default function SpecialOrdersPage(): JSX.Element {
       setTotal(res.total);
     }).catch((e) => {
       if (!alive) return;
-      message.error(e instanceof Error ? e.message : '加载特单失败');
+      message.error(e instanceof Error ? e.message : '加载特殊订单失败');
       setRows([]);
       setTotal(0);
     }).finally(() => { if (alive) setLoading(false); });
@@ -68,7 +68,7 @@ export default function SpecialOrdersPage(): JSX.Element {
   function submitForPrice(r: SpecialOrderDTO): void {
     modal.confirm({
       title: `提交定价审批？${r.specialNo}`,
-      content: `「${r.title}」提交后进入审批中心（特单价格线），审批通过后方可转正式订单出货。`,
+      content: `「${r.title}」提交后进入待审批（特殊订单价格），审批通过后方可转正式订单出货。`,
       okText: '提交审批',
       cancelText: '再想想',
       onOk: async () => {
@@ -87,14 +87,14 @@ export default function SpecialOrdersPage(): JSX.Element {
   async function convert(r: SpecialOrderDTO): Promise<void> {
     modal.confirm({
       title: `转正式订单？${r.specialNo}`,
-      content: `「${r.title}」将按已审批价格生成正式销售订单，转单后特单状态变为「已转单」。`,
+      content: `「${r.title}」将按已审批价格生成正式销售订单，转单后特殊订单状态变为「已转单」。`,
       okText: '转正式订单',
       cancelText: '再想想',
       onOk: async () => {
         try {
           const res = await specialOrdersApi.convert(r.id, rememberIdemKey(idemRef, { convert: r.id }));
           idemRef.current = null;
-          message.success(`已转正式订单：${res.orderNo ?? res.convertedOrderId ?? '见订单池'}`);
+          message.success(`已转正式订单：${res.orderNo ?? res.convertedOrderId ?? '见订单'}`);
           reload();
         } catch (e) {
           message.error(e instanceof Error ? e.message : '转单失败');
@@ -104,7 +104,7 @@ export default function SpecialOrdersPage(): JSX.Element {
   }
 
   const columns: Array<PlainColumn<SpecialOrderDTO>> = [
-    { title: '特单号', dataIndex: 'specialNo', width: 170, render: (_, r) => <Typography.Text copyable>{r.specialNo}</Typography.Text> },
+    { title: '特殊订单号', dataIndex: 'specialNo', width: 170, render: (_, r) => <Typography.Text copyable>{r.specialNo}</Typography.Text> },
     { title: '标题', dataIndex: 'title' },
     { title: '客户', dataIndex: 'customerName', width: 140, render: (_, r) => (
       <Space size={4}>
@@ -143,7 +143,7 @@ export default function SpecialOrdersPage(): JSX.Element {
 
   return (
     <div>
-      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>特单</Typography.Title>
+      <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 4 }}>特殊订单</Typography.Title>
       <Typography.Paragraph type="secondary">F8 全员下单 · 婚宴宴席用酒 · 未经定价审批不可出货（红线）</Typography.Paragraph>
       <Panel>
         <Space style={{ marginBottom: 12 }} wrap>
@@ -155,11 +155,11 @@ export default function SpecialOrdersPage(): JSX.Element {
           </select>
           <Input.Search
             style={{ width: 260 }}
-            placeholder="特单号 / 标题 / 客户名"
+            placeholder="特殊订单号 / 标题 / 客户名"
             allowClear
             onSearch={(v) => { setKeyword(v); setPage(1); reload(); }}
           />
-          <Button type="primary" onClick={() => setCreateOpen(true)}>新建特单</Button>
+          <Button type="primary" onClick={() => setCreateOpen(true)}>新建特殊订单</Button>
         </Space>
         <PlainTable
           loading={loading}
@@ -215,7 +215,7 @@ function SpecialOrderDetailCard({ order }: { order: SpecialOrderDTO }): JSX.Elem
   const lines = detail.lines ?? [];
 
   return (
-    <Panel title={`特单详情（${lines.length} 行 · 合计 ${fmtMoney(specialTotal(lines))}）`}>
+    <Panel title={`特殊订单详情（${lines.length} 行 · 合计 ${fmtMoney(specialTotal(lines))}）`}>
       <Descriptions size="small" column={2} bordered>
         <Descriptions.Item label="联系人">{detail.contactName}</Descriptions.Item>
         <Descriptions.Item label="联系电话">{detail.contactPhone}</Descriptions.Item>

@@ -54,7 +54,7 @@ export default function ReturnsPage(): JSX.Element {
       try {
         const res = await returnsApi.receive(r.id, rememberIdemKey(idemRef, { receive: r.id }));
         idemRef.current = null;
-        message.success(`收货完成，批次已回冲、应收已重算：${res.returnNo ?? r.returnNo}`);
+        message.success(`收货完成，批次已回冲、客户欠款已重算：${res.returnNo ?? r.returnNo}`);
         reload();
       } catch (e) {
         message.error(e instanceof Error ? e.message : '收货确认失败');
@@ -70,7 +70,7 @@ export default function ReturnsPage(): JSX.Element {
               <Alert
                 type="warning"
                 showIcon
-                message="执行后不可撤销：按下列批次回冲库存，并冲减对应应收"
+                message="执行后不可撤销：按下列批次回冲库存，并冲减对应的客户欠款"
               />
               <Table
                 size="small"
@@ -85,7 +85,7 @@ export default function ReturnsPage(): JSX.Element {
                 ]}
               />
               <Descriptions size="small" column={1} bordered style={{ marginTop: 12 }}>
-                <Descriptions.Item label="应收冲减">
+                <Descriptions.Item label="欠款冲减">
                   <span style={{ color: '#cf1322', fontWeight: 600 }}>{fmtMoney(p.arCredit)}</span>
                 </Descriptions.Item>
               </Descriptions>
@@ -140,7 +140,7 @@ export default function ReturnsPage(): JSX.Element {
   ];
 
   return (
-    <PageContainer title="退货" subTitle="F10 全流程 · 必须关联原单 · R4 数量只能多不能少 · 收货后应收自动重算">
+    <PageContainer title="退货" subTitle="F10 全流程 · 必须关联原单 · R4 数量只能多不能少 · 收货后客户欠款自动重算">
       <Card>
         <Space style={{ marginBottom: 12 }} wrap>
           <Select
@@ -435,7 +435,7 @@ function CreateReturnModal({
       };
       const res = await returnsApi.create(payload, rememberIdemKey(idemRef, payload));
       idemRef.current = null;
-      message.success(`退货单已创建：${res.returnNo ?? ''}，已进入审批中心（退货线）待审批`);
+      message.success(`退货单已创建：${res.returnNo ?? ''}，已进入待审批（退货）`);
       onCreated();
     } catch (e) {
       message.error(e instanceof Error ? e.message : '创建退货失败');
@@ -586,7 +586,7 @@ function CreateReturnModal({
               onChange={(e) => setReason(e.target.value)}
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-              提交后进入审批中心（退货线）审批；审批通过后由仓库「收货确认」回冲批次并自动冲减应收。
+              提交后进入待审批（退货）；审批通过后由仓库收货确认，退回批次并冲减客户欠款。
             </Typography.Text>
           </Space>
         )}

@@ -14,7 +14,7 @@ import HeroHeader from '../../../components/HeroHeader'
 // 标准八步骤（任务书 P1-T13：陈列检查/库存盘点/收单/收款/宣传物料/客情沟通/竞品信息/设备检查）
 const VISIT_STEPS: Array<{ key: string; label: string }> = [
   { key: 'displayCheck', label: '陈列检查' },
-  { key: 'stockCount', label: '库存盘点' },
+  { key: 'stockCount', label: '清点库存' },
   { key: 'orderTaking', label: '收单' },
   { key: 'payment', label: '收款' },
   { key: 'materials', label: '宣传物料' },

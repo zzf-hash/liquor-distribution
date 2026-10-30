@@ -260,7 +260,7 @@ function SchemesTab(): JSX.Element {
       <Alert
         type="info"
         showIcon
-        message="互斥规则（D02）：同一客户同一时刻仅一个生效中的返利方案（b/c 任选其一）；b 除瓶箱后按当月回款 1%-50% 月末核算，c 定扣货款直接冲应收。"
+        message="互斥规则（D02）：同一客户同一时刻仅一个生效中的返利方案（b/c 任选其一）；b 除瓶箱后按当月回款 1%-50% 月末核算，c 定扣货款，直接冲减客户欠款。"
       />
       <Space wrap>
         <Select
@@ -426,7 +426,7 @@ function CreateSchemeModal({
           onChange={(e: RadioChangeEvent) => setType(e.target.value)}
           options={[
             { value: 'B', label: 'B 除瓶箱返利（月末核算）' },
-            { value: 'C', label: 'C 定扣货款（直接冲应收）' },
+            { value: 'C', label: 'C 定扣货款（直接冲减客户欠款）' },
           ]}
           optionType="button"
           buttonStyle="solid"
@@ -579,7 +579,7 @@ function SettlementsTab(): JSX.Element {
             type={settleType === 'INVOICE' ? 'warning' : 'info'}
             showIcon
             message={settleType === 'INVOICE'
-              ? '票折：确认后写入 REBATE_OFFSET 流水直接冲减该客户应收，不可撤销。'
+              ? '票折：确认后直接冲减该客户欠款，不能撤销。'
               : settleType === 'CASH'
                 ? '现金：确认后生成「返利现金」费用单（已批待付），到费用中心执行付款。'
                 : '货补：确认后仅登记返利额，请走随单赠下单发放（不反改原单）。'}
@@ -599,7 +599,7 @@ function SettlementsTab(): JSX.Element {
           await rebatesApi.createSettlement(payload, rememberIdemKey(idemRef, payload));
           idemRef.current = null;
           message.success(settleType === 'INVOICE'
-            ? '票折核算完成，已冲减该客户应收'
+            ? '票折核算完成，已冲减该客户欠款'
             : settleType === 'CASH'
               ? '现金核算完成，返利费用单已生成（费用中心执行付款）'
               : '货补核算完成，请走随单赠下单发放');
@@ -658,7 +658,7 @@ function SettlementsTab(): JSX.Element {
               value={settleType}
               onChange={(e: RadioChangeEvent) => setSettleType(e.target.value)}
               options={[
-                { value: 'INVOICE', label: '票折（冲应收）' },
+                { value: 'INVOICE', label: '票折（冲减客户欠款）' },
                 { value: 'GOODS', label: '货补（随单赠下单）' },
                 { value: 'CASH', label: '现金（费用单付款）' },
               ]}
@@ -667,7 +667,7 @@ function SettlementsTab(): JSX.Element {
             />
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               {settleType === 'INVOICE'
-                ? '票折：REBATE_OFFSET 流水直接冲减该客户应收。'
+                ? '票折：直接冲减该客户欠款。'
                 : settleType === 'CASH'
                   ? '现金：生成返利现金费用单，出纳在费用中心付款（留付款凭证）。'
                   : '货补：不反改原单，请走随单赠下单发放。'}

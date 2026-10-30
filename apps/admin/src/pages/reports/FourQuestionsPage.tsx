@@ -162,7 +162,7 @@ export function FourQuestionsBoard(): JSX.Element {
 
         {/* 三问：谁欠钱 */}
         <Col xs={24} lg={12}>
-          <Card title="谁欠钱（应收未结）" extra={<Tag color="green">实时</Tag>} loading={loading && !data}>
+          <Card title="谁欠钱（还没结清的）" extra={<Tag color="green">实时</Tag>} loading={loading && !data}>
             <Statistic title="未结总额" value={fmtMoney(data?.debt?.total)} valueStyle={{ color: NEG }} />
             <Space style={{ marginTop: 8 }} wrap size={4}>
               {shownBuckets.length ? shownBuckets.map((b) => (

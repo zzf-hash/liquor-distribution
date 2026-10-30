@@ -792,11 +792,11 @@ export const inventoryApi = {
 export const APPROVAL_LINE_LABELS: Record<string, string> = {
   CREDIT_RELEASE: '信用放行',
   PRICE_SPECIAL: '价格特批',
-  PRICE_CHANGE: '调价审批',
+  PRICE_CHANGE: '改价格审批',
   PURCHASE: '采购审批',
   EXPENSE: '费用审批',
   RETURN: '退货审批',
-  STOCKTAKE: '盘点调账',
+  STOCKTAKE: '清点库存调账',
 }
 
 export const APPROVAL_STATUS_LABELS: Record<string, string> = {

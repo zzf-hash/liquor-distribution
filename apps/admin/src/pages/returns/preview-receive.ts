@@ -15,7 +15,7 @@ export function decidePreviewFailure(error: unknown): PreviewFailureDecision {
   if (status === 404) {
     return {
       kind: 'degrade',
-      message: '收货预览接口尚未提供，不能展示回冲批次。确认后仍由服务端回冲库存并冲减应收。',
+      message: '收货预览接口尚未提供，不能展示回冲批次。确认后仍由服务端回冲库存并冲减客户欠款。',
     };
   }
   return { kind: 'stop', message };

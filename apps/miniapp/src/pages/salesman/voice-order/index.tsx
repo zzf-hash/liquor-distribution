@@ -248,7 +248,7 @@ export default function SalesmanVoiceOrderPage() {
           <View className='vo__go'>
             <Text className='vo__go-title'>去后台确认</Text>
             <Text className='vo__go-txt'>
-              草稿已进入后台工作台，请到内勤后台「转单草稿」逐项核对并确认转单；转单只进订单池，不会直接出库。
+              草稿已进入后台工作台，请到内勤后台「待确认的接单」逐项核对并确认；确认后只进订单，不会直接出库。
             </Text>
           </View>
         </View>
